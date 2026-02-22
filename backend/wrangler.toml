@@ -1,0 +1,28 @@
+name = "eatlock-worker"
+main = "src/index.ts"
+compatibility_date = "2024-05-01"
+
+# ── Bindings ──────────────────────────────────
+
+[vars]
+SUPABASE_URL = "https://YOUR_PROJECT.supabase.co"
+
+# Set these secrets via `wrangler secret put <NAME>`
+# SUPABASE_SERVICE_KEY
+# OPENAI_API_KEY
+
+[[r2_buckets]]
+binding = "IMAGES"
+bucket_name = "eatlock-images"
+
+[[queues.producers]]
+queue = "eatlock-vision"
+binding = "VISION_QUEUE"
+
+[[queues.consumers]]
+queue = "eatlock-vision"
+max_batch_size = 1
+max_retries = 5
+
+[triggers]
+crons = ["*/5 * * * *"]
