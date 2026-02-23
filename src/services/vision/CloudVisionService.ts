@@ -13,7 +13,7 @@
 import type { MealVisionService } from './MealVisionService';
 import type { FoodCheckResult, CompareResult } from './types';
 import { compressImage } from './imageCompress';
-import { getAccessToken } from '../authService';
+import { getAccessToken, ensureAuth } from '../authService';
 import { ENV } from '../../config/env';
 
 const API = ENV.WORKER_API_URL;
@@ -21,11 +21,22 @@ const API = ENV.WORKER_API_URL;
 /** Timeout for each backend call (ms) */
 const REQUEST_TIMEOUT = 45_000; // Raised: upload + vision can take a while
 
+const __DEV__ = process.env.NODE_ENV !== 'production';
+
 // ── Auth header helper ───────────────────────
 
 async function authHeaders(): Promise<Record<string, string>> {
-  const token = await getAccessToken();
+  let token = await getAccessToken();
+
+  // If no token, attempt to establish a session and retry once
+  if (!token) {
+    if (__DEV__) console.log('[Vision] No token — calling ensureAuth()…');
+    await ensureAuth();
+    token = await getAccessToken();
+  }
+
   if (!token) throw new Error('Not authenticated – please sign in again.');
+  if (__DEV__) console.log('[Vision] Auth token acquired ✓');
   return { Authorization: `Bearer ${token}` };
 }
 
@@ -38,21 +49,30 @@ async function postJSON<T>(
 ): Promise<T> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
+  const url = `${API}${endpoint}`;
+
+  if (__DEV__) console.log(`[Vision] POST ${url}`, JSON.stringify(body).slice(0, 120));
 
   try {
-    const res = await fetch(`${API}${endpoint}`, {
+    const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...headers },
       body: JSON.stringify(body),
       signal: controller.signal,
     });
 
+    if (__DEV__) console.log(`[Vision] ${endpoint} → ${res.status}`);
+
     if (!res.ok) {
       const errBody = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-      throw new Error((errBody.error as string) || `HTTP ${res.status}`);
+      const errMsg = (errBody.error as string) || `HTTP ${res.status}`;
+      if (__DEV__) console.error(`[Vision] ${endpoint} ERROR:`, errMsg);
+      throw new Error(errMsg);
     }
 
-    return (await res.json()) as T;
+    const data = (await res.json()) as T;
+    if (__DEV__) console.log(`[Vision] ${endpoint} OK:`, JSON.stringify(data).slice(0, 200));
+    return data;
   } finally {
     clearTimeout(timer);
   }
@@ -76,7 +96,9 @@ async function uploadToR2(imageUri: string, kind: 'before' | 'after'): Promise<s
   const auth = await authHeaders();
 
   // 1. Compress
+  if (__DEV__) console.log(`[Vision] Compressing ${kind} image…`);
   const { buffer } = await compressImage(imageUri);
+  if (__DEV__) console.log(`[Vision] Compressed → ${(buffer.byteLength / 1024).toFixed(1)} KB`);
 
   // 2. Request signed upload URL
   const signed = await postJSON<SignedUploadResponse>(
@@ -84,6 +106,7 @@ async function uploadToR2(imageUri: string, kind: 'before' | 'after'): Promise<s
     { kind },
     auth,
   );
+  if (__DEV__) console.log(`[Vision] Signed URL → ${signed.uploadUrl.slice(0, 80)}…`);
 
   // 3. PUT binary to R2 via the worker proxy
   const controller = new AbortController();
@@ -97,6 +120,8 @@ async function uploadToR2(imageUri: string, kind: 'before' | 'after'): Promise<s
       signal: controller.signal,
     });
 
+    if (__DEV__) console.log(`[Vision] R2 PUT → ${putRes.status}`);
+
     if (!putRes.ok) {
       const text = await putRes.text().catch(() => '');
       throw new Error(`R2 upload failed: ${putRes.status} ${text.slice(0, 200)}`);
@@ -105,6 +130,7 @@ async function uploadToR2(imageUri: string, kind: 'before' | 'after'): Promise<s
     clearTimeout(timer);
   }
 
+  if (__DEV__) console.log(`[Vision] Upload complete → ${signed.r2Key}`);
   return signed.r2Key;
 }
 

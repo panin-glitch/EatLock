@@ -1,10 +1,14 @@
 /**
- * PostScanCamera — capture an "after" photo and run before/after comparison.
+ * PostScanCamera — full-screen camera for "after" meal photo (Rork-style).
  *
- * Flow: Take photo → verifyFood() → if food, compareMeal(pre, post) → show result → SessionSummary.
+ * Opens camera immediately. Shutter → freeze + "Analyzing…" → bottom sheet with verdict.
+ * Confirm → endSession → SessionSummary. Retake → back to camera.
+ *
+ * Top bar: Close (X) | "After photo" | Help (?)
+ * Bottom bar: Torch toggle | Shutter | (spacer)
  */
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -12,16 +16,23 @@ import {
   TouchableOpacity,
   Image,
   ActivityIndicator,
-  SafeAreaView,
+  Animated,
+  Dimensions,
+  StatusBar,
+  Platform,
+  Modal,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import * as ImagePicker from 'expo-image-picker';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useTheme } from '../theme/ThemeProvider';
 import { useAppState } from '../state/AppStateContext';
 import { getVisionService } from '../services/vision';
 import { getPreScanRoast, getPostScanRoast } from '../services/vision/roasts';
 import type { FoodCheckResult, CompareResult, CompareVerdict } from '../services/vision/types';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+
+const { width: SW, height: SH } = Dimensions.get('window');
+const BRACKET = 56;
 
 type Props = NativeStackScreenProps<any, 'PostScanCamera'>;
 
@@ -30,52 +41,73 @@ export default function PostScanCameraScreen({ navigation, route }: Props) {
   const { activeSession, updateActiveSession, endSession } = useAppState();
   const { preImageUri } = (route.params as { preImageUri: string }) || {};
 
+  const [permission, requestPermission] = useCameraPermissions();
+  const cameraRef = useRef<CameraView>(null);
+  const [ready, setReady] = useState(false);
+  const [torch, setTorch] = useState(false);
+  const [helpVisible, setHelpVisible] = useState(false);
+
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
   const [foodCheck, setFoodCheck] = useState<FoodCheckResult | null>(null);
   const [compareResult, setCompareResult] = useState<CompareResult | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [aiError, setAiError] = useState<string | null>(null);
 
-  const takePhoto = async () => {
-    const permission = await ImagePicker.requestCameraPermissionsAsync();
-    if (!permission.granted) return;
+  const sheetAnim = useRef(new Animated.Value(0)).current;
 
-    const res = await ImagePicker.launchCameraAsync({
-      mediaTypes: ['images'],
-      quality: 0.8,
-      allowsEditing: false,
-    });
+  // ── Permission fallback ──
+  if (!permission) return <View style={styles.fill} />;
+  if (!permission.granted) {
+    return (
+      <View style={[styles.fill, styles.permBox]}>
+        <MaterialIcons name="camera-alt" size={48} color="#999" />
+        <Text style={styles.permText}>Camera access is needed</Text>
+        <TouchableOpacity style={styles.permBtn} onPress={requestPermission}>
+          <Text style={styles.permBtnText}>Grant Access</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginTop: 12 }}>
+          <Text style={{ color: '#999', fontSize: 13 }}>Cancel</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
-    if (!res.canceled && res.assets[0]) {
-      const uri = res.assets[0].uri;
-      setPhotoUri(uri);
+  // ── Capture ──
+  const handleShutter = async () => {
+    if (!cameraRef.current || !ready || checking) return;
+    try {
+      const pic = await cameraRef.current.takePictureAsync({ quality: 0.8, skipProcessing: false });
+      if (!pic) return;
+      setPhotoUri(pic.uri);
       setFoodCheck(null);
       setCompareResult(null);
       setErrorMsg(null);
-      processPhoto(uri);
+      processPhoto(pic.uri);
+    } catch (e) {
+      console.warn('[PostScan] takePicture failed', e);
     }
   };
 
   const processPhoto = async (uri: string) => {
     setChecking(true);
+    setAiError(null);
     const vision = getVisionService();
-
     try {
-      // Step 1: Verify after photo has food
       const check = await vision.verifyFood(uri);
       setFoodCheck(check);
 
       if (!check.isFood) {
+        // Genuine NOT_FOOD verdict from backend
         setErrorMsg(check.roastLine || getPreScanRoast(check.reasonCode));
         setChecking(false);
+        showSheet();
         return;
       }
 
-      // Step 2: Compare before and after
       const comparison = await vision.compareMeal(preImageUri, uri);
       setCompareResult(comparison);
 
-      // Update active session with post-scan data
       await updateActiveSession({
         postImageUri: uri,
         verification: {
@@ -85,241 +117,369 @@ export default function PostScanCameraScreen({ navigation, route }: Props) {
         },
         roastMessage: comparison.roastLine,
       });
-    } catch (err) {
-      setErrorMsg('Something went wrong. Try again.');
+    } catch (err: any) {
+      const msg = err?.message || 'Unknown error';
+      console.error('[PostScan] processPhoto error:', msg);
+      // Network / Worker / OpenAI error → AI unavailable, not a food verdict
+      setFoodCheck(null);
+      setCompareResult(null);
+      setErrorMsg(null);
+      setAiError(msg);
     }
     setChecking(false);
+    showSheet();
   };
 
-  const handleContinue = async () => {
-    if (!compareResult) return;
+  const showSheet = () => {
+    Animated.spring(sheetAnim, { toValue: 1, useNativeDriver: true, friction: 8 }).start();
+  };
 
-    // Map new CompareVerdict to SessionStatus
+  const handleRetake = () => {
+    Animated.timing(sheetAnim, { toValue: 0, duration: 150, useNativeDriver: true }).start(() => {
+      setPhotoUri(null);
+      setFoodCheck(null);
+      setCompareResult(null);
+      setErrorMsg(null);
+      setAiError(null);
+    });
+  };
+
+  const handleRetry = () => {
+    if (!photoUri) return;
+    Animated.timing(sheetAnim, { toValue: 0, duration: 150, useNativeDriver: true }).start(() => {
+      setFoodCheck(null);
+      setCompareResult(null);
+      setErrorMsg(null);
+      setAiError(null);
+      processPhoto(photoUri);
+    });
+  };
+
+  const handleConfirm = async () => {
+    if (!compareResult) return;
     const verdictToStatus: Record<string, 'VERIFIED' | 'PARTIAL' | 'FAILED' | 'INCOMPLETE'> = {
-      EATEN: 'VERIFIED',
-      PARTIAL: 'PARTIAL',
-      UNCHANGED: 'FAILED',
-      UNVERIFIABLE: 'INCOMPLETE',
+      EATEN: 'VERIFIED', PARTIAL: 'PARTIAL', UNCHANGED: 'FAILED', UNVERIFIABLE: 'INCOMPLETE',
     };
     const status = verdictToStatus[compareResult.verdict] || 'INCOMPLETE';
-
     await endSession(status, compareResult.roastLine);
-    navigation.reset({
-      index: 0,
-      routes: [
-        { name: 'Main' },
-        { name: 'SessionSummary' },
-      ],
-    });
+    navigation.reset({ index: 0, routes: [{ name: 'Main' }, { name: 'SessionSummary' }] });
   };
 
-  const handleSkip = async () => {
-    // Override — skip post-scan
-    await updateActiveSession({ overrideUsed: true, postImageUri: photoUri ?? undefined });
-    await endSession('INCOMPLETE');
-    navigation.reset({
-      index: 0,
-      routes: [
-        { name: 'Main' },
-        { name: 'SessionSummary' },
-      ],
-    });
-  };
-
+  // Verdict color
   const verdictColor = compareResult
-    ? compareResult.verdict === 'EATEN' ? theme.success
-      : compareResult.verdict === 'PARTIAL' ? theme.warning
-        : compareResult.verdict === 'UNCHANGED' ? theme.danger
-          : theme.textSecondary
-    : theme.textSecondary;
+    ? compareResult.verdict === 'EATEN' ? '#34C759'
+      : compareResult.verdict === 'PARTIAL' ? '#FFCC00'
+        : compareResult.verdict === 'UNCHANGED' ? '#FF3B30'
+          : '#8E8E93'
+    : '#8E8E93';
+
+  const sheetTranslateY = sheetAnim.interpolate({ inputRange: [0, 1], outputRange: [350, 0] });
+  const showCamera = !photoUri;
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-          <MaterialIcons name="arrow-back" size={24} color={theme.text} />
+    <View style={styles.fill}>
+      <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
+
+      {/* Camera / Frozen image layer */}
+      {showCamera ? (
+        <CameraView
+          ref={cameraRef}
+          style={StyleSheet.absoluteFill}
+          facing="back"
+          enableTorch={torch}
+          onCameraReady={() => setReady(true)}
+        />
+      ) : (
+        <Image source={{ uri: photoUri! }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+      )}
+
+      {/* Top bar */}
+      <View style={styles.topBar}>
+        <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={12} style={styles.topBtn}>
+          <MaterialIcons name="close" size={22} color="#FFF" />
         </TouchableOpacity>
-        <Text style={[styles.title, { color: theme.text }]}>After Photo</Text>
-        <View style={{ width: 40 }} />
+        <Text style={styles.topTitle}>After photo</Text>
+        <TouchableOpacity hitSlop={12} style={styles.topBtn} onPress={() => setHelpVisible(true)}>
+          <MaterialIcons name="help-outline" size={22} color="#FFF" />
+        </TouchableOpacity>
       </View>
 
-      <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
-        Take a photo of your plate after eating
-      </Text>
-
-      {/* Before / After side by side */}
-      <View style={styles.photoRow}>
-        <View style={[styles.photoBox, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-          <Text style={[styles.photoLabel, { color: theme.textMuted }]}>Before</Text>
-          {preImageUri ? (
-            <Image source={{ uri: preImageUri }} style={styles.photoImg} resizeMode="cover" />
-          ) : (
-            <MaterialIcons name="image" size={40} color={theme.textMuted} />
-          )}
+      {/* Before thumbnail overlay (small) */}
+      {preImageUri && showCamera && (
+        <View style={styles.preThumbWrap}>
+          <Image source={{ uri: preImageUri }} style={styles.preThumb} resizeMode="cover" />
+          <Text style={styles.preThumbLabel}>Before</Text>
         </View>
+      )}
 
-        <MaterialIcons name="arrow-forward" size={24} color={theme.textMuted} />
-
-        <View style={[styles.photoBox, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-          <Text style={[styles.photoLabel, { color: theme.textMuted }]}>After</Text>
-          {photoUri ? (
-            <Image source={{ uri: photoUri }} style={styles.photoImg} resizeMode="cover" />
-          ) : (
-            <MaterialIcons name="camera-alt" size={40} color={theme.textMuted} />
-          )}
+      {/* Focus brackets */}
+      {showCamera && (
+        <View style={styles.bracketWrap} pointerEvents="none">
+          <View style={[styles.bracket, styles.bTL]} />
+          <View style={[styles.bracket, styles.bTR]} />
+          <View style={[styles.bracket, styles.bBL]} />
+          <View style={[styles.bracket, styles.bBR]} />
+          <Text style={styles.hintText}>Show your plate after eating</Text>
         </View>
-      </View>
+      )}
 
-      {/* Processing indicator */}
+      {/* Bottom controls (torch + shutter) */}
+      {showCamera && (
+        <View style={styles.bottomBar}>
+          {/* Torch toggle */}
+          <TouchableOpacity
+            style={[styles.torchBtn, torch && styles.torchBtnActive]}
+            onPress={() => setTorch(t => !t)}
+            activeOpacity={0.7}
+          >
+            <MaterialIcons name={torch ? 'flash-on' : 'flash-off'} size={22} color="#FFF" />
+          </TouchableOpacity>
+
+          {/* Shutter */}
+          <TouchableOpacity
+            style={[styles.shutterOuter, !ready && { opacity: 0.4 }]}
+            onPress={handleShutter}
+            activeOpacity={0.7}
+            disabled={!ready}
+          >
+            <View style={styles.shutterInner} />
+          </TouchableOpacity>
+
+          {/* Spacer to balance layout */}
+          <View style={styles.torchBtn} />
+        </View>
+      )}
+
+      {/* Analyzing overlay */}
       {checking && (
-        <View style={styles.statusRow}>
-          <ActivityIndicator size="small" color={theme.primary} />
-          <Text style={[styles.statusText, { color: theme.textSecondary }]}>
-            Analyzing your meal...
-          </Text>
-        </View>
-      )}
-
-      {/* Error / failure */}
-      {errorMsg && !checking && (
-        <View style={[styles.resultCard, { backgroundColor: 'rgba(255,69,58,0.12)', borderColor: theme.danger }]}>
-          <MaterialIcons name="error" size={20} color={theme.danger} />
-          <Text style={[styles.resultText, { color: theme.danger }]}>{errorMsg}</Text>
-        </View>
-      )}
-
-      {/* Comparison result */}
-      {compareResult && !checking && (
-        <View style={[styles.resultCard, { backgroundColor: verdictColor + '18', borderColor: verdictColor }]}>
-          <MaterialIcons
-            name={compareResult.verdict === 'EATEN' ? 'emoji-events' : 'info'}
-            size={22}
-            color={verdictColor}
-          />
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.verdictLabel, { color: verdictColor }]}>
-              {compareResult.verdict === 'EATEN' ? 'Meal Finished!' :
-                compareResult.verdict === 'PARTIAL' ? 'Partially Eaten' :
-                  compareResult.verdict === 'UNCHANGED' ? 'Not Eaten' : 'Uncertain'}
-              {' '}({Math.round(compareResult.foodChangeScore * 100)}%)
-            </Text>
-            <Text style={[styles.roastText, { color: theme.text }]}>
-              {compareResult.roastLine || getPostScanRoast(compareResult.verdict)}
-            </Text>
-            {compareResult.verdict === 'UNVERIFIABLE' && compareResult.retakeHint ? (
-              <Text style={[styles.hintText, { color: theme.textSecondary }]}>
-                {compareResult.retakeHint}
-              </Text>
-            ) : null}
+        <View style={styles.analyzingWrap} pointerEvents="none">
+          <View style={styles.analyzingPill}>
+            <ActivityIndicator size="small" color="#FFF" />
+            <Text style={styles.analyzingText}>Analyzing…</Text>
           </View>
         </View>
       )}
 
-      {/* Actions */}
-      <View style={styles.actions}>
-        {!photoUri || (foodCheck && !foodCheck.isFood) ? (
-          <TouchableOpacity
-            style={[styles.cameraBtn, { backgroundColor: theme.primary }]}
-            onPress={takePhoto}
-          >
-            <MaterialIcons name="camera-alt" size={28} color="#FFF" />
-            <Text style={styles.cameraBtnText}>{photoUri ? 'Retake' : 'Take Photo'}</Text>
-          </TouchableOpacity>
-        ) : null}
+      {/* Result bottom sheet */}
+      {!checking && (foodCheck || errorMsg || aiError) && photoUri && (
+        <Animated.View style={[styles.sheet, { transform: [{ translateY: sheetTranslateY }] }]}>
+          <View style={styles.sheetHandle} />
 
-        {compareResult && (
-          <TouchableOpacity
-            style={[styles.continueBtn, { backgroundColor: theme.primary }]}
-            onPress={handleContinue}
-          >
-            <Text style={styles.continueBtnText}>See Summary</Text>
-            <MaterialIcons name="arrow-forward" size={20} color="#FFF" />
-          </TouchableOpacity>
-        )}
+          {/* AI / network error state */}
+          {aiError && !foodCheck && !compareResult && (
+            <>
+              <View style={styles.sheetRow}>
+                <MaterialIcons name="cloud-off" size={20} color="#FF9500" />
+                <Text style={[styles.sheetTitle, { color: '#FF9500' }]}>AI unavailable</Text>
+              </View>
+              <Text style={styles.sheetRoast}>Could not reach the verification service. Check your connection and try again.</Text>
+              <View style={styles.sheetBtns}>
+                <TouchableOpacity style={[styles.sheetBtn, { backgroundColor: '#FF9500' }]} onPress={handleRetry}>
+                  <Text style={styles.sheetBtnText}>Retry</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.sheetBtn, { backgroundColor: '#2C2C2E' }]} onPress={handleRetake}>
+                  <Text style={styles.sheetBtnText}>Retake</Text>
+                </TouchableOpacity>
+              </View>
+            </>
+          )}
 
-        <TouchableOpacity onPress={handleSkip} style={styles.skipBtn}>
-          <Text style={[styles.skipText, { color: theme.textMuted }]}>Skip verification</Text>
-        </TouchableOpacity>
-      </View>
-    </SafeAreaView>
+          {/* Genuine NOT_FOOD from backend verify step */}
+          {errorMsg && !compareResult && !aiError && (
+            <>
+              <View style={styles.sheetRow}>
+                <MaterialIcons name="error" size={20} color="#FF3B30" />
+                <Text style={[styles.sheetTitle, { color: '#FF3B30' }]}>
+                  {foodCheck && !foodCheck.isFood ? 'Not food' : 'Error'}
+                </Text>
+              </View>
+              <Text style={styles.sheetRoast}>{errorMsg}</Text>
+              <View style={styles.sheetBtns}>
+                <TouchableOpacity style={[styles.sheetBtn, { backgroundColor: '#34C759' }]} onPress={handleRetake}>
+                  <Text style={styles.sheetBtnText}>Retake</Text>
+                </TouchableOpacity>
+              </View>
+            </>
+          )}
+
+          {/* Comparison result */}
+          {compareResult && (
+            <>
+              <View style={styles.sheetRow}>
+                <MaterialIcons
+                  name={compareResult.verdict === 'EATEN' ? 'emoji-events' : 'info'}
+                  size={20}
+                  color={verdictColor}
+                />
+                <Text style={[styles.sheetTitle, { color: verdictColor }]}>
+                  {compareResult.verdict === 'EATEN' ? 'Meal Finished!'
+                    : compareResult.verdict === 'PARTIAL' ? 'Partially Eaten'
+                      : compareResult.verdict === 'UNCHANGED' ? 'Not Eaten'
+                        : 'Uncertain'}
+                  {' '}({Math.round(compareResult.foodChangeScore * 100)}%)
+                </Text>
+              </View>
+              <Text style={styles.sheetRoast}>
+                {compareResult.roastLine || getPostScanRoast(compareResult.verdict)}
+              </Text>
+              {compareResult.verdict === 'UNVERIFIABLE' && compareResult.retakeHint ? (
+                <Text style={styles.sheetHint}>{compareResult.retakeHint}</Text>
+              ) : null}
+
+              {/* Buttons for comparison verdict */}
+              <View style={styles.sheetBtns}>
+                <TouchableOpacity
+                  style={[styles.sheetBtn, { backgroundColor: verdictColor === '#FF3B30' ? '#2C2C2E' : verdictColor }]}
+                  onPress={handleConfirm}
+                >
+                  <Text style={styles.sheetBtnText}>See Summary</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.sheetBtn, { backgroundColor: '#2C2C2E' }]}
+                  onPress={handleRetake}
+                >
+                  <Text style={styles.sheetBtnText}>Retake</Text>
+                </TouchableOpacity>
+              </View>
+            </>
+          )}
+        </Animated.View>
+      )}
+
+      {/* Help tips modal */}
+      <Modal visible={helpVisible} transparent animationType="fade" onRequestClose={() => setHelpVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>After Photo Tips</Text>
+            {[
+              { icon: 'restaurant' as const, tip: 'Show the same plate from a similar angle' },
+              { icon: 'wb-sunny' as const, tip: 'Keep the same lighting as before' },
+              { icon: 'pan-tool' as const, tip: 'Hold still until you see the result' },
+            ].map((item, i) => (
+              <View key={i} style={styles.tipRow}>
+                <MaterialIcons name={item.icon} size={18} color="#34C759" />
+                <Text style={styles.tipText}>{item.tip}</Text>
+              </View>
+            ))}
+            <TouchableOpacity style={styles.modalClose} onPress={() => setHelpVisible(false)}>
+              <Text style={styles.modalCloseText}>Got it</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 8,
+  fill: { flex: 1, backgroundColor: '#000' },
+
+  permBox: { justifyContent: 'center', alignItems: 'center', gap: 12 },
+  permText: { color: '#CCC', fontSize: 14, textAlign: 'center', paddingHorizontal: 40 },
+  permBtn: { backgroundColor: '#34C759', borderRadius: 20, paddingHorizontal: 24, paddingVertical: 10 },
+  permBtnText: { color: '#FFF', fontSize: 14, fontWeight: '700' },
+
+  topBar: {
+    position: 'absolute', top: 0, left: 0, right: 0,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingTop: Platform.OS === 'android' ? 44 : 54,
+    paddingHorizontal: 16, paddingBottom: 10, zIndex: 10,
   },
-  backBtn: { padding: 8 },
-  title: { fontSize: 20, fontWeight: '700' },
-  subtitle: { fontSize: 14, textAlign: 'center', marginBottom: 16, paddingHorizontal: 32 },
-  photoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 12,
-    paddingHorizontal: 24,
-    marginBottom: 16,
+  topBtn: {
+    width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(0,0,0,0.35)',
+    justifyContent: 'center', alignItems: 'center',
   },
-  photoBox: {
-    flex: 1,
-    height: 160,
-    borderRadius: 14,
-    borderWidth: 1,
-    overflow: 'hidden',
-    justifyContent: 'center',
-    alignItems: 'center',
+  topTitle: { color: '#FFF', fontSize: 16, fontWeight: '700' },
+
+  /* Before thumbnail */
+  preThumbWrap: {
+    position: 'absolute', top: Platform.OS === 'android' ? 94 : 104,
+    left: 16, zIndex: 10, alignItems: 'center',
   },
-  photoLabel: { fontSize: 11, fontWeight: '600', position: 'absolute', top: 6, left: 8, zIndex: 1 },
-  photoImg: { width: '100%', height: '100%' },
-  statusRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    marginVertical: 12,
+  preThumb: { width: 54, height: 54, borderRadius: 10, borderWidth: 2, borderColor: 'rgba(255,255,255,0.4)' },
+  preThumbLabel: { color: 'rgba(255,255,255,0.6)', fontSize: 10, fontWeight: '600', marginTop: 3 },
+
+  bracketWrap: {
+    position: 'absolute', top: SH * 0.22, left: SW * 0.12,
+    width: SW * 0.76, height: SW * 0.76, zIndex: 5,
   },
-  statusText: { fontSize: 14 },
-  resultCard: {
-    marginHorizontal: 24,
-    marginTop: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderRadius: 14,
-    borderWidth: 1,
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 10,
+  bracket: {
+    position: 'absolute', width: BRACKET, height: BRACKET,
+    borderColor: 'rgba(255,255,255,0.6)', borderWidth: 2.5,
   },
-  resultText: { fontSize: 14, fontWeight: '600', flex: 1 },
-  verdictLabel: { fontSize: 15, fontWeight: '700', marginBottom: 4 },
-  roastText: { fontSize: 14, lineHeight: 20 },
-  hintText: { fontSize: 12, marginTop: 4 },
-  actions: { flex: 1, justifyContent: 'flex-end', alignItems: 'center', paddingBottom: 32, gap: 12 },
-  cameraBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingHorizontal: 28,
-    paddingVertical: 14,
-    borderRadius: 30,
+  bTL: { top: 0, left: 0, borderRightWidth: 0, borderBottomWidth: 0, borderTopLeftRadius: 14 },
+  bTR: { top: 0, right: 0, borderLeftWidth: 0, borderBottomWidth: 0, borderTopRightRadius: 14 },
+  bBL: { bottom: 0, left: 0, borderRightWidth: 0, borderTopWidth: 0, borderBottomLeftRadius: 14 },
+  bBR: { bottom: 0, right: 0, borderLeftWidth: 0, borderTopWidth: 0, borderBottomRightRadius: 14 },
+  hintText: {
+    position: 'absolute', bottom: -28, alignSelf: 'center',
+    color: 'rgba(255,255,255,0.55)', fontSize: 12, fontWeight: '500',
   },
-  cameraBtnText: { color: '#FFF', fontSize: 16, fontWeight: '700' },
-  continueBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 28,
-    paddingVertical: 14,
-    borderRadius: 30,
+
+  bottomBar: {
+    position: 'absolute', bottom: 0, left: 0, right: 0,
+    height: 120, flexDirection: 'row', justifyContent: 'center', alignItems: 'center',
+    paddingHorizontal: 40, zIndex: 10,
   },
-  continueBtnText: { color: '#FFF', fontSize: 16, fontWeight: '700' },
-  skipBtn: { padding: 8 },
-  skipText: { fontSize: 13 },
+  torchBtn: {
+    width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.15)',
+    justifyContent: 'center', alignItems: 'center',
+  },
+  torchBtnActive: { backgroundColor: 'rgba(255,204,0,0.35)' },
+  shutterOuter: {
+    width: 72, height: 72, borderRadius: 36,
+    borderWidth: 4, borderColor: '#FFF',
+    justifyContent: 'center', alignItems: 'center',
+    marginHorizontal: 28,
+  },
+  shutterInner: { width: 58, height: 58, borderRadius: 29, backgroundColor: '#FFF' },
+
+  analyzingWrap: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center', alignItems: 'center', zIndex: 20,
+  },
+  analyzingPill: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: 'rgba(0,0,0,0.65)', borderRadius: 20,
+    paddingHorizontal: 18, paddingVertical: 10,
+  },
+  analyzingText: { color: '#FFF', fontSize: 14, fontWeight: '600' },
+
+  sheet: {
+    position: 'absolute', bottom: 0, left: 0, right: 0,
+    backgroundColor: '#1C1C1E', borderTopLeftRadius: 18, borderTopRightRadius: 18,
+    paddingHorizontal: 20, paddingTop: 10, paddingBottom: 34, zIndex: 30,
+  },
+  sheetHandle: {
+    width: 36, height: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.2)',
+    alignSelf: 'center', marginBottom: 12,
+  },
+  sheetRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
+  sheetTitle: { fontSize: 16, fontWeight: '700' },
+  sheetRoast: { color: 'rgba(255,255,255,0.7)', fontSize: 13, lineHeight: 18, marginBottom: 4 },
+  sheetHint: { color: 'rgba(255,255,255,0.45)', fontSize: 12, marginBottom: 4 },
+  sheetBtns: { flexDirection: 'row', gap: 10, marginTop: 14 },
+  sheetBtn: {
+    flex: 1, height: 44, borderRadius: 12,
+    justifyContent: 'center', alignItems: 'center',
+  },
+  sheetBtnText: { color: '#FFF', fontSize: 14, fontWeight: '700' },
+
+  /* Help modal */
+  modalOverlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center', alignItems: 'center',
+  },
+  modalCard: {
+    width: SW * 0.78, backgroundColor: '#1C1C1E', borderRadius: 18,
+    padding: 24,
+  },
+  modalTitle: { color: '#FFF', fontSize: 17, fontWeight: '700', marginBottom: 16, textAlign: 'center' },
+  tipRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 14 },
+  tipText: { color: 'rgba(255,255,255,0.8)', fontSize: 14, flex: 1 },
+  modalClose: {
+    marginTop: 8, backgroundColor: '#34C759', borderRadius: 12,
+    height: 42, justifyContent: 'center', alignItems: 'center',
+  },
+  modalCloseText: { color: '#FFF', fontSize: 14, fontWeight: '700' },
 });
