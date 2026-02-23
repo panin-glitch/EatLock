@@ -1,11 +1,14 @@
 /**
- * PreScanCamera — capture a "before" photo of the meal.
+ * PreScanCamera — full-screen camera for "before" meal photo (Rork-style).
  *
- * Flow: User takes a photo → verifyFood() → if food confirmed → navigate to LockSetupConfirm.
- * On failure → show roast + "Retake" button.
+ * Opens camera immediately. Shutter → freeze + "Analyzing…" → bottom sheet verdict.
+ * Pass → navigate to LockSetupConfirm. Fail → Retake.
+ *
+ * Top bar: Close (X) | "Scan meal" | Help (?)
+ * Bottom bar: Torch toggle | Shutter | (spacer)
  */
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -13,245 +16,407 @@ import {
   TouchableOpacity,
   Image,
   ActivityIndicator,
-  SafeAreaView,
+  Animated,
+  Dimensions,
+  StatusBar,
+  Platform,
+  Modal,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import * as ImagePicker from 'expo-image-picker';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useTheme } from '../theme/ThemeProvider';
 import { getVisionService } from '../services/vision';
 import { getPreScanRoast, getFoodConfirmedMessage } from '../services/vision/roasts';
-import type { FoodCheckResult, FoodReasonCode } from '../services/vision/types';
+import type { FoodCheckResult } from '../services/vision/types';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+
+const { width: SW, height: SH } = Dimensions.get('window');
+const BRACKET = 56;
 
 type Props = NativeStackScreenProps<any, 'PreScanCamera'>;
 
 export default function PreScanCameraScreen({ navigation }: Props) {
   const { theme } = useTheme();
+  const [permission, requestPermission] = useCameraPermissions();
+  const cameraRef = useRef<CameraView>(null);
+  const [ready, setReady] = useState(false);
+  const [torch, setTorch] = useState(false);
+  const [helpVisible, setHelpVisible] = useState(false);
+
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
   const [result, setResult] = useState<FoodCheckResult | null>(null);
   const [roast, setRoast] = useState<string | null>(null);
+  const [aiError, setAiError] = useState<string | null>(null);
 
-  const takePhoto = async () => {
-    const permission = await ImagePicker.requestCameraPermissionsAsync();
-    if (!permission.granted) return;
+  const sheetAnim = useRef(new Animated.Value(0)).current;
 
-    const res = await ImagePicker.launchCameraAsync({
-      mediaTypes: ['images'],
-      quality: 0.8,
-      allowsEditing: false,
-    });
+  // ── Permission handling ──
+  if (!permission) return <View style={styles.fill} />;
+  if (!permission.granted) {
+    return (
+      <View style={[styles.fill, styles.permBox]}>
+        <MaterialIcons name="camera-alt" size={48} color="#999" />
+        <Text style={styles.permText}>Camera access is needed to scan meals</Text>
+        <TouchableOpacity style={styles.permBtn} onPress={requestPermission}>
+          <Text style={styles.permBtnText}>Grant Access</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginTop: 12 }}>
+          <Text style={{ color: '#999', fontSize: 13 }}>Cancel</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
-    if (!res.canceled && res.assets[0]) {
-      const uri = res.assets[0].uri;
-      setPhotoUri(uri);
+  // ── Capture ──
+  const handleShutter = async () => {
+    if (!cameraRef.current || !ready || checking) return;
+    try {
+      const pic = await cameraRef.current.takePictureAsync({ quality: 0.8, skipProcessing: false });
+      if (!pic) return;
+      setPhotoUri(pic.uri);
       setResult(null);
       setRoast(null);
-      verifyPhoto(uri);
+      verifyPhoto(pic.uri);
+    } catch (e) {
+      console.warn('[PreScan] takePicture failed', e);
     }
   };
 
   const verifyPhoto = async (uri: string) => {
     setChecking(true);
+    setAiError(null);
     try {
       const vision = getVisionService();
       const check = await vision.verifyFood(uri);
       setResult(check);
-
-      if (check.isFood) {
-        // Prefer GPT roastLine, fall back to local message
-        setRoast(check.roastLine || getFoodConfirmedMessage());
-      } else {
-        // Prefer GPT roastLine, fall back to local roast library
-        setRoast(check.roastLine || getPreScanRoast(check.reasonCode));
-      }
-    } catch {
-      setResult({
-        isFood: false,
-        confidence: 0,
-        hasPlateOrBowl: false,
-        quality: { brightness: 1, blur: 1, framing: 1 },
-        reasonCode: 'NOT_FOOD',
-        roastLine: '',
-        retakeHint: '',
-      });
-      setRoast('Something went wrong verifying. Try again.');
+      setRoast(
+        check.isFood
+          ? check.roastLine || getFoodConfirmedMessage()
+          : check.roastLine || getPreScanRoast(check.reasonCode),
+      );
+    } catch (err: any) {
+      const msg = err?.message || 'Unknown error';
+      console.error('[PreScan] verifyFood error:', msg);
+      // Network / Worker / OpenAI error → show "AI unavailable", NOT a NOT_FOOD verdict
+      setResult(null);
+      setRoast(null);
+      setAiError(msg);
     }
     setChecking(false);
+    // animate sheet in
+    Animated.spring(sheetAnim, { toValue: 1, useNativeDriver: true, friction: 8 }).start();
   };
 
-  const handleContinue = () => {
+  const handleRetake = () => {
+    Animated.timing(sheetAnim, { toValue: 0, duration: 150, useNativeDriver: true }).start(() => {
+      setPhotoUri(null);
+      setResult(null);
+      setRoast(null);
+      setAiError(null);
+    });
+  };
+
+  const handleRetry = () => {
+    if (!photoUri) return;
+    Animated.timing(sheetAnim, { toValue: 0, duration: 150, useNativeDriver: true }).start(() => {
+      setResult(null);
+      setRoast(null);
+      setAiError(null);
+      verifyPhoto(photoUri);
+    });
+  };
+
+  const handleConfirm = () => {
     if (!photoUri || !result?.isFood) return;
-    navigation.navigate('LockSetupConfirm', {
-      preImageUri: photoUri,
-      preCheck: result,
-    });
+    navigation.navigate('LockSetupConfirm', { preImageUri: photoUri, preCheck: result });
   };
 
-  const handleSkip = () => {
-    // Allow continuing without photo (override)
-    navigation.navigate('LockSetupConfirm', {
-      preImageUri: undefined,
-      preCheck: undefined,
-      overrideUsed: true,
-    });
-  };
+  const sheetTranslateY = sheetAnim.interpolate({ inputRange: [0, 1], outputRange: [300, 0] });
+
+  // ── Render ──
+  const showCamera = !photoUri;
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-          <MaterialIcons name="arrow-back" size={24} color={theme.text} />
+    <View style={styles.fill}>
+      <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
+
+      {/* Camera / Frozen image layer */}
+      {showCamera ? (
+        <CameraView
+          ref={cameraRef}
+          style={StyleSheet.absoluteFill}
+          facing="back"
+          enableTorch={torch}
+          onCameraReady={() => setReady(true)}
+        />
+      ) : (
+        <Image source={{ uri: photoUri! }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+      )}
+
+      {/* ── Overlays (always on top of camera) ── */}
+
+      {/* Top bar */}
+      <View style={styles.topBar}>
+        <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={12} style={styles.topBtn}>
+          <MaterialIcons name="close" size={22} color="#FFF" />
         </TouchableOpacity>
-        <Text style={[styles.title, { color: theme.text }]}>Scan Your Meal</Text>
-        <View style={{ width: 40 }} />
+        <Text style={styles.topTitle}>Scan meal</Text>
+        <TouchableOpacity hitSlop={12} style={styles.topBtn} onPress={() => setHelpVisible(true)}>
+          <MaterialIcons name="help-outline" size={22} color="#FFF" />
+        </TouchableOpacity>
       </View>
 
-      <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
-        Take a photo of your food before you start eating
-      </Text>
+      {/* Focus brackets (only when camera is live) */}
+      {showCamera && (
+        <View style={styles.bracketWrap} pointerEvents="none">
+          {/* TL */}
+          <View style={[styles.bracket, styles.bTL]} />
+          {/* TR */}
+          <View style={[styles.bracket, styles.bTR]} />
+          {/* BL */}
+          <View style={[styles.bracket, styles.bBL]} />
+          {/* BR */}
+          <View style={[styles.bracket, styles.bBR]} />
+          <Text style={styles.hintText}>Keep plate in frame</Text>
+        </View>
+      )}
 
-      {/* Photo area */}
-      <View style={[styles.photoArea, { backgroundColor: theme.surface, borderColor: theme.border }]}>
-        {photoUri ? (
-          <Image source={{ uri: photoUri }} style={styles.photo} resizeMode="cover" />
-        ) : (
-          <View style={styles.placeholder}>
-            <MaterialIcons name="restaurant" size={64} color={theme.textMuted} />
-            <Text style={[styles.placeholderText, { color: theme.textMuted }]}>
-              Tap the camera button below
-            </Text>
-          </View>
-        )}
-      </View>
+      {/* Bottom controls (torch + shutter) — only when camera is live */}
+      {showCamera && (
+        <View style={styles.bottomBar}>
+          {/* Torch toggle */}
+          <TouchableOpacity
+            style={[styles.torchBtn, torch && styles.torchBtnActive]}
+            onPress={() => setTorch(t => !t)}
+            activeOpacity={0.7}
+          >
+            <MaterialIcons name={torch ? 'flash-on' : 'flash-off'} size={22} color="#FFF" />
+          </TouchableOpacity>
 
-      {/* Status message */}
+          {/* Shutter */}
+          <TouchableOpacity
+            style={[styles.shutterOuter, !ready && { opacity: 0.4 }]}
+            onPress={handleShutter}
+            activeOpacity={0.7}
+            disabled={!ready}
+          >
+            <View style={styles.shutterInner} />
+          </TouchableOpacity>
+
+          {/* Spacer to balance layout */}
+          <View style={styles.torchBtn} />
+        </View>
+      )}
+
+      {/* Analyzing overlay */}
       {checking && (
-        <View style={styles.statusRow}>
-          <ActivityIndicator size="small" color={theme.primary} />
-          <Text style={[styles.statusText, { color: theme.textSecondary }]}>
-            Checking for food...
-          </Text>
-        </View>
-      )}
-
-      {roast && !checking && (
-        <View style={[styles.roastCard, {
-          backgroundColor: result?.isFood ? theme.primaryDim : 'rgba(255,69,58,0.12)',
-          borderColor: result?.isFood ? theme.primary : theme.danger,
-        }]}>
-          <MaterialIcons
-            name={result?.isFood ? 'check-circle' : 'error'}
-            size={20}
-            color={result?.isFood ? theme.success : theme.danger}
-          />
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.roastText, {
-              color: result?.isFood ? theme.success : theme.danger,
-            }]}>
-              {roast}
-            </Text>
-            {!result?.isFood && result?.retakeHint ? (
-              <Text style={[styles.hintText, { color: theme.textSecondary }]}>
-                {result.retakeHint}
-              </Text>
-            ) : null}
+        <View style={styles.analyzingWrap} pointerEvents="none">
+          <View style={styles.analyzingPill}>
+            <ActivityIndicator size="small" color="#FFF" />
+            <Text style={styles.analyzingText}>Analyzing…</Text>
           </View>
         </View>
       )}
 
-      {/* Actions */}
-      <View style={styles.actions}>
-        {!photoUri || (result && !result.isFood) ? (
-          <TouchableOpacity
-            style={[styles.cameraBtn, { backgroundColor: theme.primary }]}
-            onPress={takePhoto}
-          >
-            <MaterialIcons name="camera-alt" size={28} color="#FFF" />
-            <Text style={styles.cameraBtnText}>
-              {photoUri ? 'Retake Photo' : 'Take Photo'}
-            </Text>
-          </TouchableOpacity>
-        ) : null}
+      {/* Result bottom sheet */}
+      {!checking && (result || aiError) && (
+        <Animated.View
+          style={[styles.sheet, { transform: [{ translateY: sheetTranslateY }] }]}
+        >
+          <View style={styles.sheetHandle} />
 
-        {result?.isFood && (
-          <TouchableOpacity
-            style={[styles.continueBtn, { backgroundColor: theme.primary }]}
-            onPress={handleContinue}
-          >
-            <Text style={styles.continueBtnText}>Looks Good — Continue</Text>
-            <MaterialIcons name="arrow-forward" size={20} color="#FFF" />
-          </TouchableOpacity>
-        )}
+          {/* AI / network error state */}
+          {aiError && !result && (
+            <>
+              <View style={styles.sheetRow}>
+                <MaterialIcons name="cloud-off" size={20} color="#FF9500" />
+                <Text style={[styles.sheetTitle, { color: '#FF9500' }]}>AI unavailable</Text>
+              </View>
+              <Text style={styles.sheetRoast}>Could not reach the verification service. Check your connection and try again.</Text>
+              <View style={styles.sheetBtns}>
+                <TouchableOpacity style={[styles.sheetBtn, { backgroundColor: '#FF9500' }]} onPress={handleRetry}>
+                  <Text style={styles.sheetBtnText}>Retry</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.sheetBtn, { backgroundColor: '#2C2C2E' }]} onPress={handleRetake}>
+                  <Text style={styles.sheetBtnText}>Retake</Text>
+                </TouchableOpacity>
+              </View>
+            </>
+          )}
 
-        <TouchableOpacity onPress={handleSkip} style={styles.skipBtn}>
-          <Text style={[styles.skipText, { color: theme.textMuted }]}>Skip photo</Text>
-        </TouchableOpacity>
-      </View>
-    </SafeAreaView>
+          {/* Valid verdict from backend */}
+          {result && (
+            <>
+              <View style={styles.sheetRow}>
+                <MaterialIcons
+                  name={result.isFood ? 'check-circle' : 'error'}
+                  size={20}
+                  color={result.isFood ? '#34C759' : '#FF3B30'}
+                />
+                <Text style={[styles.sheetTitle, { color: result.isFood ? '#34C759' : '#FF3B30' }]}>
+                  {result.isFood ? 'Food detected' : 'Not food'}
+                </Text>
+              </View>
+
+              {roast ? <Text style={styles.sheetRoast}>{roast}</Text> : null}
+              {!result.isFood && result.retakeHint ? (
+                <Text style={styles.sheetHint}>{result.retakeHint}</Text>
+              ) : null}
+
+              <View style={styles.sheetBtns}>
+                {result.isFood ? (
+                  <TouchableOpacity style={[styles.sheetBtn, { backgroundColor: '#34C759' }]} onPress={handleConfirm}>
+                    <Text style={styles.sheetBtnText}>Confirm & Start</Text>
+                  </TouchableOpacity>
+                ) : null}
+                <TouchableOpacity
+                  style={[styles.sheetBtn, { backgroundColor: result.isFood ? '#2C2C2E' : '#34C759' }]}
+                  onPress={handleRetake}
+                >
+                  <Text style={styles.sheetBtnText}>Retake</Text>
+                </TouchableOpacity>
+              </View>
+            </>
+          )}
+        </Animated.View>
+      )}
+
+      {/* Help tips modal */}
+      <Modal visible={helpVisible} transparent animationType="fade" onRequestClose={() => setHelpVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Scan Tips</Text>
+            {[
+              { icon: 'restaurant' as const, tip: 'Keep plate centered in the frame' },
+              { icon: 'wb-sunny' as const, tip: 'Use good lighting — avoid shadows' },
+              { icon: 'pan-tool' as const, tip: 'Hold still until you see the result' },
+            ].map((item, i) => (
+              <View key={i} style={styles.tipRow}>
+                <MaterialIcons name={item.icon} size={18} color="#34C759" />
+                <Text style={styles.tipText}>{item.tip}</Text>
+              </View>
+            ))}
+            <TouchableOpacity style={styles.modalClose} onPress={() => setHelpVisible(false)}>
+              <Text style={styles.modalCloseText}>Got it</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 8,
+  fill: { flex: 1, backgroundColor: '#000' },
+
+  /* Permission fallback */
+  permBox: { justifyContent: 'center', alignItems: 'center', gap: 12 },
+  permText: { color: '#CCC', fontSize: 14, textAlign: 'center', paddingHorizontal: 40 },
+  permBtn: { backgroundColor: '#34C759', borderRadius: 20, paddingHorizontal: 24, paddingVertical: 10 },
+  permBtnText: { color: '#FFF', fontSize: 14, fontWeight: '700' },
+
+  /* Top bar */
+  topBar: {
+    position: 'absolute', top: 0, left: 0, right: 0,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingTop: Platform.OS === 'android' ? 44 : 54,
+    paddingHorizontal: 16, paddingBottom: 10,
+    zIndex: 10,
   },
-  backBtn: { padding: 8 },
-  title: { fontSize: 20, fontWeight: '700' },
-  subtitle: { fontSize: 14, textAlign: 'center', marginBottom: 16, paddingHorizontal: 32 },
-  photoArea: {
-    marginHorizontal: 24,
-    height: 300,
-    borderRadius: 16,
-    borderWidth: 1,
-    overflow: 'hidden',
-    justifyContent: 'center',
-    alignItems: 'center',
+  topBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(0,0,0,0.35)',
+    justifyContent: 'center', alignItems: 'center' },
+  topTitle: { color: '#FFF', fontSize: 16, fontWeight: '700' },
+
+  /* Brackets */
+  bracketWrap: {
+    position: 'absolute', top: SH * 0.22, left: SW * 0.12,
+    width: SW * 0.76, height: SW * 0.76,
+    zIndex: 5,
   },
-  photo: { width: '100%', height: '100%' },
-  placeholder: { alignItems: 'center', gap: 12 },
-  placeholderText: { fontSize: 14 },
-  statusRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 16 },
-  statusText: { fontSize: 14 },
-  roastCard: {
-    marginHorizontal: 24,
-    marginTop: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
+  bracket: {
+    position: 'absolute', width: BRACKET, height: BRACKET,
+    borderColor: 'rgba(255,255,255,0.6)', borderWidth: 2.5,
   },
-  roastText: { fontSize: 14, fontWeight: '600', flex: 1 },
-  hintText: { fontSize: 12, marginTop: 4 },
-  actions: { flex: 1, justifyContent: 'flex-end', alignItems: 'center', paddingBottom: 32, gap: 12 },
-  cameraBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingHorizontal: 28,
-    paddingVertical: 14,
-    borderRadius: 30,
+  bTL: { top: 0, left: 0, borderRightWidth: 0, borderBottomWidth: 0, borderTopLeftRadius: 14 },
+  bTR: { top: 0, right: 0, borderLeftWidth: 0, borderBottomWidth: 0, borderTopRightRadius: 14 },
+  bBL: { bottom: 0, left: 0, borderRightWidth: 0, borderTopWidth: 0, borderBottomLeftRadius: 14 },
+  bBR: { bottom: 0, right: 0, borderLeftWidth: 0, borderTopWidth: 0, borderBottomRightRadius: 14 },
+  hintText: {
+    position: 'absolute', bottom: -28, alignSelf: 'center',
+    color: 'rgba(255,255,255,0.55)', fontSize: 12, fontWeight: '500',
   },
-  cameraBtnText: { color: '#FFF', fontSize: 16, fontWeight: '700' },
-  continueBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 28,
-    paddingVertical: 14,
-    borderRadius: 30,
+
+  /* Bottom shutter bar */
+  bottomBar: {
+    position: 'absolute', bottom: 0, left: 0, right: 0,
+    height: 120, flexDirection: 'row', justifyContent: 'center', alignItems: 'center',
+    paddingHorizontal: 40, zIndex: 10,
   },
-  continueBtnText: { color: '#FFF', fontSize: 16, fontWeight: '700' },
-  skipBtn: { padding: 8 },
-  skipText: { fontSize: 13 },
+  torchBtn: {
+    width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.15)',
+    justifyContent: 'center', alignItems: 'center',
+  },
+  torchBtnActive: { backgroundColor: 'rgba(255,204,0,0.35)' },
+  shutterOuter: {
+    width: 72, height: 72, borderRadius: 36,
+    borderWidth: 4, borderColor: '#FFF',
+    justifyContent: 'center', alignItems: 'center',
+    marginHorizontal: 28,
+  },
+  shutterInner: {
+    width: 58, height: 58, borderRadius: 29, backgroundColor: '#FFF',
+  },
+
+  /* Analyzing */
+  analyzingWrap: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center', alignItems: 'center', zIndex: 20,
+  },
+  analyzingPill: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: 'rgba(0,0,0,0.65)', borderRadius: 20,
+    paddingHorizontal: 18, paddingVertical: 10,
+  },
+  analyzingText: { color: '#FFF', fontSize: 14, fontWeight: '600' },
+
+  /* Bottom sheet */
+  sheet: {
+    position: 'absolute', bottom: 0, left: 0, right: 0,
+    backgroundColor: '#1C1C1E', borderTopLeftRadius: 18, borderTopRightRadius: 18,
+    paddingHorizontal: 20, paddingTop: 10, paddingBottom: 34,
+    zIndex: 30,
+  },
+  sheetHandle: {
+    width: 36, height: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.2)',
+    alignSelf: 'center', marginBottom: 12,
+  },
+  sheetRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
+  sheetTitle: { fontSize: 16, fontWeight: '700' },
+  sheetRoast: { color: 'rgba(255,255,255,0.7)', fontSize: 13, lineHeight: 18, marginBottom: 4 },
+  sheetHint: { color: 'rgba(255,255,255,0.45)', fontSize: 12, marginBottom: 4 },
+  sheetBtns: { flexDirection: 'row', gap: 10, marginTop: 14 },
+  sheetBtn: {
+    flex: 1, height: 44, borderRadius: 12,
+    justifyContent: 'center', alignItems: 'center',
+  },
+  sheetBtnText: { color: '#FFF', fontSize: 14, fontWeight: '700' },
+
+  /* Help modal */
+  modalOverlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center', alignItems: 'center',
+  },
+  modalCard: {
+    width: SW * 0.78, backgroundColor: '#1C1C1E', borderRadius: 18,
+    padding: 24,
+  },
+  modalTitle: { color: '#FFF', fontSize: 17, fontWeight: '700', marginBottom: 16, textAlign: 'center' },
+  tipRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 14 },
+  tipText: { color: 'rgba(255,255,255,0.8)', fontSize: 14, flex: 1 },
+  modalClose: {
+    marginTop: 8, backgroundColor: '#34C759', borderRadius: 12,
+    height: 42, justifyContent: 'center', alignItems: 'center',
+  },
+  modalCloseText: { color: '#FFF', fontSize: 14, fontWeight: '700' },
 });
