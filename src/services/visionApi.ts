@@ -6,6 +6,12 @@ import { ENV } from '../config/env';
 import { getAccessToken, ensureAuth, refreshAuthSession, recreateAnonymousSession } from './authService';
 
 const API = ENV.WORKER_API_URL;
+const __DEV__ = process.env.NODE_ENV !== 'production';
+let hasLoggedTokenDebug = false;
+
+function isJwt(token: string): boolean {
+  return token.split('.').length === 3;
+}
 
 async function getBearerToken(): Promise<string> {
   let token = await getAccessToken();
@@ -14,6 +20,13 @@ async function getBearerToken(): Promise<string> {
   }
   if (!token) {
     throw new Error('Sign-in expired. Please try again.');
+  }
+  if (!isJwt(token)) {
+    throw new Error('Auth token invalid');
+  }
+  if (__DEV__ && !hasLoggedTokenDebug) {
+    console.log(`[Auth] token head=${token.slice(0, 12)} len=${token.length}`);
+    hasLoggedTokenDebug = true;
   }
   return token;
 }
@@ -27,6 +40,7 @@ async function fetchWithAuth(url: string, init: RequestInit, retryOn401 = true):
     headers: {
       ...baseHeaders,
       Authorization: `Bearer ${bearer}`,
+      'x-eatlock-supabase-url': ENV.SUPABASE_URL,
     },
   });
 
