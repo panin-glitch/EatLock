@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -12,12 +12,14 @@ import {
   Easing,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { CameraView, useCameraPermissions } from 'expo-camera';
+import { CameraView, useCameraPermissions, type BarcodeScanningResult } from 'expo-camera';
 import { useTheme } from '../theme/ThemeProvider';
 import { getVisionService } from '../services/vision';
 import { getPreScanRoast, getFoodConfirmedMessage } from '../services/vision/roasts';
 import type { FoodCheckResult } from '../services/vision/types';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { ScanFrameOverlay } from '../components/scan/ScanFrameOverlay';
+import { ScanTipsModal } from '../components/scan/ScanTipsModal';
 
 type Props = NativeStackScreenProps<any, 'PreScanCamera'>;
 
@@ -26,8 +28,11 @@ export default function PreScanCameraScreen({ navigation }: Props) {
   const [permission, requestPermission] = useCameraPermissions();
 
   const cameraRef = useRef<CameraView>(null);
+  const barcodeLockRef = useRef(false);
   const [ready, setReady] = useState(false);
   const [torch, setTorch] = useState(false);
+  const [helpVisible, setHelpVisible] = useState(false);
+  const [barcodeMode, setBarcodeMode] = useState(false);
 
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
@@ -123,14 +128,15 @@ export default function PreScanCameraScreen({ navigation }: Props) {
       setResult(null);
       setRoast(null);
       setAiError(e?.message || 'Could not reach verification service.');
+    } finally {
+      barcodeLockRef.current = false;
+      setChecking(false);
+      hideAnalyzing();
+      showCard();
     }
-
-    setChecking(false);
-    hideAnalyzing();
-    showCard();
   };
 
-  const handleShutter = async () => {
+  const captureAndVerify = useCallback(async () => {
     if (!cameraRef.current || !ready || checking) return;
 
     animateShutter();
@@ -140,6 +146,7 @@ export default function PreScanCameraScreen({ navigation }: Props) {
       const pic = await cameraRef.current.takePictureAsync({ quality: 0.82, skipProcessing: false });
       if (!pic?.uri) {
         hideFreeze();
+        barcodeLockRef.current = false;
         return;
       }
       setPhotoUri(pic.uri);
@@ -148,12 +155,25 @@ export default function PreScanCameraScreen({ navigation }: Props) {
       setAiError(null);
       await verifyPhoto(pic.uri);
     } catch {
+      barcodeLockRef.current = false;
       hideFreeze();
     }
+  }, [ready, checking]);
+
+  const handleShutter = async () => {
+    barcodeLockRef.current = false;
+    await captureAndVerify();
+  };
+
+  const handleBarcodeScanned = async (_scan: BarcodeScanningResult) => {
+    if (!barcodeMode || barcodeLockRef.current || checking || photoUri) return;
+    barcodeLockRef.current = true;
+    await captureAndVerify();
   };
 
   const handleRetake = () => {
     hideCard(() => {
+      barcodeLockRef.current = false;
       setPhotoUri(null);
       setResult(null);
       setRoast(null);
@@ -167,14 +187,6 @@ export default function PreScanCameraScreen({ navigation }: Props) {
     navigation.navigate('LockSetupConfirm', {
       preImageUri: photoUri,
       preCheck: result,
-    });
-  };
-
-  const handleSkip = () => {
-    navigation.navigate('LockSetupConfirm', {
-      preImageUri: undefined,
-      preCheck: undefined,
-      overrideUsed: true,
     });
   };
 
@@ -205,6 +217,12 @@ export default function PreScanCameraScreen({ navigation }: Props) {
         facing="back"
         enableTorch={torch}
         onCameraReady={() => setReady(true)}
+        onBarcodeScanned={barcodeMode ? handleBarcodeScanned : undefined}
+        barcodeScannerSettings={
+          barcodeMode
+            ? { barcodeTypes: ['qr', 'ean13', 'ean8', 'upc_a', 'upc_e', 'code128'] }
+            : undefined
+        }
       />
 
       {photoUri ? <Image source={{ uri: photoUri }} style={StyleSheet.absoluteFill} resizeMode="cover" /> : null}
@@ -212,14 +230,21 @@ export default function PreScanCameraScreen({ navigation }: Props) {
       <Animated.View pointerEvents="none" style={[styles.freezeOverlay, { opacity: freezeOpacity }]} />
       <Animated.View pointerEvents="none" style={[styles.shutterOverlay, { opacity: shutterOpacity }]} />
 
+      {!photoUri ? <ScanFrameOverlay hintText={barcodeMode ? 'Scan barcode' : 'Keep plate in frame'} /> : null}
+
       <View style={styles.topBar}>
         <TouchableOpacity style={styles.topBtn} onPress={() => navigation.goBack()}>
           <MaterialIcons name="close" size={22} color="#FFF" />
         </TouchableOpacity>
         <Text style={styles.topTitle}>Scan meal</Text>
-        <TouchableOpacity style={styles.topBtn} onPress={() => setTorch((prev) => !prev)}>
-          <MaterialIcons name={torch ? 'flash-on' : 'flash-off'} size={22} color="#FFF" />
-        </TouchableOpacity>
+        <View style={styles.topRightWrap}>
+          <TouchableOpacity style={styles.topBtn} onPress={() => setTorch((prev) => !prev)}>
+            <MaterialIcons name={torch ? 'flash-on' : 'flash-off'} size={22} color="#FFF" />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.topBtn} onPress={() => setHelpVisible(true)}>
+            <Text style={styles.helpText}>?</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {!photoUri && (
@@ -231,9 +256,19 @@ export default function PreScanCameraScreen({ navigation }: Props) {
           >
             <View style={styles.shutterInner} />
           </TouchableOpacity>
-          <TouchableOpacity onPress={handleSkip} style={styles.skipBtn}>
-            <Text style={styles.skipBtnText}>Skip</Text>
+
+          <TouchableOpacity
+            style={[styles.barcodePill, barcodeMode && styles.barcodePillActive]}
+            onPress={() => {
+              barcodeLockRef.current = false;
+              setBarcodeMode((prev) => !prev);
+            }}
+          >
+            <MaterialIcons name="qr-code-scanner" size={16} color="#FFF" />
+            <Text style={styles.barcodeText}>Barcode</Text>
           </TouchableOpacity>
+
+          {barcodeMode ? <Text style={styles.barcodeHint}>Scan barcode</Text> : null}
         </View>
       )}
 
@@ -249,8 +284,8 @@ export default function PreScanCameraScreen({ navigation }: Props) {
       {(result || aiError) && !checking && (
         <Animated.View style={[styles.cardWrap, { transform: [{ translateY: cardTranslateY }] }]}>
           <View style={styles.card}>
-            <Text style={[styles.cardTitle, { color: aiError ? theme.warning : result?.isFood ? theme.success : theme.danger }]}>
-              {aiError ? 'AI unavailable' : result?.isFood ? 'Meal detected' : 'Not food'}
+            <Text style={[styles.cardTitle, { color: aiError ? theme.warning : result?.isFood ? theme.success : theme.danger }]}> 
+              {aiError ? 'Sign-in expired' : result?.isFood ? 'Meal detected' : 'Not food'}
             </Text>
             <Text style={styles.cardMessage}>
               {aiError || roast || 'Please try another photo.'}
@@ -272,6 +307,8 @@ export default function PreScanCameraScreen({ navigation }: Props) {
           </View>
         </Animated.View>
       )}
+
+      <ScanTipsModal visible={helpVisible} onClose={() => setHelpVisible(false)} theme={theme} />
     </View>
   );
 }
@@ -294,6 +331,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     zIndex: 12,
   },
+  topRightWrap: {
+    flexDirection: 'row',
+    gap: 8,
+  },
   topBtn: {
     width: 44,
     height: 44,
@@ -302,6 +343,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  helpText: { color: '#FFF', fontSize: 20, fontWeight: '700', lineHeight: 24 },
   topTitle: { color: '#FFF', fontSize: 16, fontWeight: '700' },
 
   bottomBar: {
@@ -327,8 +369,29 @@ const styles = StyleSheet.create({
     borderRadius: 29,
     backgroundColor: '#FFF',
   },
-  skipBtn: { marginTop: 14, paddingVertical: 6, paddingHorizontal: 10 },
-  skipBtnText: { color: 'rgba(255,255,255,0.72)', fontSize: 13, fontWeight: '600' },
+  barcodePill: {
+    marginTop: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 16,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.22)',
+  },
+  barcodePillActive: {
+    backgroundColor: 'rgba(52,199,89,0.35)',
+    borderColor: 'rgba(52,199,89,0.8)',
+  },
+  barcodeText: { color: '#FFF', fontSize: 12, fontWeight: '600' },
+  barcodeHint: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 12,
+    fontWeight: '500',
+    marginTop: 6,
+  },
 
   freezeOverlay: {
     ...StyleSheet.absoluteFillObject,

@@ -9,6 +9,7 @@ import { MealVisionService } from './MealVisionService';
 import {
   FoodCheckResult,
   CompareResult,
+  NutritionEstimate,
   FoodReasonCode,
   CompareVerdict,
   CompareReasonCode,
@@ -86,6 +87,19 @@ export class MockVisionService implements MealVisionService {
       reasonCode,
       roastLine: verdict === 'EATEN' ? 'Clean plate club!' : 'Mock comparison result.',
       retakeHint: verdict === 'UNVERIFIABLE' ? 'Try matching the angle of the first photo.' : '',
+    };
+  }
+
+  async estimateCalories(_r2Key: string): Promise<NutritionEstimate | null> {
+    await delay(500 + Math.random() * 300);
+    return {
+      food_label: 'Mock meal',
+      estimated_calories: 520,
+      min_calories: 420,
+      max_calories: 640,
+      confidence: 0.74,
+      notes: 'Mock estimate for local testing.',
+      source: 'vision',
     };
   }
 }

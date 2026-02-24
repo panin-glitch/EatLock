@@ -35,6 +35,11 @@ yarn-error.*
 .env*.local
 .env.*
 !.env.example
+secrets/
+**/secrets/
+*.local.json
+*.local.yaml
+*.local.yml
 
 # cloudflare worker local secrets
 backend/.dev.vars
