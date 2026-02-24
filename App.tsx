@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { StatusBar, View, ActivityIndicator, StyleSheet, LogBox } from 'react-native';
 import { ThemeProvider } from './src/theme/ThemeProvider';
 import { AppStateProvider, useAppState } from './src/state/AppStateContext';
+import { AuthProvider } from './src/state/AuthContext';
 import AppNavigator from './src/navigation/AppNavigator';
 import { requestNotificationPermissions } from './src/services/notifications';
 import { ensureAuth } from './src/services/authService';
@@ -38,10 +39,12 @@ function AppContent() {
 export default function App() {
   return (
     <ThemeProvider>
-      <AppStateProvider>
-        <StatusBar barStyle="light-content" />
-        <AppContent />
-      </AppStateProvider>
+      <AuthProvider>
+        <AppStateProvider>
+          <StatusBar barStyle="light-content" />
+          <AppContent />
+        </AppStateProvider>
+      </AuthProvider>
     </ThemeProvider>
   );
 }

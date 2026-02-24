@@ -5,7 +5,7 @@ compatibility_date = "2024-05-01"
 # ── Bindings ──────────────────────────────────
 
 [vars]
-SUPABASE_URL = "https://YOUR_PROJECT.supabase.co"
+SUPABASE_URL = "https://xsbyxovfokeaqtdifahy.supabase.co"
 
 # Set these secrets via `wrangler secret put <NAME>`
 # SUPABASE_SERVICE_KEY

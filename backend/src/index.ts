@@ -13,6 +13,7 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { handleVisionQueue, QueueMessage } from './queue/consumer';
 import { handleVerifyFood, handleCompareMeal } from './vision';
 import { handleNutritionEstimate } from './nutrition';
+import { handleBarcodeLookup } from './barcode';
 
 export interface Env {
   IMAGES: R2Bucket;
@@ -360,6 +361,11 @@ export default {
       // POST /v1/nutrition/estimate
       if (method === 'POST' && path === '/v1/nutrition/estimate') {
         return finalize(await handleNutritionEstimate(request, env));
+      }
+
+      // POST /v1/barcode/lookup
+      if (method === 'POST' && path === '/v1/barcode/lookup') {
+        return finalize(await handleBarcodeLookup(request, env));
       }
 
       // POST /v1/vision/enqueue

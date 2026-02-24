@@ -14,12 +14,15 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions, type BarcodeScanningResult } from 'expo-camera';
 import { useTheme } from '../theme/ThemeProvider';
-import { getVisionService } from '../services/vision';
+import { getVisionService, CloudVisionService } from '../services/vision';
 import { getPreScanRoast, getFoodConfirmedMessage } from '../services/vision/roasts';
-import type { FoodCheckResult } from '../services/vision/types';
+import type { FoodCheckResult, NutritionEstimate } from '../services/vision/types';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ScanFrameOverlay } from '../components/scan/ScanFrameOverlay';
 import { ScanTipsModal } from '../components/scan/ScanTipsModal';
+import { ResultCard, type ResultCardButton, type CaloriesRowData } from '../components/scan/ResultCard';
+import { CaloriesEditModal } from '../components/scan/CaloriesEditModal';
+import { lookupBarcode, type BarcodeLookupResult } from '../services/barcodeService';
 
 type Props = NativeStackScreenProps<any, 'PreScanCamera'>;
 
@@ -39,6 +42,17 @@ export default function PreScanCameraScreen({ navigation }: Props) {
   const [result, setResult] = useState<FoodCheckResult | null>(null);
   const [roast, setRoast] = useState<string | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
+
+  // Nutrition state
+  const [nutrition, setNutrition] = useState<NutritionEstimate | null>(null);
+  const [nutritionLoading, setNutritionLoading] = useState(false);
+  const [nutritionError, setNutritionError] = useState(false);
+  const [editCalVisible, setEditCalVisible] = useState(false);
+
+  // Barcode state
+  const [barcodeResult, setBarcodeResult] = useState<BarcodeLookupResult | null>(null);
+  const [barcodeLoading, setBarcodeLoading] = useState(false);
+  const [scannedBarcode, setScannedBarcode] = useState<string | null>(null);
 
   const freezeOpacity = useRef(new Animated.Value(0)).current;
   const shutterOpacity = useRef(new Animated.Value(0)).current;
@@ -113,6 +127,9 @@ export default function PreScanCameraScreen({ navigation }: Props) {
   const verifyPhoto = async (uri: string) => {
     setChecking(true);
     setAiError(null);
+    setNutrition(null);
+    setNutritionLoading(false);
+    setNutritionError(false);
     showAnalyzing();
 
     try {
@@ -124,6 +141,22 @@ export default function PreScanCameraScreen({ navigation }: Props) {
           ? check.roastLine || getFoodConfirmedMessage()
           : check.roastLine || getPreScanRoast(check.reasonCode),
       );
+
+      // If food detected, fetch calories
+      if (check.isFood) {
+        setNutritionLoading(true);
+        const svc = vision as CloudVisionService;
+        const r2Key = svc.lastR2Key;
+        if (r2Key) {
+          try {
+            const est = await vision.estimateCalories(r2Key);
+            setNutrition(est);
+          } catch {
+            setNutritionError(true);
+          }
+        }
+        setNutritionLoading(false);
+      }
     } catch (e: any) {
       setResult(null);
       setRoast(null);
@@ -165,10 +198,33 @@ export default function PreScanCameraScreen({ navigation }: Props) {
     await captureAndVerify();
   };
 
-  const handleBarcodeScanned = async (_scan: BarcodeScanningResult) => {
-    if (!barcodeMode || barcodeLockRef.current || checking || photoUri) return;
+  const handleBarcodeScanned = async (scan: BarcodeScanningResult) => {
+    if (!barcodeMode || barcodeLockRef.current || checking || photoUri || barcodeLoading) return;
     barcodeLockRef.current = true;
-    await captureAndVerify();
+    const code = scan.data;
+    setScannedBarcode(code);
+    setBarcodeLoading(true);
+    setBarcodeResult(null);
+    showAnalyzing();
+
+    try {
+      const res = await lookupBarcode(code);
+      setBarcodeResult(res);
+    } catch (e: any) {
+      setBarcodeResult({
+        name: 'Unknown item',
+        calories: null,
+        protein_g: null,
+        carbs_g: null,
+        fat_g: null,
+        serving_hint: null,
+        source: 'not_found',
+      });
+    } finally {
+      setBarcodeLoading(false);
+      hideAnalyzing();
+      showCard();
+    }
   };
 
   const handleRetake = () => {
@@ -178,15 +234,45 @@ export default function PreScanCameraScreen({ navigation }: Props) {
       setResult(null);
       setRoast(null);
       setAiError(null);
+      setNutrition(null);
+      setNutritionLoading(false);
+      setNutritionError(false);
+      setBarcodeResult(null);
+      setScannedBarcode(null);
       hideFreeze();
     });
   };
 
   const handleContinue = () => {
+    if (barcodeResult) {
+      // Barcode flow: navigate with barcode nutrition
+      const barcodeNutrition: NutritionEstimate = {
+        food_label: barcodeResult.name,
+        estimated_calories: barcodeResult.calories ?? 0,
+        min_calories: barcodeResult.calories ?? 0,
+        max_calories: barcodeResult.calories ?? 0,
+        confidence: barcodeResult.source === 'not_found' ? 0 : 0.8,
+        notes: barcodeResult.serving_hint || '',
+        protein_g: barcodeResult.protein_g,
+        carbs_g: barcodeResult.carbs_g,
+        fat_g: barcodeResult.fat_g,
+        source: 'barcode',
+      };
+      navigation.navigate('LockSetupConfirm', {
+        preImageUri: null,
+        preCheck: { isFood: true, confidence: 1, hasPlateOrBowl: false, quality: { brightness: 1, blur: 1, framing: 1 }, reasonCode: 'OK' as const, roastLine: barcodeResult.name, retakeHint: '' },
+        preNutrition: barcodeNutrition,
+        foodName: barcodeResult.name,
+        barcode: scannedBarcode,
+      });
+      return;
+    }
     if (!photoUri || !result?.isFood) return;
     navigation.navigate('LockSetupConfirm', {
       preImageUri: photoUri,
       preCheck: result,
+      preNutrition: nutrition,
+      foodName: nutrition?.food_label || result?.roastLine,
     });
   };
 
@@ -291,41 +377,99 @@ export default function PreScanCameraScreen({ navigation }: Props) {
         </View>
       )}
 
-      {checking && (
+      {(checking || barcodeLoading) && (
         <Animated.View style={[styles.analyzingWrap, { opacity: analyzingOpacity }]} pointerEvents="none">
           <View style={styles.analyzingPill}>
             <ActivityIndicator size="small" color="#FFF" />
-            <Text style={styles.analyzingText}>Analyzing food...</Text>
+            <Text style={styles.analyzingText}>{barcodeMode ? 'Looking up barcode...' : 'Analyzing food...'}</Text>
           </View>
         </Animated.View>
       )}
 
-      {(result || aiError) && !checking && (
-        <Animated.View style={[styles.cardWrap, { transform: [{ translateY: cardTranslateY }] }]}>
-          <View style={styles.card}>
-            <Text style={[styles.cardTitle, { color: aiError ? theme.warning : result?.isFood ? theme.success : theme.danger }]}> 
-              {aiError ? 'Sign-in expired' : result?.isFood ? 'Meal detected' : 'Not food'}
-            </Text>
-            <Text style={styles.cardMessage}>
-              {aiError || roast || 'Please try another photo.'}
-            </Text>
-
-            <View style={styles.cardActions}>
-              {result?.isFood ? (
-                <TouchableOpacity style={[styles.actionBtn, { backgroundColor: theme.primary }]} onPress={handleContinue}>
-                  <Text style={styles.actionBtnText}>Confirm & Start</Text>
-                </TouchableOpacity>
-              ) : null}
-              <TouchableOpacity
-                style={[styles.actionBtn, { backgroundColor: result?.isFood ? '#2A2A2A' : theme.primary }]}
-                onPress={handleRetake}
-              >
-                <Text style={styles.actionBtnText}>{aiError ? 'Retry' : 'Retake'}</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
+      {/* Barcode result card */}
+      {barcodeResult && !barcodeLoading && (
+        <Animated.View style={[{ transform: [{ translateY: cardTranslateY }] }]} pointerEvents="box-none">
+          <ResultCard
+            theme={theme}
+            title={barcodeResult.name}
+            accentColor={barcodeResult.source === 'not_found' ? theme.warning : theme.success}
+            roast={barcodeResult.source === 'not_found' ? 'No nutrition data found for this barcode' : undefined}
+            calories={{
+              nutrition: barcodeResult.calories != null ? {
+                food_label: barcodeResult.name,
+                estimated_calories: barcodeResult.calories,
+                min_calories: barcodeResult.calories,
+                max_calories: barcodeResult.calories,
+                confidence: 0.8,
+                notes: barcodeResult.serving_hint || '',
+                protein_g: barcodeResult.protein_g,
+                carbs_g: barcodeResult.carbs_g,
+                fat_g: barcodeResult.fat_g,
+                source: 'barcode',
+              } : null,
+              loading: false,
+              error: barcodeResult.source === 'not_found',
+              onEdit: () => setEditCalVisible(true),
+            }}
+            subtext={barcodeResult.serving_hint ? `Per 100g · ${barcodeResult.serving_hint}` : undefined}
+            buttons={[
+              { label: 'Confirm & Start', onPress: handleContinue },
+              { label: 'Scan again', onPress: handleRetake, secondary: true },
+            ]}
+          />
         </Animated.View>
       )}
+
+      {/* Photo scan result card */}
+      {(result || aiError) && !checking && !barcodeResult && (
+        <Animated.View style={[{ transform: [{ translateY: cardTranslateY }] }]} pointerEvents="box-none">
+          <ResultCard
+            theme={theme}
+            title={aiError ? 'AI unavailable' : result?.isFood ? (nutrition?.food_label || 'Meal detected') : 'Not food'}
+            accentColor={aiError ? theme.warning : result?.isFood ? theme.success : theme.danger}
+            roast={aiError ? undefined : roast || undefined}
+            subtext={aiError || (!result?.isFood ? result?.retakeHint : undefined) || undefined}
+            calories={result?.isFood ? {
+              nutrition,
+              loading: nutritionLoading,
+              error: nutritionError,
+              onEdit: nutrition ? () => setEditCalVisible(true) : undefined,
+            } : undefined}
+            buttons={[
+              ...(result?.isFood ? [{ label: 'Confirm & Start', onPress: handleContinue }] : []),
+              { label: aiError ? 'Retry' : 'Retake', onPress: handleRetake, secondary: !!result?.isFood },
+            ]}
+          />
+        </Animated.View>
+      )}
+
+      <CaloriesEditModal
+        visible={editCalVisible}
+        theme={theme}
+        initial={nutrition?.estimated_calories ?? barcodeResult?.calories ?? undefined}
+        onCancel={() => setEditCalVisible(false)}
+        onSave={(cal) => {
+          if (barcodeResult) {
+            setBarcodeResult({ ...barcodeResult, calories: cal });
+          } else if (nutrition) {
+            setNutrition({ ...nutrition, estimated_calories: cal, source: 'user' });
+          } else {
+            setNutrition({
+              food_label: 'Manual entry',
+              estimated_calories: cal,
+              min_calories: cal,
+              max_calories: cal,
+              confidence: 1,
+              notes: 'User-entered',
+              protein_g: null,
+              carbs_g: null,
+              fat_g: null,
+              source: 'user',
+            });
+          }
+          setEditCalVisible(false);
+        }}
+      />
 
       <ScanTipsModal visible={helpVisible} onClose={() => setHelpVisible(false)} theme={theme} />
     </View>
@@ -485,30 +629,4 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   analyzingText: { color: '#FFF', fontSize: 14, fontWeight: '600' },
-
-  cardWrap: {
-    position: 'absolute',
-    left: 16,
-    right: 16,
-    bottom: 18,
-    zIndex: 22,
-  },
-  card: {
-    backgroundColor: '#1C1C1E',
-    borderRadius: 18,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-  },
-  cardTitle: { fontSize: 17, fontWeight: '700' },
-  cardMessage: { color: 'rgba(255,255,255,0.82)', fontSize: 13, marginTop: 6, lineHeight: 18 },
-  cardActions: { flexDirection: 'row', gap: 10, marginTop: 14 },
-  actionBtn: {
-    flex: 1,
-    height: 44,
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  actionBtnText: { color: '#FFF', fontSize: 14, fontWeight: '700' },
 });

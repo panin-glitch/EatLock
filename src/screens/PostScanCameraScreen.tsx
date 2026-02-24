@@ -21,6 +21,7 @@ import type { CompareResult } from '../services/vision/types';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ScanFrameOverlay } from '../components/scan/ScanFrameOverlay';
 import { ScanTipsModal } from '../components/scan/ScanTipsModal';
+import { ResultCard } from '../components/scan/ResultCard';
 
 type Props = NativeStackScreenProps<any, 'PostScanCamera'>;
 
@@ -330,37 +331,26 @@ export default function PostScanCameraScreen({ navigation, route }: Props) {
       )}
 
       {(result || errorMsg) && !checking && (
-        <Animated.View style={[styles.cardWrap, { transform: [{ translateY: cardTranslateY }] }]}>
-          <View style={styles.card}>
-            <Text style={[styles.cardTitle, { color: errorMsg ? theme.warning : verdictColor }]}> 
-              {errorMsg
-                ? 'Sign-in expired'
-                : result?.verdict === 'EATEN'
-                  ? 'Meal finished'
-                  : result?.verdict === 'PARTIAL'
-                    ? 'Partially eaten'
-                    : result?.verdict === 'UNCHANGED'
-                      ? 'Not eaten'
-                      : 'Uncertain'}
-            </Text>
-            <Text style={styles.cardMessage}>
-              {errorMsg || (result ? result.roastLine || getPostScanRoast(result.verdict) : 'Please try again.')}
-            </Text>
-
-            <View style={styles.cardActions}>
-              {result ? (
-                <TouchableOpacity style={[styles.actionBtn, { backgroundColor: theme.primary }]} onPress={handleContinue}>
-                  <Text style={styles.actionBtnText}>See Summary</Text>
-                </TouchableOpacity>
-              ) : null}
-              <TouchableOpacity
-                style={[styles.actionBtn, { backgroundColor: result ? '#2A2A2A' : theme.primary }]}
-                onPress={handleRetake}
-              >
-                <Text style={styles.actionBtnText}>{errorMsg ? 'Retry' : 'Retake'}</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
+        <Animated.View style={[{ transform: [{ translateY: cardTranslateY }] }]} pointerEvents="box-none">
+          <ResultCard
+            theme={theme}
+            title={errorMsg
+              ? 'AI unavailable'
+              : result?.verdict === 'EATEN'
+                ? 'Meal finished'
+                : result?.verdict === 'PARTIAL'
+                  ? 'Partially eaten'
+                  : result?.verdict === 'UNCHANGED'
+                    ? 'Not eaten'
+                    : 'Uncertain'}
+            accentColor={errorMsg ? theme.warning : verdictColor}
+            roast={errorMsg ? undefined : (result ? result.roastLine || getPostScanRoast(result.verdict) : undefined)}
+            subtext={errorMsg || undefined}
+            buttons={[
+              ...(result ? [{ label: 'See Summary', onPress: handleContinue }] : []),
+              { label: errorMsg ? 'Retry' : 'Retake', onPress: handleRetake, secondary: !!result },
+            ]}
+          />
         </Animated.View>
       )}
 
@@ -538,30 +528,4 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   analyzingText: { color: '#FFF', fontSize: 14, fontWeight: '600' },
-
-  cardWrap: {
-    position: 'absolute',
-    left: 16,
-    right: 16,
-    bottom: 18,
-    zIndex: 22,
-  },
-  card: {
-    backgroundColor: '#1C1C1E',
-    borderRadius: 18,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-  },
-  cardTitle: { fontSize: 17, fontWeight: '700' },
-  cardMessage: { color: 'rgba(255,255,255,0.82)', fontSize: 13, marginTop: 6, lineHeight: 18 },
-  cardActions: { flexDirection: 'row', gap: 10, marginTop: 14 },
-  actionBtn: {
-    flex: 1,
-    height: 44,
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  actionBtnText: { color: '#FFF', fontSize: 14, fontWeight: '700' },
 });

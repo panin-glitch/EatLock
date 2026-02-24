@@ -13,6 +13,7 @@ import * as Storage from '../services/storage';
 import { blockingEngine } from '../services/blockingEngine';
 import { scheduleAllMealNotifications } from '../services/notifications';
 import { ensureAuth } from '../services/authService';
+import { logCompletedMeal } from '../services/mealLogger';
 
 interface AppState {
   schedules: MealSchedule[];
@@ -140,6 +141,11 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     if (completed.strictMode) {
       await blockingEngine.stopBlocking();
     }
+
+    // Log to Supabase (async, non-blocking)
+    logCompletedMeal(completed).catch((e) =>
+      console.warn('[AppState] Supabase meal log failed:', e?.message),
+    );
 
     const updated = await Storage.getMealSessions();
     setSessions(updated);

@@ -7,11 +7,11 @@
 
 export const ENV = {
   // Supabase
-  SUPABASE_URL: 'https://YOUR_PROJECT.supabase.co',
-  SUPABASE_ANON_KEY: 'YOUR_SUPABASE_ANON_KEY',
+  SUPABASE_URL: 'https://xsbyxovfokeaqtdifahy.supabase.co',
+  SUPABASE_ANON_KEY: 'sb_publishable_HZsxX6GjmpnoPhCjrzOa5Q_XKhoHx1p',
 
   // Cloudflare Worker API
-  WORKER_API_URL: 'https://eatlock-api.YOUR_ACCOUNT.workers.dev',
+  WORKER_API_URL: 'https://eatlock-vision.crkmedia-us.workers.dev',
 
   // Deep link scheme (must match app.json)
   DEEP_LINK_SCHEME: 'eatlock',
