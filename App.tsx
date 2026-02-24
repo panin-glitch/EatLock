@@ -4,6 +4,7 @@ import { ThemeProvider } from './src/theme/ThemeProvider';
 import { AppStateProvider, useAppState } from './src/state/AppStateContext';
 import AppNavigator from './src/navigation/AppNavigator';
 import { requestNotificationPermissions } from './src/services/notifications';
+import { ensureAuth } from './src/services/authService';
 
 // Suppress expo-notifications Expo Go warnings entirely
 LogBox.ignoreLogs([
@@ -18,6 +19,9 @@ function AppContent() {
 
   useEffect(() => {
     requestNotificationPermissions().catch(console.error);
+    ensureAuth().catch((err) => {
+      console.warn('[App] Failed to initialize anonymous auth session:', err?.message || err);
+    });
   }, []);
 
   if (isLoading) {

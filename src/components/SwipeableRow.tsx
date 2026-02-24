@@ -1,4 +1,4 @@
-import React, { useCallback, useRef } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -35,6 +35,7 @@ export function SwipeableRow({
   rowBackgroundColor = '#1C1C1E',
 }: Props) {
   const translateX = useRef(new Animated.Value(0)).current;
+  const [isUnderlayVisible, setIsUnderlayVisible] = useState(false);
 
   const snapTo = useCallback((toValue: number, callback?: () => void) => {
     Animated.spring(translateX, {
@@ -56,15 +57,19 @@ export function SwipeableRow({
       onMoveShouldSetPanResponder: (_, gs) => !disabled && Math.abs(gs.dx) > 8 && Math.abs(gs.dx) > Math.abs(gs.dy),
       onPanResponderMove: (_, gs) => {
         if (disabled) return;
-        translateX.setValue(Math.min(0, gs.dx));
+        const next = Math.min(0, gs.dx);
+        setIsUnderlayVisible(next < -2);
+        translateX.setValue(next);
       },
       onPanResponderRelease: (_, gs) => {
         if (disabled) {
+          setIsUnderlayVisible(false);
           snapTo(0);
           return;
         }
 
         if (gs.dx < FULL_SWIPE_THRESHOLD || gs.vx < -1.4) {
+          setIsUnderlayVisible(true);
           Animated.timing(translateX, {
             toValue: -360,
             duration: 180,
@@ -74,23 +79,29 @@ export function SwipeableRow({
         }
 
         if (gs.dx < -ACTION_WIDTH / 2 || gs.vx < -0.45) {
+          setIsUnderlayVisible(true);
           snapTo(-ACTION_WIDTH);
         } else {
+          setIsUnderlayVisible(false);
           snapTo(0);
         }
       },
-      onPanResponderTerminate: () => snapTo(0),
+      onPanResponderTerminate: () => {
+        setIsUnderlayVisible(false);
+        snapTo(0);
+      },
       onPanResponderTerminationRequest: () => true,
     }),
   ).current;
 
   return (
     <View style={[styles.container, { backgroundColor: rowBackgroundColor }]}> 
-      {!disabled && (
+      {!disabled && isUnderlayVisible && (
         <View style={[styles.deleteWrap, { backgroundColor: deleteColor }]}> 
           <TouchableOpacity
             style={styles.deleteBtn}
             onPress={() => {
+              setIsUnderlayVisible(false);
               snapTo(0);
               setTimeout(handleDelete, 140);
             }}

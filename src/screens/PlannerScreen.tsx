@@ -182,10 +182,7 @@ export default function PlannerScreen() {
                   rowBackgroundColor={theme.card}
                 >
                   <TouchableOpacity
-                    style={[
-                      styles.mealRow,
-                      !schedule.enabled && styles.mealRowDisabled,
-                    ]}
+                    style={styles.mealRow}
                     onPress={() =>
                       navigation.navigate('EditSchedule', { scheduleId: schedule.id })
                     }
@@ -338,7 +335,7 @@ const makeStyles = (theme: any) =>
       borderWidth: 1,
       borderColor: theme.border,
     },
-    mealRowDisabled: { opacity: 0.72 },
+    mealRowDisabled: {},
     mealRowLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
     mealDot: { width: 10, height: 10, borderRadius: 5 },
     mealName: { fontSize: 16, fontWeight: '600', color: theme.text },

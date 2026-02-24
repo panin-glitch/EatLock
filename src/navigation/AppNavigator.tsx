@@ -16,10 +16,12 @@ import SessionSummaryScreen from '../screens/SessionSummaryScreen';
 import PermissionsOnboardingScreen from '../screens/PermissionsOnboardingScreen';
 import BlockerScreen from '../screens/BlockerScreen';
 import NotificationHelpScreen from '../screens/NotificationHelpScreen';
-import PreScanCameraScreen from '../screens/PreScanCameraScreen';
-import PostScanCameraScreen from '../screens/PostScanCameraScreen';
 import LockSetupConfirmScreen from '../screens/LockSetupConfirmScreen';
 import MealSessionActiveScreen from '../screens/MealSessionActiveScreen';
+import AuthScreen from '../screens/auth/AuthScreen';
+
+const PreScanCameraScreen = require('../screens/PreScanCameraScreen').default;
+const PostScanCameraScreen = require('../screens/PostScanCameraScreen').default;
 
 const Tab = createBottomTabNavigator();
 const RootStack = createNativeStackNavigator();
@@ -116,7 +118,7 @@ export default function AppNavigator() {
     prefixes: ['eatlock://'],
     config: {
       screens: {
-        ResetPassword: 'reset-password',
+        Auth: 'auth',
       },
     },
   };
@@ -192,6 +194,11 @@ export default function AppNavigator() {
             <RootStack.Screen
               name="NotificationHelp"
               component={NotificationHelpScreen}
+              options={{ animation: 'slide_from_bottom' }}
+            />
+            <RootStack.Screen
+              name="Auth"
+              component={AuthScreen}
               options={{ animation: 'slide_from_bottom' }}
             />
       </RootStack.Navigator>
