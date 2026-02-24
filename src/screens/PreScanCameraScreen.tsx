@@ -1,50 +1,33 @@
-/**
- * PreScanCamera — full-screen camera for "before" meal photo.
- *
- * Opens camera immediately. Shutter → freeze + "Analyzing…" → ResultCard with verdict.
- * If FOOD_OK → calories fetched in background → shown in card → "Confirm & Start".
- *
- * Top bar: Close (X) | "Scan meal" | Help (?)
- * Bottom bar: Torch toggle | Shutter | Barcode toggle
- */
-
-import React, { useState, useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
-  Image,
-  ActivityIndicator,
-  Animated,
-  Dimensions,
   StatusBar,
+  Animated,
+  ActivityIndicator,
+  Image,
   Platform,
-  Modal,
+  Easing,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-camera';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useTheme } from '../theme/ThemeProvider';
 import { getVisionService } from '../services/vision';
-import { CloudVisionService } from '../services/vision/CloudVisionService';
 import { getPreScanRoast, getFoodConfirmedMessage } from '../services/vision/roasts';
-import type { FoodCheckResult, NutritionEstimate } from '../services/vision/types';
+import type { FoodCheckResult } from '../services/vision/types';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { ResultCard } from '../components/scan/ResultCard';
-import { CaloriesEditModal } from '../components/scan/CaloriesEditModal';
-
-const { width: SW, height: SH } = Dimensions.get('window');
-const BRACKET = 56;
 
 type Props = NativeStackScreenProps<any, 'PreScanCamera'>;
 
 export default function PreScanCameraScreen({ navigation }: Props) {
   const { theme } = useTheme();
   const [permission, requestPermission] = useCameraPermissions();
+
   const cameraRef = useRef<CameraView>(null);
   const [ready, setReady] = useState(false);
   const [torch, setTorch] = useState(false);
-  const [helpVisible, setHelpVisible] = useState(false);
 
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
@@ -52,57 +35,81 @@ export default function PreScanCameraScreen({ navigation }: Props) {
   const [roast, setRoast] = useState<string | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
 
-  // Barcode scanning
-  const [barcodeMode, setBarcodeMode] = useState(false);
-  const [scannedBarcode, setScannedBarcode] = useState<{ type: string; data: string } | null>(null);
-  const barcodeLock = useRef(false);
+  const freezeOpacity = useRef(new Animated.Value(0)).current;
+  const shutterOpacity = useRef(new Animated.Value(0)).current;
+  const analyzingOpacity = useRef(new Animated.Value(0)).current;
+  const cardTranslateY = useRef(new Animated.Value(260)).current;
 
-  // Calories
-  const [nutrition, setNutrition] = useState<NutritionEstimate | null>(null);
-  const [nutritionLoading, setNutritionLoading] = useState(false);
-  const [nutritionError, setNutritionError] = useState(false);
-  const [calEditVisible, setCalEditVisible] = useState(false);
+  const animateShutter = () => {
+    Animated.sequence([
+      Animated.timing(shutterOpacity, {
+        toValue: 0.15,
+        duration: 65,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      }),
+      Animated.timing(shutterOpacity, {
+        toValue: 0,
+        duration: 120,
+        easing: Easing.in(Easing.quad),
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
 
-  const sheetAnim = useRef(new Animated.Value(0)).current;
+  const showFreeze = () => {
+    Animated.timing(freezeOpacity, {
+      toValue: 0.36,
+      duration: 120,
+      useNativeDriver: true,
+    }).start();
+  };
 
-  // ── Permission handling ──
-  if (!permission) return <View style={styles.fill} />;
-  if (!permission.granted) {
-    return (
-      <View style={[styles.fill, styles.permBox]}>
-        <MaterialIcons name="camera-alt" size={48} color="#999" />
-        <Text style={styles.permText}>Camera access is needed to scan meals</Text>
-        <TouchableOpacity style={[styles.permBtn, { backgroundColor: theme.primary }]} onPress={requestPermission}>
-          <Text style={styles.permBtnText}>Grant Access</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginTop: 12 }}>
-          <Text style={{ color: '#999', fontSize: 13 }}>Cancel</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
+  const hideFreeze = () => {
+    Animated.timing(freezeOpacity, {
+      toValue: 0,
+      duration: 140,
+      useNativeDriver: true,
+    }).start();
+  };
 
-  // ── Capture ──
-  const handleShutter = async () => {
-    if (!cameraRef.current || !ready || checking) return;
-    try {
-      const pic = await cameraRef.current.takePictureAsync({ quality: 0.8, skipProcessing: false });
-      if (!pic) return;
-      setPhotoUri(pic.uri);
-      setResult(null);
-      setRoast(null);
-      setNutrition(null);
-      setNutritionLoading(false);
-      setNutritionError(false);
-      verifyPhoto(pic.uri);
-    } catch (e) {
-      console.warn('[PreScan] takePicture failed', e);
-    }
+  const showCard = () => {
+    Animated.spring(cardTranslateY, {
+      toValue: 0,
+      friction: 8,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const hideCard = (onDone?: () => void) => {
+    Animated.timing(cardTranslateY, {
+      toValue: 260,
+      duration: 130,
+      useNativeDriver: true,
+    }).start(onDone);
+  };
+
+  const showAnalyzing = () => {
+    Animated.timing(analyzingOpacity, {
+      toValue: 1,
+      duration: 120,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const hideAnalyzing = () => {
+    Animated.timing(analyzingOpacity, {
+      toValue: 0,
+      duration: 120,
+      useNativeDriver: true,
+    }).start();
   };
 
   const verifyPhoto = async (uri: string) => {
     setChecking(true);
     setAiError(null);
+    showAnalyzing();
+
     try {
       const vision = getVisionService();
       const check = await vision.verifyFood(uri);
@@ -112,392 +119,268 @@ export default function PreScanCameraScreen({ navigation }: Props) {
           ? check.roastLine || getFoodConfirmedMessage()
           : check.roastLine || getPreScanRoast(check.reasonCode),
       );
-
-      // If food is confirmed, start calorie estimation in background
-      if (check.isFood) {
-        const svc = vision as CloudVisionService;
-        const r2Key = svc.lastR2Key;
-        if (r2Key) {
-          fetchCalories(r2Key);
-        }
-      }
-    } catch (err: any) {
-      const msg = err?.message || 'Unknown error';
-      console.error('[PreScan] verifyFood error:', msg);
+    } catch (e: any) {
       setResult(null);
       setRoast(null);
-      setAiError(msg);
+      setAiError(e?.message || 'Could not reach verification service.');
     }
+
     setChecking(false);
-    Animated.spring(sheetAnim, { toValue: 1, useNativeDriver: true, friction: 8 }).start();
+    hideAnalyzing();
+    showCard();
   };
 
-  const fetchCalories = async (r2Key: string) => {
-    setNutritionLoading(true);
-    setNutritionError(false);
+  const handleShutter = async () => {
+    if (!cameraRef.current || !ready || checking) return;
+
+    animateShutter();
+    showFreeze();
+
     try {
-      const vision = getVisionService();
-      const est = await vision.estimateCalories(r2Key);
-      if (est) {
-        setNutrition(est);
-      } else {
-        setNutritionError(true);
+      const pic = await cameraRef.current.takePictureAsync({ quality: 0.82, skipProcessing: false });
+      if (!pic?.uri) {
+        hideFreeze();
+        return;
       }
+      setPhotoUri(pic.uri);
+      setResult(null);
+      setRoast(null);
+      setAiError(null);
+      await verifyPhoto(pic.uri);
     } catch {
-      setNutritionError(true);
+      hideFreeze();
     }
-    setNutritionLoading(false);
-  };
-
-  // ── Barcode handler ──
-  const handleBarcodeScanned = async (scanResult: BarcodeScanningResult) => {
-    if (barcodeLock.current || checking || photoUri) return;
-    barcodeLock.current = true;
-    const barcode = { type: scanResult.type, data: scanResult.data };
-    setScannedBarcode(barcode);
-
-    try {
-      const pic = await cameraRef.current?.takePictureAsync({ quality: 0.8, skipProcessing: false });
-      if (pic) setPhotoUri(pic.uri);
-    } catch (e) {
-      console.warn('[PreScan] barcode auto-capture failed', e);
-    }
-
-    Animated.spring(sheetAnim, { toValue: 1, useNativeDriver: true, friction: 8 }).start();
   };
 
   const handleRetake = () => {
-    Animated.timing(sheetAnim, { toValue: 0, duration: 150, useNativeDriver: true }).start(() => {
+    hideCard(() => {
       setPhotoUri(null);
       setResult(null);
       setRoast(null);
       setAiError(null);
-      setScannedBarcode(null);
-      barcodeLock.current = false;
-      setNutrition(null);
-      setNutritionLoading(false);
-      setNutritionError(false);
+      hideFreeze();
     });
   };
 
-  const handleRetry = () => {
-    if (!photoUri) return;
-    Animated.timing(sheetAnim, { toValue: 0, duration: 150, useNativeDriver: true }).start(() => {
-      setResult(null);
-      setRoast(null);
-      setAiError(null);
-      setNutrition(null);
-      setNutritionLoading(false);
-      setNutritionError(false);
-      verifyPhoto(photoUri);
-    });
-  };
-
-  const handleConfirm = () => {
-    if (scannedBarcode) {
-      navigation.navigate('LockSetupConfirm', {
-        preImageUri: photoUri,
-        preCheck: result,
-        preBarcodeData: scannedBarcode,
-        preNutrition: nutrition,
-      });
-      return;
-    }
+  const handleContinue = () => {
     if (!photoUri || !result?.isFood) return;
     navigation.navigate('LockSetupConfirm', {
       preImageUri: photoUri,
       preCheck: result,
-      preNutrition: nutrition,
     });
   };
 
-  const handleCaloriesSave = (cal: number) => {
-    setCalEditVisible(false);
-    setNutrition((prev) =>
-      prev
-        ? { ...prev, estimated_calories: cal, min_calories: cal, max_calories: cal, source: 'user' as const }
-        : {
-            food_label: 'Manual entry',
-            estimated_calories: cal,
-            min_calories: cal,
-            max_calories: cal,
-            confidence: 1,
-            notes: 'User override',
-            source: 'user' as const,
-          },
-    );
+  const handleSkip = () => {
+    navigation.navigate('LockSetupConfirm', {
+      preImageUri: undefined,
+      preCheck: undefined,
+      overrideUsed: true,
+    });
   };
 
-  const sheetTranslateY = sheetAnim.interpolate({ inputRange: [0, 1], outputRange: [300, 0] });
-  const showCamera = !photoUri;
+  if (!permission) {
+    return <View style={styles.fill} />;
+  }
+
+  if (!permission.granted) {
+    return (
+      <View style={[styles.fill, styles.permissionWrap]}>
+        <StatusBar barStyle="light-content" backgroundColor="#000" />
+        <MaterialIcons name="camera-alt" size={46} color="#AAA" />
+        <Text style={styles.permissionText}>Camera permission is required.</Text>
+        <TouchableOpacity style={[styles.permissionBtn, { backgroundColor: theme.primary }]} onPress={requestPermission}>
+          <Text style={styles.permissionBtnText}>Grant access</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.fill}>
-      <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
+      <StatusBar barStyle="light-content" backgroundColor="#000" translucent />
 
-      {/* Camera / Frozen image layer */}
-      {showCamera ? (
-        <CameraView
-          ref={cameraRef}
-          style={StyleSheet.absoluteFill}
-          facing="back"
-          enableTorch={torch}
-          onCameraReady={() => setReady(true)}
-          barcodeScannerSettings={barcodeMode ? { barcodeTypes: ['ean13', 'ean8', 'upc_a', 'upc_e', 'code128'] } : undefined}
-          onBarcodeScanned={barcodeMode && !barcodeLock.current ? handleBarcodeScanned : undefined}
-        />
-      ) : (
-        <Image source={{ uri: photoUri! }} style={StyleSheet.absoluteFill} resizeMode="cover" />
-      )}
+      <CameraView
+        ref={cameraRef}
+        style={StyleSheet.absoluteFill}
+        facing="back"
+        enableTorch={torch}
+        onCameraReady={() => setReady(true)}
+      />
 
-      {/* Top bar */}
+      {photoUri ? <Image source={{ uri: photoUri }} style={StyleSheet.absoluteFill} resizeMode="cover" /> : null}
+
+      <Animated.View pointerEvents="none" style={[styles.freezeOverlay, { opacity: freezeOpacity }]} />
+      <Animated.View pointerEvents="none" style={[styles.shutterOverlay, { opacity: shutterOpacity }]} />
+
       <View style={styles.topBar}>
-        <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={12} style={styles.topBtn}>
+        <TouchableOpacity style={styles.topBtn} onPress={() => navigation.goBack()}>
           <MaterialIcons name="close" size={22} color="#FFF" />
         </TouchableOpacity>
         <Text style={styles.topTitle}>Scan meal</Text>
-        <TouchableOpacity hitSlop={12} style={styles.topBtn} onPress={() => setHelpVisible(true)}>
-          <MaterialIcons name="help-outline" size={22} color="#FFF" />
+        <TouchableOpacity style={styles.topBtn} onPress={() => setTorch((prev) => !prev)}>
+          <MaterialIcons name={torch ? 'flash-on' : 'flash-off'} size={22} color="#FFF" />
         </TouchableOpacity>
       </View>
 
-      {/* Focus brackets */}
-      {showCamera && (
-        <View style={styles.bracketWrap} pointerEvents="none">
-          <View style={[styles.bracket, styles.bTL]} />
-          <View style={[styles.bracket, styles.bTR]} />
-          <View style={[styles.bracket, styles.bBL]} />
-          <View style={[styles.bracket, styles.bBR]} />
-          <Text style={styles.hintText}>{barcodeMode ? 'Point at product barcode' : 'Keep plate in frame'}</Text>
-        </View>
-      )}
-
-      {/* Bottom controls */}
-      {showCamera && (
+      {!photoUri && (
         <View style={styles.bottomBar}>
           <TouchableOpacity
-            style={[styles.torchBtn, torch && styles.torchBtnActive]}
-            onPress={() => setTorch(t => !t)}
-            activeOpacity={0.7}
-          >
-            <MaterialIcons name={torch ? 'flash-on' : 'flash-off'} size={22} color="#FFF" />
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.shutterOuter, !ready && { opacity: 0.4 }]}
-            onPress={handleShutter}
-            activeOpacity={0.7}
+            style={[styles.shutterOuter, !ready && { opacity: 0.45 }]}
             disabled={!ready}
+            onPress={handleShutter}
           >
             <View style={styles.shutterInner} />
           </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.torchBtn, barcodeMode && { backgroundColor: 'rgba(52,199,89,0.35)' }]}
-            onPress={() => { setBarcodeMode(b => !b); barcodeLock.current = false; }}
-            activeOpacity={0.7}
-          >
-            <MaterialIcons name="qr-code-scanner" size={22} color="#FFF" />
+          <TouchableOpacity onPress={handleSkip} style={styles.skipBtn}>
+            <Text style={styles.skipBtnText}>Skip</Text>
           </TouchableOpacity>
         </View>
       )}
 
-      {/* Analyzing overlay */}
       {checking && (
-        <View style={styles.analyzingWrap} pointerEvents="none">
+        <Animated.View style={[styles.analyzingWrap, { opacity: analyzingOpacity }]} pointerEvents="none">
           <View style={styles.analyzingPill}>
             <ActivityIndicator size="small" color="#FFF" />
             <Text style={styles.analyzingText}>Analyzing…</Text>
           </View>
-        </View>
-      )}
-
-      {/* Result card (floating overlay) */}
-      {!checking && (result || aiError || scannedBarcode) && (
-        <Animated.View style={[styles.cardOverlay, { transform: [{ translateY: sheetTranslateY }] }]} pointerEvents="box-none">
-          {/* AI / network error */}
-          {aiError && !result && (
-            <ResultCard
-              theme={theme}
-              accentColor={theme.warning}
-              title="AI unavailable"
-              roast="Could not reach the verification service 😭"
-              subtext="Check your connection and try again."
-              buttons={[
-                { label: 'Retry', onPress: handleRetry },
-                { label: 'Retake', onPress: handleRetake, secondary: true },
-              ]}
-            />
-          )}
-
-          {/* Barcode scanned */}
-          {scannedBarcode && !result && !aiError && (
-            <ResultCard
-              theme={theme}
-              accentColor={theme.success}
-              title="Barcode Scanned"
-              roast={`Product code: ${scannedBarcode.data} 📦✨`}
-              subtext={`Type: ${scannedBarcode.type.toUpperCase()}`}
-              buttons={[
-                { label: 'Confirm & Start', onPress: handleConfirm },
-                { label: 'Retake', onPress: handleRetake, secondary: true },
-              ]}
-            />
-          )}
-
-          {/* Valid verdict from backend */}
-          {result && (
-            <ResultCard
-              theme={theme}
-              accentColor={result.isFood ? theme.success : theme.danger}
-              title={
-                result.isFood
-                  ? nutrition?.food_label || 'Meal detected'
-                  : 'Not food'
-              }
-              confidence={result.confidence ? `${Math.round(result.confidence * 100)}%` : undefined}
-              roast={roast || undefined}
-              subtext={!result.isFood && result.retakeHint ? result.retakeHint : undefined}
-              calories={
-                result.isFood
-                  ? {
-                      nutrition,
-                      loading: nutritionLoading,
-                      error: nutritionError,
-                      onEdit: () => setCalEditVisible(true),
-                    }
-                  : undefined
-              }
-              buttons={
-                result.isFood
-                  ? [
-                      { label: 'Confirm & Start', onPress: handleConfirm },
-                      { label: 'Retake', onPress: handleRetake, secondary: true },
-                    ]
-                  : [{ label: 'Retake', onPress: handleRetake }]
-              }
-            />
-          )}
         </Animated.View>
       )}
 
-      {/* Calories edit modal */}
-      <CaloriesEditModal
-        visible={calEditVisible}
-        theme={theme}
-        initial={nutrition?.estimated_calories}
-        onSave={handleCaloriesSave}
-        onCancel={() => setCalEditVisible(false)}
-      />
+      {(result || aiError) && !checking && (
+        <Animated.View style={[styles.cardWrap, { transform: [{ translateY: cardTranslateY }] }]}>
+          <View style={styles.card}>
+            <Text style={[styles.cardTitle, { color: aiError ? theme.warning : result?.isFood ? theme.success : theme.danger }]}>
+              {aiError ? 'AI unavailable' : result?.isFood ? 'Meal detected' : 'Not food'}
+            </Text>
+            <Text style={styles.cardMessage}>
+              {aiError || roast || 'Please try another photo.'}
+            </Text>
 
-      {/* Help tips modal */}
-      <Modal visible={helpVisible} transparent animationType="fade" onRequestClose={() => setHelpVisible(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalCard, { backgroundColor: theme.card }]}>
-            <Text style={[styles.modalTitle, { color: theme.text }]}>Scan Tips</Text>
-            {[
-              { icon: 'restaurant' as const, tip: 'Keep plate centered in the frame' },
-              { icon: 'wb-sunny' as const, tip: 'Use good lighting — avoid shadows' },
-              { icon: 'pan-tool' as const, tip: 'Hold still until you see the result' },
-            ].map((item, i) => (
-              <View key={i} style={styles.tipRow}>
-                <MaterialIcons name={item.icon} size={18} color={theme.primary} />
-                <Text style={[styles.tipText, { color: theme.text }]}>{item.tip}</Text>
-              </View>
-            ))}
-            <TouchableOpacity style={[styles.modalClose, { backgroundColor: theme.primary }]} onPress={() => setHelpVisible(false)}>
-              <Text style={styles.modalCloseText}>Got it</Text>
-            </TouchableOpacity>
+            <View style={styles.cardActions}>
+              {result?.isFood ? (
+                <TouchableOpacity style={[styles.actionBtn, { backgroundColor: theme.primary }]} onPress={handleContinue}>
+                  <Text style={styles.actionBtnText}>Confirm & Start</Text>
+                </TouchableOpacity>
+              ) : null}
+              <TouchableOpacity
+                style={[styles.actionBtn, { backgroundColor: result?.isFood ? '#2A2A2A' : theme.primary }]}
+                onPress={handleRetake}
+              >
+                <Text style={styles.actionBtnText}>{aiError ? 'Retry' : 'Retake'}</Text>
+              </TouchableOpacity>
+            </View>
           </View>
-        </View>
-      </Modal>
+        </Animated.View>
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   fill: { flex: 1, backgroundColor: '#000' },
-  permBox: { justifyContent: 'center', alignItems: 'center', gap: 12 },
-  permText: { color: '#CCC', fontSize: 14, textAlign: 'center', paddingHorizontal: 40 },
-  permBtn: { borderRadius: 20, paddingHorizontal: 24, paddingVertical: 10 },
-  permBtnText: { color: '#FFF', fontSize: 14, fontWeight: '700' },
+  permissionWrap: { justifyContent: 'center', alignItems: 'center', gap: 10 },
+  permissionText: { color: '#CCC', fontSize: 14 },
+  permissionBtn: { borderRadius: 18, paddingHorizontal: 20, paddingVertical: 10 },
+  permissionBtnText: { color: '#FFF', fontSize: 14, fontWeight: '700' },
 
   topBar: {
-    position: 'absolute', top: 0, left: 0, right: 0,
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingTop: Platform.OS === 'android' ? 44 : 54,
-    paddingHorizontal: 16, paddingBottom: 10, zIndex: 10,
+    position: 'absolute',
+    top: Platform.OS === 'android' ? 36 : 54,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    zIndex: 12,
   },
   topBtn: {
-    width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(0,0,0,0.35)',
-    justifyContent: 'center', alignItems: 'center',
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   topTitle: { color: '#FFF', fontSize: 16, fontWeight: '700' },
 
-  bracketWrap: {
-    position: 'absolute', top: SH * 0.22, left: SW * 0.15,
-    width: SW * 0.7, height: SW * 0.7, zIndex: 5,
-  },
-  bracket: {
-    position: 'absolute', width: BRACKET, height: BRACKET,
-    borderColor: 'rgba(255,255,255,0.4)', borderWidth: 2,
-  },
-  bTL: { top: 0, left: 0, borderRightWidth: 0, borderBottomWidth: 0, borderTopLeftRadius: 14 },
-  bTR: { top: 0, right: 0, borderLeftWidth: 0, borderBottomWidth: 0, borderTopRightRadius: 14 },
-  bBL: { bottom: 0, left: 0, borderRightWidth: 0, borderTopWidth: 0, borderBottomLeftRadius: 14 },
-  bBR: { bottom: 0, right: 0, borderLeftWidth: 0, borderTopWidth: 0, borderBottomRightRadius: 14 },
-  hintText: {
-    position: 'absolute', bottom: -28, alignSelf: 'center',
-    color: 'rgba(255,255,255,0.55)', fontSize: 12, fontWeight: '500',
-  },
-
   bottomBar: {
-    position: 'absolute', bottom: 0, left: 0, right: 0,
-    height: 120, flexDirection: 'row', justifyContent: 'center', alignItems: 'center',
-    paddingHorizontal: 40, zIndex: 10,
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 26,
+    alignItems: 'center',
+    zIndex: 12,
   },
-  torchBtn: {
-    width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.15)',
-    justifyContent: 'center', alignItems: 'center',
-  },
-  torchBtnActive: { backgroundColor: 'rgba(255,204,0,0.35)' },
   shutterOuter: {
-    width: 72, height: 72, borderRadius: 36,
-    borderWidth: 4, borderColor: '#FFF',
-    justifyContent: 'center', alignItems: 'center',
-    marginHorizontal: 28,
+    width: 74,
+    height: 74,
+    borderRadius: 37,
+    borderWidth: 4,
+    borderColor: '#FFF',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  shutterInner: { width: 58, height: 58, borderRadius: 29, backgroundColor: '#FFF' },
+  shutterInner: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    backgroundColor: '#FFF',
+  },
+  skipBtn: { marginTop: 14, paddingVertical: 6, paddingHorizontal: 10 },
+  skipBtnText: { color: 'rgba(255,255,255,0.72)', fontSize: 13, fontWeight: '600' },
+
+  freezeOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#000',
+    zIndex: 6,
+  },
+  shutterOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#FFF',
+    zIndex: 20,
+  },
 
   analyzingWrap: {
     ...StyleSheet.absoluteFillObject,
-    justifyContent: 'center', alignItems: 'center', zIndex: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 18,
   },
   analyzingPill: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    backgroundColor: 'rgba(0,0,0,0.65)', borderRadius: 20,
-    paddingHorizontal: 18, paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(0,0,0,0.68)',
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
   },
   analyzingText: { color: '#FFF', fontSize: 14, fontWeight: '600' },
 
-  sheetWrap: {
-    position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 30,
+  cardWrap: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    bottom: 18,
+    zIndex: 22,
   },
-  cardOverlay: {
-    position: 'absolute', bottom: 0, left: 0, right: 0, top: 0, zIndex: 30,
+  card: {
+    backgroundColor: '#1C1C1E',
+    borderRadius: 18,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
   },
-
-  modalOverlay: {
-    flex: 1, backgroundColor: 'rgba(0,0,0,0.6)',
-    justifyContent: 'center', alignItems: 'center',
+  cardTitle: { fontSize: 17, fontWeight: '700' },
+  cardMessage: { color: 'rgba(255,255,255,0.82)', fontSize: 13, marginTop: 6, lineHeight: 18 },
+  cardActions: { flexDirection: 'row', gap: 10, marginTop: 14 },
+  actionBtn: {
+    flex: 1,
+    height: 44,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  modalCard: { width: SW * 0.78, borderRadius: 18, padding: 24 },
-  modalTitle: { fontSize: 17, fontWeight: '700', marginBottom: 16, textAlign: 'center' },
-  tipRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 14 },
-  tipText: { fontSize: 14, flex: 1 },
-  modalClose: {
-    marginTop: 8, borderRadius: 12,
-    height: 42, justifyContent: 'center', alignItems: 'center',
-  },
-  modalCloseText: { color: '#FFF', fontSize: 14, fontWeight: '700' },
+  actionBtnText: { color: '#FFF', fontSize: 14, fontWeight: '700' },
 });
