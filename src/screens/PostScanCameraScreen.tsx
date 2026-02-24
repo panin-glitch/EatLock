@@ -23,13 +23,15 @@ import {
   Modal,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { CameraView, useCameraPermissions } from 'expo-camera';
+import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-camera';
 import { useTheme } from '../theme/ThemeProvider';
 import { useAppState } from '../state/AppStateContext';
 import { getVisionService } from '../services/vision';
-import { getPreScanRoast, getPostScanRoast } from '../services/vision/roasts';
-import type { FoodCheckResult, CompareResult, CompareVerdict } from '../services/vision/types';
+import { getPostScanRoast } from '../services/vision/roasts';
+import type { CompareResult, CompareVerdict } from '../services/vision/types';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { ResultCard } from '../components/scan/ResultCard';
+import { DistractionRatingModal } from '../components/scan/DistractionRatingModal';
 
 const { width: SW, height: SH } = Dimensions.get('window');
 const BRACKET = 56;
@@ -39,7 +41,7 @@ type Props = NativeStackScreenProps<any, 'PostScanCamera'>;
 export default function PostScanCameraScreen({ navigation, route }: Props) {
   const { theme } = useTheme();
   const { activeSession, updateActiveSession, endSession } = useAppState();
-  const { preImageUri } = (route.params as { preImageUri: string }) || {};
+  const { preImageUri, preBarcodeData } = (route.params as { preImageUri: string; preBarcodeData?: { type: string; data: string } }) || {};
 
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef<CameraView>(null);
@@ -49,10 +51,17 @@ export default function PostScanCameraScreen({ navigation, route }: Props) {
 
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
-  const [foodCheck, setFoodCheck] = useState<FoodCheckResult | null>(null);
   const [compareResult, setCompareResult] = useState<CompareResult | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
+
+  // Barcode scanning
+  const [barcodeMode, setBarcodeMode] = useState(!!preBarcodeData);
+  const [scannedBarcode, setScannedBarcode] = useState<{ type: string; data: string } | null>(null);
+  const barcodeLock = useRef(false);
+
+  // Distraction rating
+  const [ratingVisible, setRatingVisible] = useState(false);
 
   const sheetAnim = useRef(new Animated.Value(0)).current;
 
@@ -63,7 +72,7 @@ export default function PostScanCameraScreen({ navigation, route }: Props) {
       <View style={[styles.fill, styles.permBox]}>
         <MaterialIcons name="camera-alt" size={48} color="#999" />
         <Text style={styles.permText}>Camera access is needed</Text>
-        <TouchableOpacity style={styles.permBtn} onPress={requestPermission}>
+        <TouchableOpacity style={[styles.permBtn, { backgroundColor: theme.primary }]} onPress={requestPermission}>
           <Text style={styles.permBtnText}>Grant Access</Text>
         </TouchableOpacity>
         <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginTop: 12 }}>
@@ -80,7 +89,6 @@ export default function PostScanCameraScreen({ navigation, route }: Props) {
       const pic = await cameraRef.current.takePictureAsync({ quality: 0.8, skipProcessing: false });
       if (!pic) return;
       setPhotoUri(pic.uri);
-      setFoodCheck(null);
       setCompareResult(null);
       setErrorMsg(null);
       processPhoto(pic.uri);
@@ -89,22 +97,58 @@ export default function PostScanCameraScreen({ navigation, route }: Props) {
     }
   };
 
+  // ── Barcode handler ──
+  const handleBarcodeScanned = async (scanResult: BarcodeScanningResult) => {
+    if (barcodeLock.current || checking || photoUri) return;
+    barcodeLock.current = true;
+    const barcode = { type: scanResult.type, data: scanResult.data };
+    setScannedBarcode(barcode);
+
+    // Auto-capture frozen frame
+    try {
+      const pic = await cameraRef.current?.takePictureAsync({ quality: 0.8, skipProcessing: false });
+      if (pic) setPhotoUri(pic.uri);
+    } catch (e) {
+      console.warn('[PostScan] barcode auto-capture failed', e);
+    }
+
+    // Compare with pre-scan barcode
+    if (preBarcodeData && barcode.data === preBarcodeData.data) {
+      // Match! Treat as EATEN
+      const matchResult: CompareResult = {
+        isSameScene: true,
+        duplicateScore: 0,
+        foodChangeScore: 1,
+        verdict: 'EATEN',
+        confidence: 1,
+        reasonCode: 'OK',
+        roastLine: 'Barcode match! Snack consumed. 🎉',
+        retakeHint: '',
+      };
+      setCompareResult(matchResult);
+      await updateActiveSession({
+        verification: {
+          ...activeSession?.verification,
+          compareResult: matchResult,
+        },
+        roastMessage: matchResult.roastLine,
+      });
+    } else if (preBarcodeData) {
+      // Mismatch
+      setErrorMsg(`Wrong barcode. Scan the same product (${preBarcodeData.data}).`);
+    } else {
+      setErrorMsg('Barcode scanned, but pre-scan didn\u2019t use a barcode.');
+    }
+    showSheet();
+  };
+
   const processPhoto = async (uri: string) => {
     setChecking(true);
     setAiError(null);
     const vision = getVisionService();
     try {
-      const check = await vision.verifyFood(uri);
-      setFoodCheck(check);
-
-      if (!check.isFood) {
-        // Genuine NOT_FOOD verdict from backend
-        setErrorMsg(check.roastLine || getPreScanRoast(check.reasonCode));
-        setChecking(false);
-        showSheet();
-        return;
-      }
-
+      // Skip verifyFood for after-photo — an empty plate is expected!
+      // Go straight to before/after comparison.
       const comparison = await vision.compareMeal(preImageUri, uri);
       setCompareResult(comparison);
 
@@ -112,7 +156,6 @@ export default function PostScanCameraScreen({ navigation, route }: Props) {
         postImageUri: uri,
         verification: {
           ...activeSession?.verification,
-          postCheck: check,
           compareResult: comparison,
         },
         roastMessage: comparison.roastLine,
@@ -121,7 +164,6 @@ export default function PostScanCameraScreen({ navigation, route }: Props) {
       const msg = err?.message || 'Unknown error';
       console.error('[PostScan] processPhoto error:', msg);
       // Network / Worker / OpenAI error → AI unavailable, not a food verdict
-      setFoodCheck(null);
       setCompareResult(null);
       setErrorMsg(null);
       setAiError(msg);
@@ -137,41 +179,55 @@ export default function PostScanCameraScreen({ navigation, route }: Props) {
   const handleRetake = () => {
     Animated.timing(sheetAnim, { toValue: 0, duration: 150, useNativeDriver: true }).start(() => {
       setPhotoUri(null);
-      setFoodCheck(null);
       setCompareResult(null);
       setErrorMsg(null);
       setAiError(null);
+      setScannedBarcode(null);
+      barcodeLock.current = false;
     });
   };
 
   const handleRetry = () => {
     if (!photoUri) return;
     Animated.timing(sheetAnim, { toValue: 0, duration: 150, useNativeDriver: true }).start(() => {
-      setFoodCheck(null);
       setCompareResult(null);
+      setErrorMsg(null);
+      setAiError(null);
+      setScannedBarcode(null);
+      barcodeLock.current = false;
       setErrorMsg(null);
       setAiError(null);
       processPhoto(photoUri);
     });
   };
 
-  const handleConfirm = async () => {
-    if (!compareResult) return;
-    const verdictToStatus: Record<string, 'VERIFIED' | 'PARTIAL' | 'FAILED' | 'INCOMPLETE'> = {
-      EATEN: 'VERIFIED', PARTIAL: 'PARTIAL', UNCHANGED: 'FAILED', UNVERIFIABLE: 'INCOMPLETE',
-    };
-    const status = verdictToStatus[compareResult.verdict] || 'INCOMPLETE';
-    await endSession(status, compareResult.roastLine);
+  const handleConfirm = () => {
+    if (!compareResult || compareResult.verdict !== 'EATEN') return;
+    // Show distraction rating before ending session
+    setRatingVisible(true);
+  };
+
+  const finishWithRating = async (rating?: number) => {
+    setRatingVisible(false);
+    // Save distraction rating to active session before ending
+    if (rating) {
+      await updateActiveSession({ distractionRating: rating });
+      // Small delay to let state settle before endSession reads activeSession
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    await endSession('VERIFIED', compareResult?.roastLine);
     navigation.reset({ index: 0, routes: [{ name: 'Main' }, { name: 'SessionSummary' }] });
   };
 
+  const isEaten = compareResult?.verdict === 'EATEN';
+
   // Verdict color
   const verdictColor = compareResult
-    ? compareResult.verdict === 'EATEN' ? '#34C759'
-      : compareResult.verdict === 'PARTIAL' ? '#FFCC00'
-        : compareResult.verdict === 'UNCHANGED' ? '#FF3B30'
-          : '#8E8E93'
-    : '#8E8E93';
+    ? compareResult.verdict === 'EATEN' ? theme.success
+      : compareResult.verdict === 'PARTIAL' ? theme.warning
+        : compareResult.verdict === 'UNCHANGED' ? theme.danger
+          : theme.textMuted
+    : theme.textMuted;
 
   const sheetTranslateY = sheetAnim.interpolate({ inputRange: [0, 1], outputRange: [350, 0] });
   const showCamera = !photoUri;
@@ -188,6 +244,8 @@ export default function PostScanCameraScreen({ navigation, route }: Props) {
           facing="back"
           enableTorch={torch}
           onCameraReady={() => setReady(true)}
+          barcodeScannerSettings={barcodeMode ? { barcodeTypes: ['ean13', 'ean8', 'upc_a', 'upc_e', 'code128'] } : undefined}
+          onBarcodeScanned={barcodeMode && !barcodeLock.current ? handleBarcodeScanned : undefined}
         />
       ) : (
         <Image source={{ uri: photoUri! }} style={StyleSheet.absoluteFill} resizeMode="cover" />
@@ -219,7 +277,7 @@ export default function PostScanCameraScreen({ navigation, route }: Props) {
           <View style={[styles.bracket, styles.bTR]} />
           <View style={[styles.bracket, styles.bBL]} />
           <View style={[styles.bracket, styles.bBR]} />
-          <Text style={styles.hintText}>Show your plate after eating</Text>
+          <Text style={styles.hintText}>{barcodeMode ? 'Scan the snack barcode' : 'Show your plate after eating'}</Text>
         </View>
       )}
 
@@ -245,8 +303,14 @@ export default function PostScanCameraScreen({ navigation, route }: Props) {
             <View style={styles.shutterInner} />
           </TouchableOpacity>
 
-          {/* Spacer to balance layout */}
-          <View style={styles.torchBtn} />
+          {/* Barcode toggle */}
+          <TouchableOpacity
+            style={[styles.torchBtn, barcodeMode && { backgroundColor: 'rgba(52,199,89,0.35)' }]}
+            onPress={() => { setBarcodeMode(b => !b); barcodeLock.current = false; }}
+            activeOpacity={0.7}
+          >
+            <MaterialIcons name="qr-code-scanner" size={22} color="#FFF" />
+          </TouchableOpacity>
         </View>
       )}
 
@@ -260,88 +324,63 @@ export default function PostScanCameraScreen({ navigation, route }: Props) {
         </View>
       )}
 
-      {/* Result bottom sheet */}
-      {!checking && (foodCheck || errorMsg || aiError) && photoUri && (
-        <Animated.View style={[styles.sheet, { transform: [{ translateY: sheetTranslateY }] }]}>
-          <View style={styles.sheetHandle} />
-
+      {/* Result card (floating overlay) */}
+      {!checking && (compareResult || errorMsg || aiError || scannedBarcode) && (photoUri || scannedBarcode) && (
+        <Animated.View style={[styles.cardOverlay, { transform: [{ translateY: sheetTranslateY }] }]} pointerEvents="box-none">
           {/* AI / network error state */}
-          {aiError && !foodCheck && !compareResult && (
-            <>
-              <View style={styles.sheetRow}>
-                <MaterialIcons name="cloud-off" size={20} color="#FF9500" />
-                <Text style={[styles.sheetTitle, { color: '#FF9500' }]}>AI unavailable</Text>
-              </View>
-              <Text style={styles.sheetRoast}>Could not reach the verification service. Check your connection and try again.</Text>
-              <View style={styles.sheetBtns}>
-                <TouchableOpacity style={[styles.sheetBtn, { backgroundColor: '#FF9500' }]} onPress={handleRetry}>
-                  <Text style={styles.sheetBtnText}>Retry</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={[styles.sheetBtn, { backgroundColor: '#2C2C2E' }]} onPress={handleRetake}>
-                  <Text style={styles.sheetBtnText}>Retake</Text>
-                </TouchableOpacity>
-              </View>
-            </>
+          {aiError && !compareResult && (
+            <ResultCard
+              theme={theme}
+              accentColor={theme.warning}
+              title="AI unavailable"
+              roast="Could not reach the verification service 😭"
+              subtext="Check your connection and try again."
+              buttons={[
+                { label: 'Retry', onPress: handleRetry },
+                { label: 'Retake', onPress: handleRetake, secondary: true },
+              ]}
+            />
           )}
 
-          {/* Genuine NOT_FOOD from backend verify step */}
+          {/* Error message (non-AI) */}
           {errorMsg && !compareResult && !aiError && (
-            <>
-              <View style={styles.sheetRow}>
-                <MaterialIcons name="error" size={20} color="#FF3B30" />
-                <Text style={[styles.sheetTitle, { color: '#FF3B30' }]}>
-                  {foodCheck && !foodCheck.isFood ? 'Not food' : 'Error'}
-                </Text>
-              </View>
-              <Text style={styles.sheetRoast}>{errorMsg}</Text>
-              <View style={styles.sheetBtns}>
-                <TouchableOpacity style={[styles.sheetBtn, { backgroundColor: '#34C759' }]} onPress={handleRetake}>
-                  <Text style={styles.sheetBtnText}>Retake</Text>
-                </TouchableOpacity>
-              </View>
-            </>
+            <ResultCard
+              theme={theme}
+              accentColor={theme.danger}
+              title="Error"
+              roast={errorMsg}
+              buttons={[
+                { label: 'Retake', onPress: handleRetake },
+              ]}
+            />
           )}
 
           {/* Comparison result */}
           {compareResult && (
-            <>
-              <View style={styles.sheetRow}>
-                <MaterialIcons
-                  name={compareResult.verdict === 'EATEN' ? 'emoji-events' : 'info'}
-                  size={20}
-                  color={verdictColor}
-                />
-                <Text style={[styles.sheetTitle, { color: verdictColor }]}>
-                  {compareResult.verdict === 'EATEN' ? 'Meal Finished!'
-                    : compareResult.verdict === 'PARTIAL' ? 'Partially Eaten'
-                      : compareResult.verdict === 'UNCHANGED' ? 'Not Eaten'
-                        : 'Uncertain'}
-                  {' '}({Math.round(compareResult.foodChangeScore * 100)}%)
-                </Text>
-              </View>
-              <Text style={styles.sheetRoast}>
-                {compareResult.roastLine || getPostScanRoast(compareResult.verdict)}
-              </Text>
-              {compareResult.verdict === 'UNVERIFIABLE' && compareResult.retakeHint ? (
-                <Text style={styles.sheetHint}>{compareResult.retakeHint}</Text>
-              ) : null}
-
-              {/* Buttons for comparison verdict */}
-              <View style={styles.sheetBtns}>
-                <TouchableOpacity
-                  style={[styles.sheetBtn, { backgroundColor: verdictColor === '#FF3B30' ? '#2C2C2E' : verdictColor }]}
-                  onPress={handleConfirm}
-                >
-                  <Text style={styles.sheetBtnText}>See Summary</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.sheetBtn, { backgroundColor: '#2C2C2E' }]}
-                  onPress={handleRetake}
-                >
-                  <Text style={styles.sheetBtnText}>Retake</Text>
-                </TouchableOpacity>
-              </View>
-            </>
+            <ResultCard
+              theme={theme}
+              accentColor={verdictColor}
+              title={
+                isEaten ? 'Plate Empty — Unlocked!'
+                  : compareResult.verdict === 'PARTIAL' ? 'Still has food'
+                    : compareResult.verdict === 'UNCHANGED' ? 'Plate not touched'
+                      : "Can't verify"
+              }
+              roast={
+                isEaten
+                  ? compareResult.roastLine || getPostScanRoast(compareResult.verdict)
+                  : compareResult.verdict === 'PARTIAL'
+                    ? 'Finish your food to unlock! 🥀'
+                    : compareResult.verdict === 'UNCHANGED'
+                      ? "You haven't eaten yet. Empty the plate to unlock 💀"
+                      : compareResult.retakeHint || 'Try again with the same angle and lighting 🙏'
+              }
+              buttons={
+                isEaten
+                  ? [{ label: 'Continue', onPress: handleConfirm }]
+                  : [{ label: 'Retake Photo', onPress: handleRetake }]
+              }
+            />
           )}
         </Animated.View>
       )}
@@ -349,24 +388,32 @@ export default function PostScanCameraScreen({ navigation, route }: Props) {
       {/* Help tips modal */}
       <Modal visible={helpVisible} transparent animationType="fade" onRequestClose={() => setHelpVisible(false)}>
         <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>After Photo Tips</Text>
+          <View style={[styles.modalCard, { backgroundColor: theme.card }]}>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>After Photo Tips</Text>
             {[
               { icon: 'restaurant' as const, tip: 'Show the same plate from a similar angle' },
               { icon: 'wb-sunny' as const, tip: 'Keep the same lighting as before' },
               { icon: 'pan-tool' as const, tip: 'Hold still until you see the result' },
             ].map((item, i) => (
               <View key={i} style={styles.tipRow}>
-                <MaterialIcons name={item.icon} size={18} color="#34C759" />
-                <Text style={styles.tipText}>{item.tip}</Text>
+                <MaterialIcons name={item.icon} size={18} color={theme.primary} />
+                <Text style={[styles.tipText, { color: theme.text }]}>{item.tip}</Text>
               </View>
             ))}
-            <TouchableOpacity style={styles.modalClose} onPress={() => setHelpVisible(false)}>
+            <TouchableOpacity style={[styles.modalClose, { backgroundColor: theme.primary }]} onPress={() => setHelpVisible(false)}>
               <Text style={styles.modalCloseText}>Got it</Text>
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
+
+      {/* Distraction rating modal */}
+      <DistractionRatingModal
+        visible={ratingVisible}
+        theme={theme}
+        onSubmit={(rating) => finishWithRating(rating)}
+        onSkip={() => finishWithRating()}
+      />
     </View>
   );
 }
@@ -376,7 +423,7 @@ const styles = StyleSheet.create({
 
   permBox: { justifyContent: 'center', alignItems: 'center', gap: 12 },
   permText: { color: '#CCC', fontSize: 14, textAlign: 'center', paddingHorizontal: 40 },
-  permBtn: { backgroundColor: '#34C759', borderRadius: 20, paddingHorizontal: 24, paddingVertical: 10 },
+  permBtn: { borderRadius: 20, paddingHorizontal: 24, paddingVertical: 10 },
   permBtnText: { color: '#FFF', fontSize: 14, fontWeight: '700' },
 
   topBar: {
@@ -386,7 +433,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16, paddingBottom: 10, zIndex: 10,
   },
   topBtn: {
-    width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(0,0,0,0.35)',
+    width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(0,0,0,0.35)',
     justifyContent: 'center', alignItems: 'center',
   },
   topTitle: { color: '#FFF', fontSize: 16, fontWeight: '700' },
@@ -400,12 +447,12 @@ const styles = StyleSheet.create({
   preThumbLabel: { color: 'rgba(255,255,255,0.6)', fontSize: 10, fontWeight: '600', marginTop: 3 },
 
   bracketWrap: {
-    position: 'absolute', top: SH * 0.22, left: SW * 0.12,
-    width: SW * 0.76, height: SW * 0.76, zIndex: 5,
+    position: 'absolute', top: SH * 0.22, left: SW * 0.15,
+    width: SW * 0.7, height: SW * 0.7, zIndex: 5,
   },
   bracket: {
     position: 'absolute', width: BRACKET, height: BRACKET,
-    borderColor: 'rgba(255,255,255,0.6)', borderWidth: 2.5,
+    borderColor: 'rgba(255,255,255,0.4)', borderWidth: 2,
   },
   bTL: { top: 0, left: 0, borderRightWidth: 0, borderBottomWidth: 0, borderTopLeftRadius: 14 },
   bTR: { top: 0, right: 0, borderLeftWidth: 0, borderBottomWidth: 0, borderTopRightRadius: 14 },
@@ -445,40 +492,24 @@ const styles = StyleSheet.create({
   },
   analyzingText: { color: '#FFF', fontSize: 14, fontWeight: '600' },
 
-  sheet: {
-    position: 'absolute', bottom: 0, left: 0, right: 0,
-    backgroundColor: '#1C1C1E', borderTopLeftRadius: 18, borderTopRightRadius: 18,
-    paddingHorizontal: 20, paddingTop: 10, paddingBottom: 34, zIndex: 30,
+  sheetWrap: {
+    position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 30,
   },
-  sheetHandle: {
-    width: 36, height: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.2)',
-    alignSelf: 'center', marginBottom: 12,
+  cardOverlay: {
+    position: 'absolute', bottom: 0, left: 0, right: 0, top: 0, zIndex: 30,
   },
-  sheetRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
-  sheetTitle: { fontSize: 16, fontWeight: '700' },
-  sheetRoast: { color: 'rgba(255,255,255,0.7)', fontSize: 13, lineHeight: 18, marginBottom: 4 },
-  sheetHint: { color: 'rgba(255,255,255,0.45)', fontSize: 12, marginBottom: 4 },
-  sheetBtns: { flexDirection: 'row', gap: 10, marginTop: 14 },
-  sheetBtn: {
-    flex: 1, height: 44, borderRadius: 12,
-    justifyContent: 'center', alignItems: 'center',
-  },
-  sheetBtnText: { color: '#FFF', fontSize: 14, fontWeight: '700' },
 
   /* Help modal */
   modalOverlay: {
     flex: 1, backgroundColor: 'rgba(0,0,0,0.6)',
     justifyContent: 'center', alignItems: 'center',
   },
-  modalCard: {
-    width: SW * 0.78, backgroundColor: '#1C1C1E', borderRadius: 18,
-    padding: 24,
-  },
-  modalTitle: { color: '#FFF', fontSize: 17, fontWeight: '700', marginBottom: 16, textAlign: 'center' },
+  modalCard: { width: SW * 0.78, borderRadius: 18, padding: 24 },
+  modalTitle: { fontSize: 17, fontWeight: '700', marginBottom: 16, textAlign: 'center' },
   tipRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 14 },
-  tipText: { color: 'rgba(255,255,255,0.8)', fontSize: 14, flex: 1 },
+  tipText: { fontSize: 14, flex: 1 },
   modalClose: {
-    marginTop: 8, backgroundColor: '#34C759', borderRadius: 12,
+    marginTop: 8, borderRadius: 12,
     height: 42, justifyContent: 'center', alignItems: 'center',
   },
   modalCloseText: { color: '#FFF', fontSize: 14, fontWeight: '700' },

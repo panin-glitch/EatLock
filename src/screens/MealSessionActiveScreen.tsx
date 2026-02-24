@@ -55,10 +55,11 @@ export default function MealSessionActiveScreen({ navigation, route }: Props) {
   const handleDone = () => {
     if (!activeSession || !canFinish) return;
 
-    // If we have a preImageUri, go to PostScanCamera for after-photo + comparison
-    if (activeSession.preImageUri) {
+    // If we have a preImageUri or barcode data, go to PostScanCamera for after-photo + comparison
+    if (activeSession.preImageUri || preBarcodeData) {
       navigation.navigate('PostScanCamera', {
         preImageUri: activeSession.preImageUri,
+        preBarcodeData,
       });
     } else {
       // No before photo (override was used) — end session as INCOMPLETE
@@ -99,6 +100,7 @@ export default function MealSessionActiveScreen({ navigation, route }: Props) {
   const s = makeStyles(theme);
   const blockedApps = activeSession?.blockedAppsAtTime ?? blockConfig.blockedApps.map((a) => a.name);
   const mealType = activeSession?.mealType ?? route.params?.mealType ?? '';
+  const preBarcodeData = route.params?.preBarcodeData as { type: string; data: string } | undefined;
 
   // Remaining time
   const remainingSec = Math.ceil(remainingMs / 1000);

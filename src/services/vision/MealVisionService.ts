@@ -6,7 +6,7 @@
  *   - MockVisionService   (Expo Go / dev offline testing)
  */
 
-import { FoodCheckResult, CompareResult } from './types';
+import { FoodCheckResult, CompareResult, NutritionEstimate } from './types';
 
 export interface MealVisionService {
   /**
@@ -23,4 +23,11 @@ export interface MealVisionService {
    * @returns CompareResult with verdict, confidence, roastLine
    */
   compareMeal(preImageUri: string, postImageUri: string): Promise<CompareResult>;
+
+  /**
+   * Estimate calories from a verified before-scan image.
+   * Uses the r2Key from a previous upload. Returns null on failure.
+   * @param r2Key - R2 object key from the upload step
+   */
+  estimateCalories(r2Key: string): Promise<NutritionEstimate | null>;
 }

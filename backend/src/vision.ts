@@ -17,7 +17,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 // ── Constants ────────────────────────────────
 
-const MODEL = 'gpt-4o';
+const MODEL = 'gpt-4o-mini';
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5 MB
 const OPENAI_API = 'https://api.openai.com/v1/responses';
 
@@ -154,7 +154,7 @@ const COMPARE_SCHEMA = {
 const VERIFY_SYSTEM = `You are EatLock's strict meal-photo verifier.
 Given a single photo, determine whether it shows REAL food on a plate/bowl that someone is about to eat.
 Be harsh: reject selfies, fingers covering the lens, screenshots, dark/blurry shots, and non-food objects.
-Write a short witty roastLine (max 18 words). If rejected, provide a helpful retakeHint (max 15 words).
+Write a short witty roastLine (max 18 words, include 1-2 emojis). If rejected, provide a helpful retakeHint (max 15 words).
 If accepted (isFood=true), set reasonCode to "OK", roastLine to a compliment, and retakeHint to empty string.
 quality.brightness/blur/framing are 0-1 scores (1 = perfect).
 Confidence is 0-1.`;
@@ -173,7 +173,7 @@ Rules:
 - foodChangeScore: 0 = no change, 1 = all food gone
 - isSameScene: are both photos from the same table/setting?
 
-Write a short witty roastLine (max 18 words). Provide retakeHint when UNVERIFIABLE.
+Write a short witty roastLine (max 18 words, include 1-2 emojis). Provide retakeHint when UNVERIFIABLE.
 Confidence is 0-1.`;
 
 // ── OpenAI Responses API call ────────────────

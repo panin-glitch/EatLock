@@ -13,7 +13,7 @@ Return ONLY valid JSON (no markdown, no code fences). Use this exact schema:
   "confidence": <number 0-1>,
   "finished_score": null,
   "reason": "<short explanation, max 30 words>",
-  "roast": "<short playful non-hateful roast about their meal, max 20 words>",
+  "roast": "<short playful non-hateful roast about their meal, max 20 words, include 1-2 emojis>",
   "signals": {
     "has_food": <boolean>,
     "food_type": "<string or null>",
@@ -43,7 +43,7 @@ Return ONLY valid JSON (no markdown, no code fences). Use this exact schema:
   "confidence": <number 0-1>,
   "finished_score": <number 0-1, where 1 = completely finished, 0 = untouched>,
   "reason": "<short explanation, max 30 words>",
-  "roast": "<short playful non-hateful roast about their eating, max 20 words>",
+  "roast": "<short playful non-hateful roast about their eating, max 20 words, include 1-2 emojis>",
   "signals": {
     "plate_empty": <boolean>,
     "food_remaining_pct": <number 0-100>,

@@ -15,6 +15,8 @@ interface Props {
   nextMealLabel: string | null; // e.g. "Lunch • 2:00 PM • in 45m"
   mealsToday: number;
   mealsGoal: number; // total scheduled for today
+  caloriesToday: number;
+  calorieGoal: number;
   onResume: () => void;
   onStartMeal: () => void;
 }
@@ -68,6 +70,8 @@ export default function HeroCard({
   nextMealLabel,
   mealsToday,
   mealsGoal,
+  caloriesToday,
+  calorieGoal,
   onResume,
   onStartMeal,
 }: Props) {
@@ -75,8 +79,8 @@ export default function HeroCard({
   const isActive = !!activeSession;
   const progress = isActive
     ? 0.5 // Placeholder; could compute from session duration
-    : mealsGoal > 0
-      ? mealsToday / mealsGoal
+    : calorieGoal > 0
+      ? caloriesToday / calorieGoal
       : 0;
 
   return (
@@ -106,7 +110,7 @@ export default function HeroCard({
               {nextMealLabel || 'No meals scheduled'}
             </Text>
             <Text style={[styles.heroSub, { color: theme.textSecondary }]}>
-              {mealsToday}/{mealsGoal} meals today
+              {caloriesToday > 0 ? `${caloriesToday} cal` : '0 cal'} · {mealsToday}/{mealsGoal} meals
             </Text>
           </>
         )}
@@ -124,9 +128,12 @@ export default function HeroCard({
           {isActive ? (
             <MaterialIcons name="restaurant" size={22} color={theme.primary} />
           ) : (
-            <Text style={[styles.ringText, { color: theme.text }]}>
-              {mealsToday}/{mealsGoal}
-            </Text>
+            <>
+              <Text style={[styles.ringText, { color: theme.text }]}>
+                {caloriesToday > 0 ? caloriesToday : 0}
+              </Text>
+              <Text style={[styles.ringUnit, { color: theme.textSecondary }]}>cal</Text>
+            </>
           )}
         </View>
       </View>
@@ -170,4 +177,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   ringText: { fontSize: 14, fontWeight: '700' },
+  ringUnit: { fontSize: 9, fontWeight: '500', marginTop: -1 },
 });
