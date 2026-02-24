@@ -127,7 +127,7 @@ const styles = StyleSheet.create({
   container: {
     overflow: 'hidden',
     borderRadius: 16,
-    marginBottom: 10,
+    marginBottom: 12,
   },
   deleteWrap: {
     position: 'absolute',

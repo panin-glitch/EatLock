@@ -1,5 +1,4 @@
 import type { Env } from './index';
-import type { SupabaseClient } from '@supabase/supabase-js';
 
 const MODEL = 'gpt-4o-mini';
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -63,18 +62,38 @@ function checkActive(key: string): boolean {
 
 async function getUser(
   request: Request,
-  supabase: SupabaseClient,
+  env: Env,
 ): Promise<{ user_id: string } | Response> {
   const authHeader = request.headers.get('Authorization');
   if (!authHeader?.startsWith('Bearer ')) {
     return err('Missing or invalid Authorization header', 401);
   }
-  const token = authHeader.slice(7);
-  const { data, error: authErr } = await supabase.auth.getUser(token);
-  if (authErr || !data.user) {
+  const jwt = authHeader.slice(7).trim();
+  if (jwt.split('.').length !== 3) {
     return err('Invalid or expired token', 401);
   }
-  return { user_id: data.user.id };
+
+  console.log('[Auth] supabase host:', new URL(env.SUPABASE_URL).host);
+  console.log('[Auth] token head:', jwt.slice(0, 12), 'len:', jwt.length);
+
+  const whoamiRes = await fetch(`${env.SUPABASE_URL}/auth/v1/user`, {
+    method: 'GET',
+    headers: {
+      apikey: env.SUPABASE_SERVICE_KEY,
+      Authorization: `Bearer ${jwt}`,
+    },
+  });
+
+  if (whoamiRes.status === 401 || !whoamiRes.ok) {
+    return err('Invalid or expired token', 401);
+  }
+
+  const whoami = (await whoamiRes.json().catch(() => null)) as { id?: string } | null;
+  if (!whoami?.id) {
+    return err('Invalid or expired token', 401);
+  }
+
+  return { user_id: whoami.id };
 }
 
 async function r2ToDataUrl(bucket: R2Bucket, key: string): Promise<string | null> {
@@ -133,9 +152,8 @@ Never claim certainty.`;
 export async function handleNutritionEstimate(
   request: Request,
   env: Env,
-  supabase: SupabaseClient,
 ): Promise<Response> {
-  const auth = await getUser(request, supabase);
+  const auth = await getUser(request, env);
   if (auth instanceof Response) return auth;
 
   if (!checkRate(`nutrition:${auth.user_id}`, NUTRITION_LIMIT)) {

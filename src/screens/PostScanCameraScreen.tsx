@@ -259,14 +259,9 @@ export default function PostScanCameraScreen({ navigation, route }: Props) {
           <MaterialIcons name="close" size={22} color="#FFF" />
         </TouchableOpacity>
         <Text style={styles.topTitle}>Scan meal</Text>
-        <View style={styles.topRightWrap}>
-          <TouchableOpacity style={styles.topBtn} onPress={() => setTorch((prev) => !prev)}>
-            <MaterialIcons name={torch ? 'flash-on' : 'flash-off'} size={22} color="#FFF" />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.topBtn} onPress={() => setHelpVisible(true)}>
-            <Text style={styles.helpText}>?</Text>
-          </TouchableOpacity>
-        </View>
+        <TouchableOpacity style={styles.topBtn} onPress={() => setHelpVisible(true)}>
+          <Text style={styles.helpText}>?</Text>
+        </TouchableOpacity>
       </View>
 
       {preImageUri && !photoUri && (
@@ -277,27 +272,51 @@ export default function PostScanCameraScreen({ navigation, route }: Props) {
       )}
 
       {!photoUri && (
-        <View style={styles.bottomBar}>
-          <TouchableOpacity
-            style={[styles.shutterOuter, !ready && { opacity: 0.45 }]}
-            disabled={!ready}
-            onPress={handleShutter}
-          >
-            <View style={styles.shutterInner} />
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.barcodePill, barcodeMode && styles.barcodePillActive]}
-            onPress={() => {
-              barcodeLockRef.current = false;
-              setBarcodeMode((prev) => !prev);
-            }}
-          >
-            <MaterialIcons name="qr-code-scanner" size={16} color="#FFF" />
-            <Text style={styles.barcodeText}>Barcode</Text>
-          </TouchableOpacity>
+        <View style={styles.controlsArea}>
+          <View style={styles.modeRow}>
+            <TouchableOpacity
+              style={[styles.modeChip, !barcodeMode && styles.modeChipActive]}
+              onPress={() => {
+                barcodeLockRef.current = false;
+                setBarcodeMode(false);
+              }}
+            >
+              <Text style={[styles.modeChipText, !barcodeMode && styles.modeChipTextActive]}>Scan meal</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.modeChip, barcodeMode && styles.modeChipActive]}
+              onPress={() => {
+                barcodeLockRef.current = false;
+                setBarcodeMode(true);
+              }}
+            >
+              <Text style={[styles.modeChipText, barcodeMode && styles.modeChipTextActive]}>Barcode</Text>
+            </TouchableOpacity>
+          </View>
 
           {barcodeMode ? <Text style={styles.barcodeHint}>Scan barcode</Text> : null}
+
+          <View style={styles.bottomControlsRow}>
+            <TouchableOpacity style={styles.bottomIconBtn} onPress={() => setTorch((prev) => !prev)}>
+              <MaterialIcons name={torch ? 'flash-on' : 'flash-off'} size={20} color="#FFF" />
+            </TouchableOpacity>
+
+            {barcodeMode ? (
+              <View style={styles.shutterPlaceholder}>
+                <Text style={styles.shutterPlaceholderText}>Scanning…</Text>
+              </View>
+            ) : (
+              <TouchableOpacity
+                style={[styles.shutterOuter, !ready && { opacity: 0.45 }]}
+                disabled={!ready}
+                onPress={handleShutter}
+              >
+                <View style={styles.shutterInner} />
+              </TouchableOpacity>
+            )}
+
+            <View style={styles.bottomRightSpacer} />
+          </View>
         </View>
       )}
 
@@ -305,7 +324,7 @@ export default function PostScanCameraScreen({ navigation, route }: Props) {
         <Animated.View style={[styles.analyzingWrap, { opacity: analyzingOpacity }]} pointerEvents="none">
           <View style={styles.analyzingPill}>
             <ActivityIndicator size="small" color="#FFF" />
-            <Text style={styles.analyzingText}>Analyzing…</Text>
+            <Text style={styles.analyzingText}>Analyzing food...</Text>
           </View>
         </Animated.View>
       )}
@@ -368,10 +387,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     zIndex: 12,
   },
-  topRightWrap: {
-    flexDirection: 'row',
-    gap: 8,
-  },
   topBtn: {
     width: 44,
     height: 44,
@@ -399,13 +414,42 @@ const styles = StyleSheet.create({
   },
   preThumbLabel: { color: 'rgba(255,255,255,0.65)', fontSize: 10, fontWeight: '600', marginTop: 2 },
 
-  bottomBar: {
+  controlsArea: {
     position: 'absolute',
     left: 0,
     right: 0,
-    bottom: 26,
+    bottom: 22,
     alignItems: 'center',
     zIndex: 12,
+  },
+  modeRow: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+    borderRadius: 18,
+    padding: 3,
+    gap: 6,
+    marginBottom: 8,
+  },
+  modeChip: {
+    minWidth: 100,
+    height: 32,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+  },
+  modeChipActive: {
+    backgroundColor: 'rgba(255,255,255,0.2)',
+  },
+  modeChipText: {
+    color: 'rgba(255,255,255,0.75)',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  modeChipTextActive: {
+    color: '#FFF',
   },
   shutterOuter: {
     width: 74,
@@ -422,28 +466,47 @@ const styles = StyleSheet.create({
     borderRadius: 29,
     backgroundColor: '#FFF',
   },
-  barcodePill: {
-    marginTop: 14,
+  bottomControlsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 16,
+    justifyContent: 'space-between',
+    width: '100%',
+    paddingHorizontal: 36,
+  },
+  bottomIconBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     backgroundColor: 'rgba(0,0,0,0.4)',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.22)',
+    borderColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  barcodePillActive: {
-    backgroundColor: 'rgba(52,199,89,0.35)',
-    borderColor: 'rgba(52,199,89,0.8)',
+  bottomRightSpacer: {
+    width: 42,
+    height: 42,
   },
-  barcodeText: { color: '#FFF', fontSize: 12, fontWeight: '600' },
+  shutterPlaceholder: {
+    width: 74,
+    height: 74,
+    borderRadius: 37,
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.35)',
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  shutterPlaceholderText: {
+    color: 'rgba(255,255,255,0.82)',
+    fontSize: 11,
+    fontWeight: '600',
+  },
   barcodeHint: {
     color: 'rgba(255,255,255,0.7)',
     fontSize: 12,
     fontWeight: '500',
-    marginTop: 6,
+    marginBottom: 8,
   },
 
   freezeOverlay: {
@@ -458,8 +521,10 @@ const styles = StyleSheet.create({
   },
 
   analyzingWrap: {
-    ...StyleSheet.absoluteFillObject,
-    justifyContent: 'center',
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 132,
     alignItems: 'center',
     zIndex: 18,
   },

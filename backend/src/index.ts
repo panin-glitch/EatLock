@@ -64,18 +64,54 @@ function checkWindowLimit(
 
 async function getUser(
   request: Request,
-  supabase: SupabaseClient
+  env: Env,
 ): Promise<{ user_id: string } | Response> {
   const authHeader = request.headers.get('Authorization');
   if (!authHeader?.startsWith('Bearer ')) {
     return error('Missing or invalid Authorization header', 401);
   }
-  const token = authHeader.slice(7);
-  const { data, error: authErr } = await supabase.auth.getUser(token);
-  if (authErr || !data.user) {
+  const jwt = authHeader.slice(7).trim();
+  if (jwt.split('.').length !== 3) {
     return error('Invalid or expired token', 401);
   }
-  return { user_id: data.user.id };
+
+  const configuredHost = new URL(env.SUPABASE_URL).host;
+  const appSupabaseUrl = request.headers.get('x-eatlock-supabase-url');
+  if (appSupabaseUrl) {
+    try {
+      const appHost = new URL(appSupabaseUrl).host;
+      if (appHost !== configuredHost) {
+        console.error(`[Auth] Supabase URL mismatch app=${appHost} worker=${configuredHost}`);
+      }
+    } catch {
+      console.error('[Auth] Invalid x-eatlock-supabase-url header from client');
+    }
+  }
+
+  console.log('[Auth] supabase host:', configuredHost);
+  console.log('[Auth] token head:', jwt.slice(0, 12), 'len:', jwt.length);
+
+  const whoamiRes = await fetch(`${env.SUPABASE_URL}/auth/v1/user`, {
+    method: 'GET',
+    headers: {
+      apikey: env.SUPABASE_SERVICE_KEY,
+      Authorization: `Bearer ${jwt}`,
+    },
+  });
+
+  if (whoamiRes.status === 401) {
+    return error('Invalid or expired token', 401);
+  }
+  if (!whoamiRes.ok) {
+    return error('Invalid or expired token', 401);
+  }
+
+  const whoami = (await whoamiRes.json().catch(() => null)) as { id?: string } | null;
+  if (!whoami?.id) {
+    return error('Invalid or expired token', 401);
+  }
+
+  return { user_id: whoami.id };
 }
 
 // ── Routes ───────────────────────────────────
@@ -85,7 +121,7 @@ async function handleSignedUpload(
   env: Env,
   supabase: SupabaseClient
 ): Promise<Response> {
-  const auth = await getUser(request, supabase);
+  const auth = await getUser(request, env);
   if (auth instanceof Response) return auth;
   const ip = getClientIp(request);
 
@@ -118,7 +154,7 @@ async function handleDirectUpload(
   r2Key: string,
   supabase: SupabaseClient
 ): Promise<Response> {
-  const auth = await getUser(request, supabase);
+  const auth = await getUser(request, env);
   if (auth instanceof Response) return auth;
   const ip = getClientIp(request);
 
@@ -170,7 +206,7 @@ async function handleEnqueueVision(
   env: Env,
   supabase: SupabaseClient
 ): Promise<Response> {
-  const auth = await getUser(request, supabase);
+  const auth = await getUser(request, env);
   if (auth instanceof Response) return auth;
 
   const body = await request.json() as {
@@ -226,7 +262,7 @@ async function handleGetJob(
   jobId: string,
   supabase: SupabaseClient
 ): Promise<Response> {
-  const auth = await getUser(request, supabase);
+  const auth = await getUser(request, env);
   if (auth instanceof Response) return auth;
 
   const { data: job, error: dbErr } = await supabase
@@ -281,7 +317,9 @@ export default {
       });
     }
 
-    const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_KEY);
+    const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_KEY, {
+      auth: { persistSession: false },
+    });
     const requestId = crypto.randomUUID();
 
     const finalize = (response: Response): Response => {
@@ -311,22 +349,17 @@ export default {
 
       // POST /v1/vision/verify-food (auth required, r2Key-based)
       if (method === 'POST' && path === '/v1/vision/verify-food') {
-        return finalize(await handleVerifyFood(request, env, supabase));
+        return finalize(await handleVerifyFood(request, env));
       }
 
       // POST /v1/vision/compare-meal (auth required, r2Key-based)
       if (method === 'POST' && path === '/v1/vision/compare-meal') {
-        return finalize(await handleCompareMeal(request, env, supabase));
+        return finalize(await handleCompareMeal(request, env));
       }
 
       // POST /v1/nutrition/estimate
       if (method === 'POST' && path === '/v1/nutrition/estimate') {
-        return finalize(await handleNutritionEstimate(request, env, supabase));
-      }
-
-      // POST /v1/nutrition/estimate (auth required, r2Key-based)
-      if (method === 'POST' && path === '/v1/nutrition/estimate') {
-        return await handleNutritionEstimate(request, env, supabase);
+        return finalize(await handleNutritionEstimate(request, env));
       }
 
       // POST /v1/vision/enqueue
