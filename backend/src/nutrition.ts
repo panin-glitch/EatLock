@@ -1,12 +1,3 @@
-/**
- * Nutrition estimation handler.
- *
- * POST /v1/nutrition/estimate — estimate calories from a food image.
- *
- * Uses gpt-4o-mini with detail:"low" for cheap, fast calorie estimation.
- * Strict JSON schema output. Rate-limited to 10/day per user.
- */
-
 import type { Env } from './index';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
@@ -15,23 +6,13 @@ const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const OPENAI_API = 'https://api.openai.com/v1/responses';
 const NUTRITION_LIMIT = 10;
 const WINDOW_MS = 24 * 60 * 60 * 1000;
+const SHORT_WINDOW_MS = 60 * 1000;
+const NUTRITION_BURST_LIMIT = 6;
+const ACTIVE_LIMIT = 3;
 
-// Rate limiting (in-memory, per cold-start)
 const rateBuckets = new Map<string, { count: number; resetAt: number }>();
-
-function checkRate(key: string, limit: number): { ok: boolean } {
-  const now = Date.now();
-  const bucket = rateBuckets.get(key);
-  if (!bucket || now > bucket.resetAt) {
-    rateBuckets.set(key, { count: 1, resetAt: now + WINDOW_MS });
-    return { ok: true };
-  }
-  if (bucket.count >= limit) return { ok: false };
-  bucket.count++;
-  return { ok: true };
-}
-
-// ── Helpers ──
+const burstBuckets = new Map<string, number[]>();
+const activeBuckets = new Map<string, number[]>();
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -42,6 +23,42 @@ function json(data: unknown, status = 200): Response {
 
 function err(message: string, status = 400): Response {
   return json({ error: message }, status);
+}
+
+function checkRate(key: string, limit: number): boolean {
+  const now = Date.now();
+  const bucket = rateBuckets.get(key);
+  if (!bucket || now > bucket.resetAt) {
+    rateBuckets.set(key, { count: 1, resetAt: now + WINDOW_MS });
+    return true;
+  }
+  if (bucket.count >= limit) return false;
+  bucket.count++;
+  return true;
+}
+
+function checkBurst(key: string, limit: number, windowMs: number): boolean {
+  const now = Date.now();
+  const current = (burstBuckets.get(key) || []).filter((ts) => now - ts < windowMs);
+  if (current.length >= limit) {
+    burstBuckets.set(key, current);
+    return false;
+  }
+  current.push(now);
+  burstBuckets.set(key, current);
+  return true;
+}
+
+function checkActive(key: string): boolean {
+  const now = Date.now();
+  const current = (activeBuckets.get(key) || []).filter((ts) => now - ts < SHORT_WINDOW_MS);
+  if (current.length >= ACTIVE_LIMIT) {
+    activeBuckets.set(key, current);
+    return false;
+  }
+  current.push(now);
+  activeBuckets.set(key, current);
+  return true;
 }
 
 async function getUser(
@@ -64,6 +81,11 @@ async function r2ToDataUrl(bucket: R2Bucket, key: string): Promise<string | null
   const obj = await bucket.get(key);
   if (!obj) return null;
 
+  const ct = obj.httpMetadata?.contentType || 'image/jpeg';
+  if (ct.toLowerCase().split(';')[0] !== 'image/jpeg') {
+    throw { status: 415, message: `Unsupported content type for ${key}` };
+  }
+
   const bytes = await obj.arrayBuffer();
   if (bytes.byteLength > MAX_IMAGE_BYTES) {
     throw { status: 413, message: `Image ${key} exceeds 5 MB limit` };
@@ -74,12 +96,9 @@ async function r2ToDataUrl(bucket: R2Bucket, key: string): Promise<string | null
   for (let i = 0; i < uint8.length; i++) {
     binary += String.fromCharCode(uint8[i]);
   }
-  const b64 = btoa(binary);
-  const ct = obj.httpMetadata?.contentType || 'image/jpeg';
-  return `data:${ct};base64,${b64}`;
-}
 
-// ── Schema & Prompt ──
+  return `data:${ct};base64,${btoa(binary)}`;
+}
 
 const NUTRITION_SCHEMA = {
   type: 'json_schema' as const,
@@ -94,9 +113,6 @@ const NUTRITION_SCHEMA = {
       max_calories: { type: 'number' },
       confidence: { type: 'number' },
       notes: { type: 'string' },
-      protein_g: { type: ['number', 'null'] },
-      carbs_g: { type: ['number', 'null'] },
-      fat_g: { type: ['number', 'null'] },
     },
     required: [
       'food_label',
@@ -105,29 +121,14 @@ const NUTRITION_SCHEMA = {
       'max_calories',
       'confidence',
       'notes',
-      'protein_g',
-      'carbs_g',
-      'fat_g',
     ],
     additionalProperties: false,
   },
 };
 
-const NUTRITION_SYSTEM = `You are a nutrition estimation assistant. Given a photo of food on a plate, estimate the total calories and macros for the ENTIRE visible meal.
-
-Rules:
-- Identify the food items visible.
-- Estimate portion sizes visually (small, medium, large).
-- Return a single recommended calorie estimate, plus a min/max range.
-- Estimate macros (protein_g, carbs_g, fat_g) if possible. If you cannot estimate them with reasonable confidence, return null for them.
-- Confidence is 0-1 (1 = very confident, e.g. a single well-known item; 0.3 = uncertain, mixed/unclear items).
-- food_label should be a short description like "Grilled chicken with rice and salad".
-- notes should mention key assumptions (e.g. "Assumed medium portion, no dressing").
-- This is an ESTIMATE. Never claim certainty.
-- Keep food_label under 50 characters.
-- Keep notes under 80 characters.`;
-
-// ── Handler ──
+const NUTRITION_SYSTEM = `Estimate meal calories from a single food photo.
+Return a realistic range and a concise assumption note.
+Never claim certainty.`;
 
 export async function handleNutritionEstimate(
   request: Request,
@@ -137,9 +138,19 @@ export async function handleNutritionEstimate(
   const auth = await getUser(request, supabase);
   if (auth instanceof Response) return auth;
 
-  const rate = checkRate(`nutrition:${auth.user_id}`, NUTRITION_LIMIT);
-  if (!rate.ok) {
+  if (!checkRate(`nutrition:${auth.user_id}`, NUTRITION_LIMIT)) {
     return err('Rate limit exceeded (10 nutrition estimates/day)', 429);
+  }
+
+  if (!checkActive(`nutrition-active:${auth.user_id}`)) {
+    return err('Too many active scan requests. Please wait a moment.', 429);
+  }
+
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  const burstUserOk = checkBurst(`nutrition:user:${auth.user_id}`, NUTRITION_BURST_LIMIT, SHORT_WINDOW_MS);
+  const burstIpOk = checkBurst(`nutrition:ip:${ip}`, NUTRITION_BURST_LIMIT * 2, SHORT_WINDOW_MS);
+  if (!burstUserOk || !burstIpOk) {
+    return err('Too many nutrition requests. Please slow down.', 429);
   }
 
   let body: { r2Key?: string };
@@ -152,7 +163,9 @@ export async function handleNutritionEstimate(
   if (!body.r2Key || typeof body.r2Key !== 'string') {
     return err('Missing "r2Key" field');
   }
-
+  if (Object.keys(body as Record<string, unknown>).length !== 1) {
+    return err('nutrition estimate accepts exactly one image key', 400);
+  }
   if (!body.r2Key.includes(auth.user_id)) {
     return err('r2Key does not belong to user', 403);
   }
@@ -170,7 +183,7 @@ export async function handleNutritionEstimate(
         {
           role: 'user',
           content: [
-            { type: 'input_text', text: 'Estimate the calories and macros for this meal.' },
+            { type: 'input_text', text: 'Estimate calories for this meal.' },
             { type: 'input_image', image_url: dataUrl, detail: 'low' },
           ],
         },
@@ -188,8 +201,6 @@ export async function handleNutritionEstimate(
     });
 
     if (!res.ok) {
-      const text = await res.text();
-      console.error('[nutrition/estimate] OpenAI error:', res.status, text.slice(0, 300));
       return err(`AI error: ${res.status}`, 502);
     }
 
@@ -203,11 +214,9 @@ export async function handleNutritionEstimate(
       return err('No text in OpenAI response', 502);
     }
 
-    const result = JSON.parse(textContent.text);
-    return json(result);
+    return json(JSON.parse(textContent.text));
   } catch (e: any) {
-    if (e.status === 413) return err(e.message, 413);
-    console.error('[nutrition/estimate]', e);
+    if (e.status === 413 || e.status === 415) return err(e.message, e.status);
     return err(`Nutrition estimation error: ${e.message}`, 502);
   }
 }

@@ -22,6 +22,11 @@ export interface Env {
   OPENAI_API_KEY: string;
 }
 
+const MINUTE_MS = 60 * 1000;
+const SHORT_WINDOW_MS = 2 * MINUTE_MS;
+const signedUploadHits = new Map<string, number[]>();
+const directUploadHits = new Map<string, number[]>();
+
 // ── Helpers ──────────────────────────────────
 
 function json(data: unknown, status = 200): Response {
@@ -33,6 +38,28 @@ function json(data: unknown, status = 200): Response {
 
 function error(message: string, status = 400): Response {
   return json({ error: message }, status);
+}
+
+function getClientIp(request: Request): string {
+  return request.headers.get('CF-Connecting-IP') || request.headers.get('x-forwarded-for') || 'unknown';
+}
+
+function checkWindowLimit(
+  bucket: Map<string, number[]>,
+  key: string,
+  limit: number,
+  windowMs: number,
+): boolean {
+  const now = Date.now();
+  const list = bucket.get(key) || [];
+  const recent = list.filter((ts) => now - ts < windowMs);
+  if (recent.length >= limit) {
+    bucket.set(key, recent);
+    return false;
+  }
+  recent.push(now);
+  bucket.set(key, recent);
+  return true;
 }
 
 async function getUser(
@@ -60,6 +87,13 @@ async function handleSignedUpload(
 ): Promise<Response> {
   const auth = await getUser(request, supabase);
   if (auth instanceof Response) return auth;
+  const ip = getClientIp(request);
+
+  const userAllowed = checkWindowLimit(signedUploadHits, `signed:user:${auth.user_id}`, 18, SHORT_WINDOW_MS);
+  const ipAllowed = checkWindowLimit(signedUploadHits, `signed:ip:${ip}`, 40, SHORT_WINDOW_MS);
+  if (!userAllowed || !ipAllowed) {
+    return error('Too many upload requests. Please wait and try again.', 429);
+  }
 
   const body = await request.json() as { kind?: string };
   const kind = body.kind === 'after' ? 'after' : 'before';
@@ -86,10 +120,33 @@ async function handleDirectUpload(
 ): Promise<Response> {
   const auth = await getUser(request, supabase);
   if (auth instanceof Response) return auth;
+  const ip = getClientIp(request);
+
+  const userAllowed = checkWindowLimit(directUploadHits, `upload:user:${auth.user_id}`, 16, SHORT_WINDOW_MS);
+  const ipAllowed = checkWindowLimit(directUploadHits, `upload:ip:${ip}`, 36, SHORT_WINDOW_MS);
+  if (!userAllowed || !ipAllowed) {
+    return error('Upload rate limited. Please slow down and retry.', 429);
+  }
 
   // Verify the key belongs to this user
   if (!r2Key.includes(auth.user_id)) {
     return error('Forbidden', 403);
+  }
+
+  const contentType = request.headers.get('content-type')?.toLowerCase().split(';')[0] || '';
+  if (contentType !== 'image/jpeg') {
+    return error('Only image/jpeg uploads are allowed', 415);
+  }
+
+  const contentLengthHeader = request.headers.get('content-length');
+  if (contentLengthHeader) {
+    const contentLength = Number(contentLengthHeader);
+    if (!Number.isFinite(contentLength) || contentLength <= 0) {
+      return error('Invalid content-length header', 400);
+    }
+    if (contentLength > 5 * 1024 * 1024) {
+      return error('Image too large (max 5MB)', 413);
+    }
   }
 
   const body = await request.arrayBuffer();
@@ -225,27 +282,46 @@ export default {
     }
 
     const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_KEY);
+    const requestId = crypto.randomUUID();
+
+    const finalize = (response: Response): Response => {
+      const headers = new Headers(response.headers);
+      headers.set('x-request-id', requestId);
+      headers.set('Access-Control-Allow-Origin', '*');
+      const safeResponse = new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers,
+      });
+      console.log(`[req:${requestId}] ${method} ${path} -> ${safeResponse.status}`);
+      return safeResponse;
+    };
 
     try {
       // POST /v1/r2/signed-upload
       if (method === 'POST' && path === '/v1/r2/signed-upload') {
-        return await handleSignedUpload(request, env, supabase);
+        return finalize(await handleSignedUpload(request, env, supabase));
       }
 
       // PUT /v1/r2/upload/:r2_key (direct upload proxy)
       if (method === 'PUT' && path.startsWith('/v1/r2/upload/')) {
         const r2Key = decodeURIComponent(path.slice('/v1/r2/upload/'.length));
-        return await handleDirectUpload(request, env, r2Key, supabase);
+        return finalize(await handleDirectUpload(request, env, r2Key, supabase));
       }
 
       // POST /v1/vision/verify-food (auth required, r2Key-based)
       if (method === 'POST' && path === '/v1/vision/verify-food') {
-        return await handleVerifyFood(request, env, supabase);
+        return finalize(await handleVerifyFood(request, env, supabase));
       }
 
       // POST /v1/vision/compare-meal (auth required, r2Key-based)
       if (method === 'POST' && path === '/v1/vision/compare-meal') {
-        return await handleCompareMeal(request, env, supabase);
+        return finalize(await handleCompareMeal(request, env, supabase));
+      }
+
+      // POST /v1/nutrition/estimate
+      if (method === 'POST' && path === '/v1/nutrition/estimate') {
+        return finalize(await handleNutritionEstimate(request, env, supabase));
       }
 
       // POST /v1/nutrition/estimate (auth required, r2Key-based)
@@ -255,24 +331,24 @@ export default {
 
       // POST /v1/vision/enqueue
       if (method === 'POST' && path === '/v1/vision/enqueue') {
-        return await handleEnqueueVision(request, env, supabase);
+        return finalize(await handleEnqueueVision(request, env, supabase));
       }
 
       // GET /v1/vision/job/:job_id
       const jobMatch = path.match(/^\/v1\/vision\/job\/([a-f0-9-]+)$/);
       if (method === 'GET' && jobMatch) {
-        return await handleGetJob(request, env, jobMatch[1], supabase);
+        return finalize(await handleGetJob(request, env, jobMatch[1], supabase));
       }
 
       // Health check
       if (method === 'GET' && (path === '/' || path === '/health')) {
-        return json({ status: 'ok', service: 'eatlock-worker' });
+        return finalize(json({ status: 'ok', service: 'eatlock-worker' }));
       }
 
-      return error('Not found', 404);
+      return finalize(error('Not found', 404));
     } catch (err: any) {
-      console.error('[Worker] Unhandled error:', err);
-      return error(`Internal error: ${err.message}`, 500);
+      console.error(`[req:${requestId}] Unhandled error on ${method} ${path}`);
+      return finalize(error(`Internal error: ${err.message}`, 500));
     }
   },
 

@@ -25,8 +25,20 @@ const OPENAI_API = 'https://api.openai.com/v1/responses';
 const VERIFY_LIMIT = 30;
 const COMPARE_LIMIT = 10;
 const WINDOW_MS = 24 * 60 * 60 * 1000; // 24 h
+const SHORT_WINDOW_MS = 60 * 1000;
+const VERIFY_BURST_LIMIT = 8;
+const COMPARE_BURST_LIMIT = 6;
+const CONCURRENT_WINDOW_MS = 60 * 1000;
+const CONCURRENT_LIMIT = 3;
+const NOT_FOOD_WINDOW_MS = 10 * 60 * 1000;
+const NOT_FOOD_LIMIT = 10;
+const NOT_FOOD_COOLDOWN_MS = 5 * 60 * 1000;
 
 const rateBuckets = new Map<string, { count: number; resetAt: number }>();
+const burstBuckets = new Map<string, number[]>();
+const activeOpBuckets = new Map<string, number[]>();
+const failedScanBuckets = new Map<string, number[]>();
+const failedCooldownBuckets = new Map<string, number>();
 
 function checkRate(key: string, limit: number): { ok: boolean; remaining: number } {
   const now = Date.now();
@@ -38,6 +50,51 @@ function checkRate(key: string, limit: number): { ok: boolean; remaining: number
   if (bucket.count >= limit) return { ok: false, remaining: 0 };
   bucket.count++;
   return { ok: true, remaining: limit - bucket.count };
+}
+
+function checkBurst(key: string, limit: number, windowMs: number): boolean {
+  const now = Date.now();
+  const current = (burstBuckets.get(key) || []).filter((ts) => now - ts < windowMs);
+  if (current.length >= limit) {
+    burstBuckets.set(key, current);
+    return false;
+  }
+  current.push(now);
+  burstBuckets.set(key, current);
+  return true;
+}
+
+function checkConcurrent(key: string): boolean {
+  const now = Date.now();
+  const current = (activeOpBuckets.get(key) || []).filter((ts) => now - ts < CONCURRENT_WINDOW_MS);
+  if (current.length >= CONCURRENT_LIMIT) {
+    activeOpBuckets.set(key, current);
+    return false;
+  }
+  current.push(now);
+  activeOpBuckets.set(key, current);
+  return true;
+}
+
+function markFailedScan(key: string): void {
+  const now = Date.now();
+  const current = (failedScanBuckets.get(key) || []).filter((ts) => now - ts < NOT_FOOD_WINDOW_MS);
+  current.push(now);
+  failedScanBuckets.set(key, current);
+  if (current.length >= NOT_FOOD_LIMIT) {
+    failedCooldownBuckets.set(key, now + NOT_FOOD_COOLDOWN_MS);
+  }
+}
+
+function isInFailedCooldown(key: string): boolean {
+  const now = Date.now();
+  const until = failedCooldownBuckets.get(key);
+  if (!until) return false;
+  if (now > until) {
+    failedCooldownBuckets.delete(key);
+    return false;
+  }
+  return true;
 }
 
 // ── Helpers ──────────────────────────────────
@@ -58,6 +115,11 @@ async function r2ToDataUrl(bucket: R2Bucket, key: string): Promise<string | null
   const obj = await bucket.get(key);
   if (!obj) return null;
 
+  const ct = obj.httpMetadata?.contentType || 'image/jpeg';
+  if (ct.toLowerCase().split(';')[0] !== 'image/jpeg') {
+    throw { status: 415, message: `Unsupported content type for ${key}` };
+  }
+
   const bytes = await obj.arrayBuffer();
   if (bytes.byteLength > MAX_IMAGE_BYTES) {
     throw { status: 413, message: `Image ${key} exceeds 5 MB limit` };
@@ -70,7 +132,6 @@ async function r2ToDataUrl(bucket: R2Bucket, key: string): Promise<string | null
     binary += String.fromCharCode(uint8[i]);
   }
   const b64 = btoa(binary);
-  const ct = obj.httpMetadata?.contentType || 'image/jpeg';
   return `data:${ct};base64,${b64}`;
 }
 
@@ -237,6 +298,21 @@ export async function handleVerifyFood(
   const auth = await getUser(request, supabase);
   if (auth instanceof Response) return auth;
 
+  if (isInFailedCooldown(`failed:${auth.user_id}`)) {
+    return err('Too many failed scans, try again in 5 minutes.', 429);
+  }
+
+  if (!checkConcurrent(`active:${auth.user_id}`)) {
+    return err('Too many active scan requests. Please wait a moment.', 429);
+  }
+
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  const burstUserOk = checkBurst(`verify:user:${auth.user_id}`, VERIFY_BURST_LIMIT, SHORT_WINDOW_MS);
+  const burstIpOk = checkBurst(`verify:ip:${ip}`, VERIFY_BURST_LIMIT * 2, SHORT_WINDOW_MS);
+  if (!burstUserOk || !burstIpOk) {
+    return err('Too many verify requests. Please slow down.', 429);
+  }
+
   // Rate limit (per user)
   const rate = checkRate(`verify:${auth.user_id}`, VERIFY_LIMIT);
   if (!rate.ok) {
@@ -253,6 +329,9 @@ export async function handleVerifyFood(
 
   if (!body.r2Key || typeof body.r2Key !== 'string') {
     return err('Missing "r2Key" field');
+  }
+  if (Object.keys(body as Record<string, unknown>).length !== 1) {
+    return err('verify-food accepts exactly one image key', 400);
   }
 
   // Validate key belongs to this user
@@ -279,6 +358,11 @@ export async function handleVerifyFood(
 
     const result = await callOpenAI(env, VERIFY_SYSTEM, input, FOOD_CHECK_SCHEMA);
 
+    const typed = result as { isFood?: boolean };
+    if (typed?.isFood === false) {
+      markFailedScan(`failed:${auth.user_id}`);
+    }
+
     // Do NOT delete the R2 object here — it may be needed for compare-meal later.
     return json(result);
   } catch (e: any) {
@@ -297,6 +381,17 @@ export async function handleCompareMeal(
   const auth = await getUser(request, supabase);
   if (auth instanceof Response) return auth;
 
+  if (!checkConcurrent(`active:${auth.user_id}`)) {
+    return err('Too many active scan requests. Please wait a moment.', 429);
+  }
+
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  const burstUserOk = checkBurst(`compare:user:${auth.user_id}`, COMPARE_BURST_LIMIT, SHORT_WINDOW_MS);
+  const burstIpOk = checkBurst(`compare:ip:${ip}`, COMPARE_BURST_LIMIT * 2, SHORT_WINDOW_MS);
+  if (!burstUserOk || !burstIpOk) {
+    return err('Too many compare requests. Please slow down.', 429);
+  }
+
   // Rate limit (per user)
   const rate = checkRate(`compare:${auth.user_id}`, COMPARE_LIMIT);
   if (!rate.ok) {
@@ -313,6 +408,9 @@ export async function handleCompareMeal(
 
   if (!body.preKey || !body.postKey) {
     return err('Missing "preKey" and/or "postKey" fields');
+  }
+  if (Object.keys(body as Record<string, unknown>).length !== 2) {
+    return err('compare-meal requires exactly preKey and postKey', 400);
   }
 
   // Ownership check

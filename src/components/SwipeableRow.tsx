@@ -1,9 +1,4 @@
-/**
- * SwipeableRow — smooth swipe-to-reveal-delete with velocity-based snap.
- * Full swipe auto-deletes. Uses native driver for 60fps.
- */
-
-import React, { useRef, useCallback } from 'react';
+import React, { useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -21,33 +16,35 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
-const ACTION_WIDTH = 80;
-const FULL_SWIPE_THRESHOLD = -160;
-const VELOCITY_THRESHOLD = -0.5;
+const ACTION_WIDTH = 84;
+const FULL_SWIPE_THRESHOLD = -150;
 
 interface Props {
   children: React.ReactNode;
   onDelete: () => void;
   deleteColor?: string;
+  disabled?: boolean;
+  rowBackgroundColor?: string;
 }
 
-export function SwipeableRow({ children, onDelete, deleteColor = '#FF453A' }: Props) {
+export function SwipeableRow({
+  children,
+  onDelete,
+  deleteColor = '#FF453A',
+  disabled = false,
+  rowBackgroundColor = '#1C1C1E',
+}: Props) {
   const translateX = useRef(new Animated.Value(0)).current;
-  const openAmount = useRef(0);
 
-  const snapTo = useCallback(
-    (toValue: number, callback?: () => void) => {
-      Animated.spring(translateX, {
-        toValue,
-        useNativeDriver: true,
-        damping: 20,
-        stiffness: 200,
-        mass: 0.8,
-      }).start(callback);
-      openAmount.current = toValue;
-    },
-    [translateX],
-  );
+  const snapTo = useCallback((toValue: number, callback?: () => void) => {
+    Animated.spring(translateX, {
+      toValue,
+      useNativeDriver: true,
+      stiffness: 210,
+      damping: 22,
+      mass: 0.8,
+    }).start(callback);
+  }, [translateX]);
 
   const handleDelete = useCallback(() => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -56,66 +53,58 @@ export function SwipeableRow({ children, onDelete, deleteColor = '#FF453A' }: Pr
 
   const panResponder = useRef(
     PanResponder.create({
-      onMoveShouldSetPanResponder: (_, gs) =>
-        Math.abs(gs.dx) > 8 && Math.abs(gs.dx) > Math.abs(gs.dy * 1.5),
-      onPanResponderGrant: () => {
-        translateX.setOffset(openAmount.current);
-        translateX.setValue(0);
-      },
+      onMoveShouldSetPanResponder: (_, gs) => !disabled && Math.abs(gs.dx) > 8 && Math.abs(gs.dx) > Math.abs(gs.dy),
       onPanResponderMove: (_, gs) => {
-        const raw = gs.dx;
-        // Clamp: don't go right of 0, add rubber-band past full swipe
-        const clamped = Math.min(0, raw);
-        translateX.setValue(clamped);
+        if (disabled) return;
+        translateX.setValue(Math.min(0, gs.dx));
       },
       onPanResponderRelease: (_, gs) => {
-        translateX.flattenOffset();
-        const current = openAmount.current + gs.dx;
-        const vx = gs.vx;
-
-        if (current < FULL_SWIPE_THRESHOLD || vx < -1.5) {
-          // Full swipe → auto-delete
-          Animated.timing(translateX, {
-            toValue: -400,
-            duration: 200,
-            useNativeDriver: true,
-          }).start(() => handleDelete());
-          openAmount.current = -400;
+        if (disabled) {
+          snapTo(0);
           return;
         }
 
-        if (current < -ACTION_WIDTH / 2 || vx < VELOCITY_THRESHOLD) {
+        if (gs.dx < FULL_SWIPE_THRESHOLD || gs.vx < -1.4) {
+          Animated.timing(translateX, {
+            toValue: -360,
+            duration: 180,
+            useNativeDriver: true,
+          }).start(handleDelete);
+          return;
+        }
+
+        if (gs.dx < -ACTION_WIDTH / 2 || gs.vx < -0.45) {
           snapTo(-ACTION_WIDTH);
         } else {
           snapTo(0);
         }
       },
+      onPanResponderTerminate: () => snapTo(0),
+      onPanResponderTerminationRequest: () => true,
     }),
   ).current;
 
-  const close = useCallback(() => snapTo(0), [snapTo]);
-
   return (
-    <View style={styles.container}>
-      {/* Delete button behind */}
-      <View style={[styles.deleteWrap, { backgroundColor: deleteColor }]}>
-        <TouchableOpacity
-          onPress={() => {
-            close();
-            setTimeout(handleDelete, 200);
-          }}
-          style={styles.deleteBtn}
-          activeOpacity={0.7}
-        >
-          <MaterialIcons name="delete" size={22} color="#FFF" />
-          <Text style={styles.deleteText}>Delete</Text>
-        </TouchableOpacity>
-      </View>
+    <View style={[styles.container, { backgroundColor: rowBackgroundColor }]}> 
+      {!disabled && (
+        <View style={[styles.deleteWrap, { backgroundColor: deleteColor }]}> 
+          <TouchableOpacity
+            style={styles.deleteBtn}
+            onPress={() => {
+              snapTo(0);
+              setTimeout(handleDelete, 140);
+            }}
+            activeOpacity={0.72}
+          >
+            <MaterialIcons name="delete" size={22} color="#FFF" />
+            <Text style={styles.deleteText}>Delete</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
-      {/* Foreground content */}
       <Animated.View
-        style={{ transform: [{ translateX }] }}
-        {...panResponder.panHandlers}
+        style={{ transform: [{ translateX: disabled ? 0 : translateX }] }}
+        {...(disabled ? {} : panResponder.panHandlers)}
       >
         {children}
       </Animated.View>
@@ -125,10 +114,9 @@ export function SwipeableRow({ children, onDelete, deleteColor = '#FF453A' }: Pr
 
 const styles = StyleSheet.create({
   container: {
-    position: 'relative',
     overflow: 'hidden',
-    marginBottom: 10,
     borderRadius: 16,
+    marginBottom: 10,
   },
   deleteWrap: {
     position: 'absolute',
@@ -138,8 +126,6 @@ const styles = StyleSheet.create({
     width: 100,
     justifyContent: 'center',
     alignItems: 'center',
-    borderTopRightRadius: 16,
-    borderBottomRightRadius: 16,
   },
   deleteBtn: {
     alignItems: 'center',
