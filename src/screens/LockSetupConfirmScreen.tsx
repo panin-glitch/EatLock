@@ -34,12 +34,16 @@ export default function LockSetupConfirmScreen({ navigation, route }: Props) {
     preCheck,
     preBarcodeData,
     preNutrition,
+    foodName: routeFoodName,
+    barcode: routeBarcode,
     overrideUsed: routeOverride,
   } = (route.params as {
     preImageUri?: string;
     preCheck?: FoodCheckResult;
     preNutrition?: NutritionEstimate;
     preBarcodeData?: { type: string; data: string };
+    foodName?: string;
+    barcode?: string;
     overrideUsed?: boolean;
   }) || {};
 
@@ -66,7 +70,7 @@ export default function LockSetupConfirmScreen({ navigation, route }: Props) {
         '', // note
         true, // strictMode
         preImageUri,
-        undefined, // foodName — GPT doesn't return a label
+        routeFoodName || undefined,
         preCheck,
         preNutrition,
       );

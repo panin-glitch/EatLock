@@ -68,17 +68,8 @@ export function SwipeableRow({
           return;
         }
 
-        if (gs.dx < FULL_SWIPE_THRESHOLD || gs.vx < -1.4) {
-          setIsUnderlayVisible(true);
-          Animated.timing(translateX, {
-            toValue: -360,
-            duration: 180,
-            useNativeDriver: true,
-          }).start(handleDelete);
-          return;
-        }
-
-        if (gs.dx < -ACTION_WIDTH / 2 || gs.vx < -0.45) {
+        if (gs.dx < FULL_SWIPE_THRESHOLD || gs.vx < -1.4 || gs.dx < -ACTION_WIDTH / 2 || gs.vx < -0.45) {
+          // Always snap to reveal delete button — never auto-delete
           setIsUnderlayVisible(true);
           snapTo(-ACTION_WIDTH);
         } else {

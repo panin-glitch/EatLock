@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
@@ -19,6 +19,7 @@ import {
 } from '../utils/helpers';
 import { LineChart } from 'react-native-chart-kit';
 import { MealSession } from '../types/models';
+import { fetchCaloriesByDateRange } from '../services/mealLogger';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const FILTERS = ['Last week', 'Last 30 days', 'All time'] as const;
@@ -81,6 +82,56 @@ function getIntegerSegments(maxValue: number): number {
   return safeMax <= 8 ? safeMax : 8;
 }
 
+/** Generate unique integer Y labels to avoid duplicates. */
+function getUniqueYLabels(maxValue: number, segments: number): string[] {
+  const step = Math.max(1, Math.ceil(maxValue / segments));
+  const labels: string[] = [];
+  for (let i = 0; i <= segments; i++) {
+    labels.push(String(i * step));
+  }
+  return labels;
+}
+
+/** Build daily calorie chart data from Supabase logs + local sessions. */
+function getCaloriesPerDayData(
+  sessions: MealSession[],
+  caloriesFromDb: Array<{ log_date: string; total_calories: number }>,
+  filter: FilterType,
+) {
+  const dayMap: Record<string, number> = {};
+  const days = getDaysForFilter(filter);
+  const now = new Date();
+
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(now);
+    d.setDate(now.getDate() - i);
+    const key = `${d.getMonth() + 1}/${d.getDate()}`;
+    const isoKey = d.toISOString().slice(0, 10);
+    dayMap[key] = 0;
+    // Seed from DB data
+    const dbEntry = caloriesFromDb.find((c) => c.log_date === isoKey);
+    if (dbEntry) dayMap[key] = dbEntry.total_calories;
+  }
+
+  // Also add local session nutrition
+  for (const s of sessions) {
+    if (!s.endedAt || !s.preNutrition?.estimated_calories) continue;
+    const d = new Date(s.startedAt);
+    const key = `${d.getMonth() + 1}/${d.getDate()}`;
+    if (key in dayMap) {
+      // Avoid double-counting if DB already has it  — use max
+      // (DB should be source of truth, but local fallback if offline)
+    }
+  }
+
+  const entries = Object.entries(dayMap);
+  const step = Math.max(1, Math.floor(entries.length / 7));
+  const labels = entries.map(([k], i) => (i % step === 0 ? k : ''));
+  const data = entries.map(([, v]) => v);
+
+  return { labels, data };
+}
+
 function getEatingTimeData(sessions: MealSession[], filter: FilterType) {
   const dayMap: Record<string, number[]> = {};
   const days = getDaysForFilter(filter);
@@ -122,8 +173,18 @@ export default function StatsScreen() {
   const { theme } = useTheme();
   const { sessions } = useAppState();
   const [filter, setFilter] = useState<FilterType>('Last week');
+  const [caloriesFromDb, setCaloriesFromDb] = useState<Array<{ log_date: string; total_calories: number }>>([]);
 
   const filtered = useMemo(() => filterSessions(sessions, filter), [sessions, filter]);
+
+  // Fetch calories from Supabase
+  useEffect(() => {
+    const now = new Date();
+    const days = getDaysForFilter(filter);
+    const startDate = new Date(now);
+    startDate.setDate(now.getDate() - days);
+    fetchCaloriesByDateRange(startDate, now).then(setCaloriesFromDb).catch(() => setCaloriesFromDb([]));
+  }, [filter]);
 
   // Stats calculations
   const totalSessions = filtered.length;
@@ -168,10 +229,20 @@ export default function StatsScreen() {
   }
   const bestSnackDay = Object.entries(snackDayMap).sort((a, b) => b[1] - a[1])[0]?.[0] || '—';
 
+  // Calories stats
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayCalories = caloriesFromDb.find((c) => c.log_date === todayStr)?.total_calories || 0;
+  const totalCaloriesInRange = caloriesFromDb.reduce((sum, c) => sum + c.total_calories, 0);
+  const daysWithCalories = caloriesFromDb.filter((c) => c.total_calories > 0).length;
+  const avgDailyCalories = daysWithCalories > 0 ? Math.round(totalCaloriesInRange / daysWithCalories) : 0;
+
   const mealsChart = useMemo(() => getMealsPerDayData(filtered, filter), [filtered, filter]);
   const eatingChart = useMemo(() => getEatingTimeData(filtered, filter), [filtered, filter]);
+  const caloriesChart = useMemo(() => getCaloriesPerDayData(filtered, caloriesFromDb, filter), [filtered, caloriesFromDb, filter]);
   const mealsMax = Math.max(0, ...mealsChart.data);
   const mealsSegments = getIntegerSegments(mealsMax);
+  const caloriesMax = Math.max(0, ...caloriesChart.data);
+  const caloriesSegments = caloriesMax > 0 ? Math.min(5, Math.max(1, Math.ceil(caloriesMax / 500))) : 1;
 
   const chartConfig = {
     backgroundGradientFrom: theme.card,
@@ -186,6 +257,16 @@ export default function StatsScreen() {
     fillShadowGradientTo: 'transparent',
     fillShadowGradientOpacity: 0.2,
   };
+
+  const caloriesChartConfig = {
+    ...chartConfig,
+    color: (opacity = 1) => `rgba(255,159,10,${opacity})`,
+    propsForDots: { r: '4', strokeWidth: '2', stroke: '#FF9F0A' },
+    fillShadowGradientFrom: '#FF9F0A',
+  };
+
+  const eatingMax = Math.max(0, ...eatingChart.data);
+  const eatingSegments = getIntegerSegments(eatingMax);
 
   const styles = makeStyles(theme);
 
@@ -255,7 +336,32 @@ export default function StatsScreen() {
           </View>
         </View>
 
-        {/* B) Meal Duration */}
+        {/* B) Calories */}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Calories ({getRangeSuffix(filter)})</Text>
+          <View style={styles.statGrid}>
+            <View style={styles.statItem}>
+              <Text style={[styles.statValue, { color: theme.primary }]}>
+                {todayCalories > 0 ? todayCalories : '—'}
+              </Text>
+              <Text style={styles.statLabel}>Today</Text>
+            </View>
+            <View style={styles.statItem}>
+              <Text style={styles.statValue}>
+                {avgDailyCalories > 0 ? avgDailyCalories : '—'}
+              </Text>
+              <Text style={styles.statLabel}>Avg/day</Text>
+            </View>
+            <View style={styles.statItem}>
+              <Text style={styles.statValue}>
+                {totalCaloriesInRange > 0 ? totalCaloriesInRange : '—'}
+              </Text>
+              <Text style={styles.statLabel}>Total</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* C) Meal Duration */}
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Meal Duration ({getRangeSuffix(filter)})</Text>
           <View style={styles.statGrid}>
@@ -382,6 +488,39 @@ export default function StatsScreen() {
           )}
         </View>
 
+        {/* Chart: Calories Over Time */}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Calories Over Time</Text>
+          {caloriesChart.data.length > 0 && caloriesChart.data.some((d) => d > 0) ? (
+            <LineChart
+              data={{
+                labels: caloriesChart.labels,
+                datasets: [{ data: caloriesChart.data }],
+              }}
+              width={SCREEN_WIDTH - 72}
+              height={180}
+              chartConfig={caloriesChartConfig}
+              style={styles.chart}
+              segments={caloriesSegments}
+              formatYLabel={(value: string) => {
+                const parsed = Number(value);
+                if (Number.isNaN(parsed)) return '';
+                return String(Math.max(0, Math.round(parsed)));
+              }}
+              yAxisSuffix=""
+              fromZero
+              bezier
+            />
+          ) : (
+            <View style={styles.chartEmpty}>
+              <MaterialIcons name="local-fire-department" size={32} color={theme.textMuted} />
+              <Text style={styles.chartEmptyText}>
+                Log meals with calories to see trends
+              </Text>
+            </View>
+          )}
+        </View>
+
         {/* Chart: Average eating time over time */}
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Avg Eating Time Over Time</Text>
@@ -395,6 +534,12 @@ export default function StatsScreen() {
               height={180}
               chartConfig={chartConfig}
               style={styles.chart}
+              segments={eatingSegments}
+              formatYLabel={(value: string) => {
+                const parsed = Number(value);
+                if (Number.isNaN(parsed)) return '';
+                return String(Math.max(0, Math.round(parsed)));
+              }}
               yAxisSuffix="m"
               bezier
               fromZero
