@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   Switch,
   StatusBar,
+  Alert,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../theme/ThemeProvider';
@@ -22,6 +23,7 @@ import {
 } from '../utils/helpers';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { DayOfWeek } from '../types/models';
+import { SwipeableRow } from '../components/SwipeableRow';
 
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -31,7 +33,7 @@ const DAY_LETTERS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
 export default function PlannerScreen() {
   const { theme } = useTheme();
-  const { schedules, sessions, toggleSchedule } = useAppState();
+  const { schedules, sessions, toggleSchedule, deleteSchedule } = useAppState();
   const navigation = useNavigation<any>();
 
   const [selectedDate, setSelectedDate] = useState(new Date());
@@ -50,9 +52,52 @@ export default function PlannerScreen() {
   const daySchedules = getSchedulesForDay(schedules, selectedDay);
   const daySessions = getSessionsForDate(sessions, selectedDate);
 
+  // Build completed set: mealType → count of completed (VERIFIED) sessions for this day
+  const completedByType = new Map<string, number>();
+  daySessions
+    .filter((s) => s.status === 'VERIFIED' || s.status === 'PARTIAL')
+    .forEach((s) => {
+      completedByType.set(s.mealType, (completedByType.get(s.mealType) || 0) + 1);
+    });
+
+  // Match schedules to sessions: mark the first N schedules of each mealType as completed
+  const usedByType = new Map<string, number>(); // track how many of each type we've checked off
+  const isScheduleCompleted = (mealType: string): boolean => {
+    const used = usedByType.get(mealType) || 0;
+    const completed = completedByType.get(mealType) || 0;
+    if (used < completed) {
+      usedByType.set(mealType, used + 1);
+      return true;
+    }
+    return false;
+  };
+
+  // Sessions that don't match a schedule (ad-hoc completed meals)
+  const scheduledTypes = new Map<string, number>();
+  daySchedules.forEach((s) => {
+    scheduledTypes.set(s.mealType, (scheduledTypes.get(s.mealType) || 0) + 1);
+  });
+  const adHocSessions = daySessions.filter((s) => {
+    if (s.status !== 'VERIFIED' && s.status !== 'PARTIAL') return false;
+    const scheduled = scheduledTypes.get(s.mealType) || 0;
+    const completed = completedByType.get(s.mealType) || 0;
+    return completed > scheduled;
+  });
+
   // Stats for selected day
   const strictSessions = daySessions.filter((s) => s.strictMode && s.endedAt);
   const focusTime = strictSessions.reduce((sum, s) => sum + getSessionDuration(s), 0);
+
+  const handleDeleteSchedule = (id: string, name: string) => {
+    Alert.alert(
+      'Delete Meal',
+      `Remove "${name}" from your schedule?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: () => deleteSchedule(id) },
+      ],
+    );
+  };
 
   const styles = makeStyles(theme);
 
@@ -134,7 +179,7 @@ export default function PlannerScreen() {
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
       >
-        {daySchedules.length === 0 ? (
+        {daySchedules.length === 0 && adHocSessions.length === 0 ? (
           <View style={styles.emptyState}>
             <MaterialIcons name="event-note" size={48} color={theme.textMuted} />
             <Text style={styles.emptyTitle}>No schedules on this day</Text>
@@ -143,62 +188,96 @@ export default function PlannerScreen() {
             </Text>
           </View>
         ) : (
-          daySchedules
+          <>
+          {daySchedules
             .sort((a, b) => a.timeOfDay.localeCompare(b.timeOfDay))
-            .map((schedule) => (
-              <TouchableOpacity
+            .map((schedule) => {
+              const completed = isScheduleCompleted(schedule.mealType);
+              return (
+              <SwipeableRow
                 key={schedule.id}
-                style={[
-                  styles.mealRow,
-                  !schedule.enabled && styles.mealRowDisabled,
-                ]}
-                onPress={() =>
-                  navigation.navigate('EditSchedule', { scheduleId: schedule.id })
-                }
-                onLongPress={() => {
-                  // Quick-start this meal directly from planner
-                  navigation.navigate('PreScanCamera');
-                }}
+                onDelete={() => handleDeleteSchedule(schedule.id, schedule.name)}
+                deleteColor={theme.danger}
               >
-                <View style={styles.mealRowLeft}>
-                  <View
-                    style={[
-                      styles.mealDot,
-                      { backgroundColor: schedule.enabled ? theme.primary : theme.textMuted },
-                    ]}
-                  />
-                  <View>
+                <TouchableOpacity
+                  style={[
+                    styles.mealRow,
+                    !schedule.enabled && styles.mealRowDisabled,
+                  ]}
+                  onPress={() =>
+                    navigation.navigate('EditSchedule', { scheduleId: schedule.id })
+                  }
+                  onLongPress={() => {
+                    navigation.navigate('PreScanCamera');
+                  }}
+                >
+                  <View style={styles.mealRowLeft}>
+                    <View
+                      style={[
+                        styles.mealDot,
+                        { backgroundColor: completed ? theme.success : schedule.enabled ? theme.primary : theme.textMuted },
+                      ]}
+                    />
+                    {completed && (
+                      <MaterialIcons name="check-circle" size={16} color={theme.success} style={{ marginRight: 4 }} />
+                    )}
+                    <View>
+                      <Text
+                        style={[
+                          styles.mealName,
+                          !schedule.enabled && styles.mealNameDisabled,
+                          completed && styles.mealNameCompleted,
+                        ]}
+                      >
+                        {schedule.name}
+                      </Text>
+                      <Text style={styles.mealRepeat}>
+                        {schedule.repeatDays.join(', ')}
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={styles.mealRowRight}>
                     <Text
                       style={[
-                        styles.mealName,
-                        !schedule.enabled && styles.mealNameDisabled,
+                        styles.mealTime,
+                        !schedule.enabled && styles.mealTimeDisabled,
+                        completed && styles.mealTimeCompleted,
                       ]}
                     >
-                      {schedule.name}
+                      {completed ? '✓ Done' : formatTime(schedule.timeOfDay)}
                     </Text>
-                    <Text style={styles.mealRepeat}>
-                      {schedule.repeatDays.join(', ')}
-                    </Text>
+                    {!completed && (
+                    <Switch
+                      value={schedule.enabled}
+                      onValueChange={() => toggleSchedule(schedule.id)}
+                      trackColor={{ false: theme.inputBg, true: theme.primaryDim }}
+                      thumbColor={schedule.enabled ? theme.primary : theme.textMuted}
+                    />
+                    )}
                   </View>
-                </View>
-                <View style={styles.mealRowRight}>
-                  <Text
-                    style={[
-                      styles.mealTime,
-                      !schedule.enabled && styles.mealTimeDisabled,
-                    ]}
-                  >
-                    {formatTime(schedule.timeOfDay)}
+                </TouchableOpacity>
+              </SwipeableRow>
+              );
+            })}
+          {/* Ad-hoc completed sessions (no matching schedule) */}
+          {adHocSessions.map((session) => (
+            <View key={session.id} style={[styles.mealRow, { opacity: 0.85 }]}>
+              <View style={styles.mealRowLeft}>
+                <View style={[styles.mealDot, { backgroundColor: theme.success }]} />
+                <MaterialIcons name="check-circle" size={16} color={theme.success} style={{ marginRight: 4 }} />
+                <View>
+                  <Text style={[styles.mealName, styles.mealNameCompleted]}>
+                    {session.foodName || session.mealType}
                   </Text>
-                  <Switch
-                    value={schedule.enabled}
-                    onValueChange={() => toggleSchedule(schedule.id)}
-                    trackColor={{ false: theme.inputBg, true: theme.primaryDim }}
-                    thumbColor={schedule.enabled ? theme.primary : theme.textMuted}
-                  />
+                  <Text style={styles.mealRepeat}>Completed</Text>
                 </View>
-              </TouchableOpacity>
-            ))
+              </View>
+              <View style={styles.mealRowRight}>
+                <Text style={[styles.mealTime, styles.mealTimeCompleted]}>✓ Done</Text>
+              </View>
+            </View>
+          ))}
+          </>
         )}
       </ScrollView>
 
@@ -289,7 +368,6 @@ const makeStyles = (theme: any) =>
       backgroundColor: theme.card,
       borderRadius: 16,
       padding: 16,
-      marginBottom: 10,
       borderWidth: 1,
       borderColor: theme.border,
     },
@@ -298,10 +376,12 @@ const makeStyles = (theme: any) =>
     mealDot: { width: 10, height: 10, borderRadius: 5 },
     mealName: { fontSize: 16, fontWeight: '600', color: theme.text },
     mealNameDisabled: { color: theme.textMuted },
+    mealNameCompleted: { color: theme.textSecondary, textDecorationLine: 'line-through' },
     mealRepeat: { fontSize: 12, color: theme.textSecondary, marginTop: 2 },
     mealRowRight: { flexDirection: 'row', alignItems: 'center', gap: 12 },
     mealTime: { fontSize: 15, fontWeight: '500', color: theme.textSecondary },
     mealTimeDisabled: { color: theme.textMuted },
+    mealTimeCompleted: { color: theme.success, fontWeight: '600' },
     emptyState: {
       alignItems: 'center',
       justifyContent: 'center',

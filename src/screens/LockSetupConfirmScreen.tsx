@@ -20,7 +20,7 @@ import { useTheme } from '../theme/ThemeProvider';
 import { useAppState } from '../state/AppStateContext';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { MealType } from '../types/models';
-import type { FoodCheckResult } from '../services/vision/types';
+import type { FoodCheckResult, NutritionEstimate } from '../services/vision/types';
 
 const MEAL_TYPES: MealType[] = ['Breakfast', 'Lunch', 'Dinner', 'Snack', 'Custom'];
 
@@ -32,10 +32,14 @@ export default function LockSetupConfirmScreen({ navigation, route }: Props) {
   const {
     preImageUri,
     preCheck,
+    preBarcodeData,
+    preNutrition,
     overrideUsed: routeOverride,
   } = (route.params as {
     preImageUri?: string;
     preCheck?: FoodCheckResult;
+    preNutrition?: NutritionEstimate;
+    preBarcodeData?: { type: string; data: string };
     overrideUsed?: boolean;
   }) || {};
 
@@ -64,12 +68,13 @@ export default function LockSetupConfirmScreen({ navigation, route }: Props) {
         preImageUri,
         undefined, // foodName — GPT doesn't return a label
         preCheck,
+        preNutrition,
       );
       navigation.reset({
         index: 0,
         routes: [
           { name: 'Main' },
-          { name: 'MealSessionActive', params: { mealType: selectedMealType } },
+          { name: 'MealSessionActive', params: { mealType: selectedMealType, preBarcodeData } },
         ],
       });
     } catch (e) {
@@ -99,12 +104,14 @@ export default function LockSetupConfirmScreen({ navigation, route }: Props) {
           <View style={s.thumbRow}>
             <Image source={{ uri: preImageUri }} style={s.thumb} />
             <View style={{ flex: 1 }}>
-              <Text style={s.thumbLabel}>Before Photo</Text>
-              {preCheck?.roastLine ? (
+              <Text style={s.thumbLabel}>{preBarcodeData ? 'Snack Barcode' : 'Before Photo'}</Text>
+              {preBarcodeData ? (
+                <Text style={s.thumbSub}>Code: {preBarcodeData.data}</Text>
+              ) : preCheck?.roastLine ? (
                 <Text style={s.thumbSub}>{preCheck.roastLine}</Text>
               ) : null}
             </View>
-            <MaterialIcons name="check-circle" size={22} color={theme.success} />
+            <MaterialIcons name={preBarcodeData ? 'qr-code-scanner' : 'check-circle'} size={22} color={theme.success} />
           </View>
         )}
 

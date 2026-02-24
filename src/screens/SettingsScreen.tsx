@@ -37,19 +37,6 @@ export default function SettingsScreen() {
     });
   };
 
-  const toggleTruthBombCategory = (key: keyof typeof settings.truthBomb.categories) => {
-    updateSettings({
-      ...settings,
-      truthBomb: {
-        ...settings.truthBomb,
-        categories: {
-          ...settings.truthBomb.categories,
-          [key]: !settings.truthBomb.categories[key],
-        },
-      },
-    });
-  };
-
   const handleDeleteAccount = () => {
     Alert.alert(
       'Clear All Data',
@@ -114,7 +101,7 @@ export default function SettingsScreen() {
             </TouchableOpacity>
           </>
         ) : (
-          <TouchableOpacity style={styles.row}>
+          <TouchableOpacity style={styles.row} onPress={() => navigation.navigate('Auth')}>
             <MaterialIcons name="person-outline" size={22} color={theme.textSecondary} />
             <Text style={styles.rowText}>Sign in / Create account</Text>
             <MaterialIcons name="chevron-right" size={22} color={theme.textMuted} />
@@ -202,54 +189,13 @@ export default function SettingsScreen() {
               thumbColor={settings.homeWidgets.showNextMeal ? theme.primary : theme.textMuted}
             />
           </View>
-          <View style={styles.widgetRow}>
+          <View style={[styles.widgetRow, { borderBottomWidth: 0 }]}>
             <Text style={styles.widgetLabel}>Locked apps</Text>
             <Switch
               value={settings.homeWidgets.showLockedApps}
               onValueChange={() => toggleWidget('showLockedApps')}
               trackColor={{ false: theme.inputBg, true: theme.primaryDim }}
               thumbColor={settings.homeWidgets.showLockedApps ? theme.primary : theme.textMuted}
-            />
-          </View>
-          <View style={[styles.widgetRow, { borderBottomWidth: 0 }]}>
-            <Text style={styles.widgetLabel}>Truth Bomb</Text>
-            <Switch
-              value={settings.homeWidgets.showTruthBomb}
-              onValueChange={() => toggleWidget('showTruthBomb')}
-              trackColor={{ false: theme.inputBg, true: theme.primaryDim }}
-              thumbColor={settings.homeWidgets.showTruthBomb ? theme.primary : theme.textMuted}
-            />
-          </View>
-        </View>
-
-        {/* Truth Bomb Categories */}
-        <Text style={styles.sectionLabel}>TRUTH BOMB CATEGORIES</Text>
-        <View style={styles.widgetGroup}>
-          <View style={styles.widgetRow}>
-            <Text style={styles.widgetLabel}>Mindful eating</Text>
-            <Switch
-              value={settings.truthBomb.categories.mindfulEating}
-              onValueChange={() => toggleTruthBombCategory('mindfulEating')}
-              trackColor={{ false: theme.inputBg, true: theme.primaryDim }}
-              thumbColor={settings.truthBomb.categories.mindfulEating ? theme.primary : theme.textMuted}
-            />
-          </View>
-          <View style={styles.widgetRow}>
-            <Text style={styles.widgetLabel}>Nutrition basics</Text>
-            <Switch
-              value={settings.truthBomb.categories.nutritionBasics}
-              onValueChange={() => toggleTruthBombCategory('nutritionBasics')}
-              trackColor={{ false: theme.inputBg, true: theme.primaryDim }}
-              thumbColor={settings.truthBomb.categories.nutritionBasics ? theme.primary : theme.textMuted}
-            />
-          </View>
-          <View style={[styles.widgetRow, { borderBottomWidth: 0 }]}>
-            <Text style={styles.widgetLabel}>Motivation</Text>
-            <Switch
-              value={settings.truthBomb.categories.motivation}
-              onValueChange={() => toggleTruthBombCategory('motivation')}
-              trackColor={{ false: theme.inputBg, true: theme.primaryDim }}
-              thumbColor={settings.truthBomb.categories.motivation ? theme.primary : theme.textMuted}
             />
           </View>
         </View>
