@@ -8,10 +8,11 @@ import {
   DEFAULT_BLOCK_CONFIG,
   DEFAULT_USER_SETTINGS,
 } from '../types/models';
-import type { FoodCheckResult, SessionStatus } from '../services/vision/types';
+import type { FoodCheckResult, NutritionEstimate, SessionStatus } from '../services/vision/types';
 import * as Storage from '../services/storage';
 import { blockingEngine } from '../services/blockingEngine';
 import { scheduleAllMealNotifications } from '../services/notifications';
+import { ensureAuth } from '../services/authService';
 
 interface AppState {
   schedules: MealSchedule[];
@@ -26,7 +27,7 @@ interface AppState {
   updateSchedule: (s: MealSchedule) => Promise<void>;
   deleteSchedule: (id: string) => Promise<void>;
   toggleSchedule: (id: string) => Promise<void>;
-  startSession: (mealType: MealType, note: string, strictMode: boolean, preImageUri?: string, foodName?: string, preCheck?: FoodCheckResult) => Promise<void>;
+  startSession: (mealType: MealType, note: string, strictMode: boolean, preImageUri?: string, foodName?: string, preCheck?: FoodCheckResult, preNutrition?: NutritionEstimate) => Promise<void>;
   endSession: (status: SessionStatus, roastMessage?: string) => Promise<void>;
   updateActiveSession: (updates: Partial<MealSession>) => Promise<void>;
   updateBlockConfig: (config: BlockConfig) => Promise<void>;
@@ -49,6 +50,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     setIsLoading(true);
     try {
       await Storage.initializeStorage();
+      // Ensure user has a Supabase session (anonymous sign-in if needed)
+      await ensureAuth();
       const [s, sess, bc, us, as_] = await Promise.all([
         Storage.getMealSchedules(),
         Storage.getMealSessions(),
@@ -99,7 +102,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const startSession = async (mealType: MealType, note: string, strictMode: boolean, preImageUri?: string, foodName?: string, preCheck?: FoodCheckResult) => {
+  const startSession = async (mealType: MealType, note: string, strictMode: boolean, preImageUri?: string, foodName?: string, preCheck?: FoodCheckResult, preNutrition?: NutritionEstimate) => {
     const session: MealSession = {
       id: Date.now().toString(),
       startedAt: new Date().toISOString(),
@@ -108,6 +111,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       note,
       strictMode,
       preImageUri,
+      preNutrition,
       verification: preCheck ? { preCheck } : {},
       status: 'ACTIVE',
       overrideUsed: false,

@@ -87,8 +87,7 @@ export const LightTheme: ThemeColors = {
 };
 
 export const themes = {
-  'Dark Green': DarkGreenTheme,
-  'Dark Blue': DarkBlueTheme,
+  'Dark': DarkGreenTheme,
   'Light': LightTheme,
 } as const;
 

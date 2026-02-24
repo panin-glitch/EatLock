@@ -20,6 +20,7 @@ import PreScanCameraScreen from '../screens/PreScanCameraScreen';
 import PostScanCameraScreen from '../screens/PostScanCameraScreen';
 import LockSetupConfirmScreen from '../screens/LockSetupConfirmScreen';
 import MealSessionActiveScreen from '../screens/MealSessionActiveScreen';
+import AuthScreen from '../screens/auth/AuthScreen';
 
 const Tab = createBottomTabNavigator();
 const RootStack = createNativeStackNavigator();
@@ -149,7 +150,7 @@ export default function AppNavigator() {
             <RootStack.Screen
               name="PreScanCamera"
               component={PreScanCameraScreen}
-              options={{ animation: 'fade' }}
+              options={{ animation: 'fade', contentStyle: { backgroundColor: '#000' } }}
             />
             <RootStack.Screen
               name="LockSetupConfirm"
@@ -164,7 +165,7 @@ export default function AppNavigator() {
             <RootStack.Screen
               name="PostScanCamera"
               component={PostScanCameraScreen}
-              options={{ animation: 'fade' }}
+              options={{ animation: 'fade', contentStyle: { backgroundColor: '#000' } }}
             />
             <RootStack.Screen
               name="SessionSummary"
@@ -184,6 +185,11 @@ export default function AppNavigator() {
             <RootStack.Screen
               name="NotificationHelp"
               component={NotificationHelpScreen}
+              options={{ animation: 'slide_from_bottom' }}
+            />
+            <RootStack.Screen
+              name="Auth"
+              component={AuthScreen}
               options={{ animation: 'slide_from_bottom' }}
             />
       </RootStack.Navigator>

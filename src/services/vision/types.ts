@@ -61,6 +61,21 @@ export interface CompareResult {
   retakeHint: string;         // actionable hint when unverifiable
 }
 
+// ── Nutrition estimate ──
+
+export interface NutritionEstimate {
+  food_label: string;
+  estimated_calories: number;
+  min_calories: number;
+  max_calories: number;
+  confidence: number;  // 0-1
+  notes: string;
+  protein_g?: number | null;
+  carbs_g?: number | null;
+  fat_g?: number | null;
+  source: 'vision' | 'barcode' | 'user';
+}
+
 // ── Session lifecycle ──
 
 export type SessionStatus =
