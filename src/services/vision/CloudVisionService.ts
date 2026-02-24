@@ -11,7 +11,7 @@
  */
 
 import type { MealVisionService } from './MealVisionService';
-import type { FoodCheckResult, CompareResult } from './types';
+import type { FoodCheckResult, CompareResult, NutritionEstimate } from './types';
 import { compressImage } from './imageCompress';
 import { getAccessToken, ensureAuth } from '../authService';
 import { ENV } from '../../config/env';
@@ -137,10 +137,15 @@ async function uploadToR2(imageUri: string, kind: 'before' | 'after'): Promise<s
 // ── Service implementation ───────────────────
 
 export class CloudVisionService implements MealVisionService {
+  /** The r2Key from the most recent verifyFood upload. */
+  private _lastR2Key: string | null = null;
+  get lastR2Key(): string | null { return this._lastR2Key; }
+
   /** Upload image to R2, then call /verify-food with the r2Key. */
   async verifyFood(imageUri: string): Promise<FoodCheckResult> {
     const auth = await authHeaders();
     const r2Key = await uploadToR2(imageUri, 'before');
+    this._lastR2Key = r2Key;
 
     return postJSON<FoodCheckResult>(
       '/v1/vision/verify-food',
@@ -173,5 +178,20 @@ export class CloudVisionService implements MealVisionService {
       { preKey, postKey },
       auth,
     );
+  }
+
+  /** Estimate calories from a previously uploaded R2 image. */
+  async estimateCalories(r2Key: string): Promise<NutritionEstimate | null> {
+    try {
+      const auth = await authHeaders();
+      const data = await postJSON<Omit<NutritionEstimate, 'source'>>(        '/v1/nutrition/estimate',
+        { r2Key },
+        auth,
+      );
+      return { ...data, source: 'vision' };
+    } catch (e: any) {
+      if (__DEV__) console.warn('[Vision] estimateCalories failed:', e?.message);
+      return null;
+    }
   }
 }

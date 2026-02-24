@@ -49,6 +49,7 @@ export default function HomeScreen() {
   const [nextMealLabel, setNextMealLabel] = useState<string | null>(null);
   const [mealsToday, setMealsToday] = useState(0);
   const [mealsGoal, setMealsGoal] = useState(0);
+  const [caloriesToday, setCaloriesToday] = useState(0);
 
   const selectedSessions = useMemo(
     () => getSessionsForDate(sessions, selectedDate),
@@ -59,6 +60,13 @@ export default function HomeScreen() {
     // Meals today vs goal
     const todaySessions = getSessionsForDate(sessions, new Date());
     setMealsToday(todaySessions.length);
+
+    // Sum calories from preNutrition
+    const totalCal = todaySessions.reduce(
+      (sum, s) => sum + (s.preNutrition?.estimated_calories ?? 0),
+      0,
+    );
+    setCaloriesToday(Math.round(totalCal));
 
     const day = getDayOfWeek(new Date());
     const todaySchedules = getSchedulesForDay(schedules, day);
@@ -92,8 +100,8 @@ export default function HomeScreen() {
 
   const miniCards: [any, any, any] = [
     { icon: 'lock' as const, iconBg: '#FF3B30', label: 'Locked Apps', value: String(blockedCount) },
-    { icon: 'photo-camera' as const, iconBg: '#007AFF', label: 'Scans Today', value: String(mealsToday) },
-    { icon: 'local-fire-department' as const, iconBg: '#FF9500', label: 'Day Streak', value: streak > 0 ? String(streak) : '—' },
+    { icon: 'local-fire-department' as const, iconBg: '#FF9500', label: 'Calories', value: caloriesToday > 0 ? String(caloriesToday) : '—' },
+    { icon: 'emoji-events' as const, iconBg: '#34C759', label: 'Day Streak', value: streak > 0 ? String(streak) : '—' },
   ];
 
   return (
@@ -130,6 +138,8 @@ export default function HomeScreen() {
           nextMealLabel={nextMealLabel}
           mealsToday={mealsToday}
           mealsGoal={mealsGoal}
+          caloriesToday={caloriesToday}
+          calorieGoal={2000}
           onResume={handleResume}
           onStartMeal={handleStartMeal}
         />

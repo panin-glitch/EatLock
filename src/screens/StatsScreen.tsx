@@ -17,7 +17,7 @@ import {
   computeFocusScore,
   computeStreak,
 } from '../utils/helpers';
-import { LineChart, BarChart } from 'react-native-chart-kit';
+import { LineChart } from 'react-native-chart-kit';
 import { MealSession } from '../types/models';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
@@ -69,8 +69,9 @@ function getMealsPerDayData(sessions: MealSession[], filter: FilterType) {
   }
 
   const entries = Object.entries(dayMap);
+  // Show max 7 labels evenly distributed; blank the rest to avoid duplication
   const step = Math.max(1, Math.floor(entries.length / 7));
-  const labels = entries.filter((_, i) => i % step === 0).map(([k]) => k);
+  const labels = entries.map(([k], i) => (i % step === 0 ? k : ''));
   const data = entries.map(([, v]) => v);
 
   return { labels, data };
@@ -99,7 +100,7 @@ function getEatingTimeData(sessions: MealSession[], filter: FilterType) {
 
   const entries = Object.entries(dayMap);
   const step = Math.max(1, Math.floor(entries.length / 7));
-  const labels = entries.filter((_, i) => i % step === 0).map(([k]) => k);
+  const labels = entries.map(([k], i) => (i % step === 0 ? k : ''));
   const data = entries.map(([, arr]) =>
     arr.length > 0 ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : 0
   );
@@ -111,6 +112,34 @@ function getRangeSuffix(filter: FilterType): string {
   if (filter === 'Last week') return 'this week';
   if (filter === 'Last 30 days') return 'last 30 days';
   return 'all time';
+}
+
+function getCaloriesPerDayData(sessions: MealSession[], filter: FilterType) {
+  const dayMap: Record<string, number> = {};
+  const days = getDaysForFilter(filter);
+  const now = new Date();
+
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(now);
+    d.setDate(now.getDate() - i);
+    const key = `${d.getMonth() + 1}/${d.getDate()}`;
+    dayMap[key] = 0;
+  }
+
+  for (const s of sessions) {
+    const d = new Date(s.startedAt);
+    const key = `${d.getMonth() + 1}/${d.getDate()}`;
+    if (key in dayMap) {
+      dayMap[key] += s.preNutrition?.estimated_calories ?? 0;
+    }
+  }
+
+  const entries = Object.entries(dayMap);
+  const step = Math.max(1, Math.floor(entries.length / 7));
+  const labels = entries.map(([k], i) => (i % step === 0 ? k : ''));
+  const data = entries.map(([, v]) => Math.round(v));
+
+  return { labels, data };
 }
 
 export default function StatsScreen() {
@@ -165,6 +194,25 @@ export default function StatsScreen() {
 
   const mealsChart = useMemo(() => getMealsPerDayData(filtered, filter), [filtered, filter]);
   const eatingChart = useMemo(() => getEatingTimeData(filtered, filter), [filtered, filter]);
+  const caloriesChart = useMemo(() => getCaloriesPerDayData(filtered, filter), [filtered, filter]);
+
+  // Calorie stats
+  const totalCalories = Math.round(
+    filtered.reduce((sum, s) => sum + (s.preNutrition?.estimated_calories ?? 0), 0),
+  );
+  const daysWithCals = new Set(
+    filtered.filter((s) => s.preNutrition?.estimated_calories).map((s) => new Date(s.startedAt).toDateString()),
+  ).size;
+  const avgDailyCal = daysWithCals > 0 ? Math.round(totalCalories / daysWithCals) : 0;
+  const totalProtein = Math.round(
+    filtered.reduce((sum, s) => sum + (s.preNutrition?.protein_g ?? 0), 0),
+  );
+  const totalCarbs = Math.round(
+    filtered.reduce((sum, s) => sum + (s.preNutrition?.carbs_g ?? 0), 0),
+  );
+  const totalFat = Math.round(
+    filtered.reduce((sum, s) => sum + (s.preNutrition?.fat_g ?? 0), 0),
+  );
 
   const chartConfig = {
     backgroundGradientFrom: theme.card,
@@ -273,7 +321,36 @@ export default function StatsScreen() {
           </View>
         </View>
 
-        {/* C) Distraction & Savings */}
+        {/* C) Calories & Macros */}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Calories & Macros ({getRangeSuffix(filter)})</Text>
+          <View style={styles.statGrid}>
+            <View style={styles.statItem}>
+              <Text style={styles.statValue}>
+                {totalCalories > 0 ? totalCalories.toLocaleString() : '—'}
+              </Text>
+              <Text style={styles.statLabel}>Total calories</Text>
+            </View>
+            <View style={styles.statItem}>
+              <Text style={styles.statValue}>{avgDailyCal > 0 ? avgDailyCal.toLocaleString() : '—'}</Text>
+              <Text style={styles.statLabel}>Avg daily cal</Text>
+            </View>
+            <View style={styles.statItem}>
+              <Text style={styles.statValue}>{totalProtein > 0 ? `${totalProtein}g` : '—'}</Text>
+              <Text style={styles.statLabel}>Protein</Text>
+            </View>
+            <View style={styles.statItem}>
+              <Text style={styles.statValue}>{totalCarbs > 0 ? `${totalCarbs}g` : '—'}</Text>
+              <Text style={styles.statLabel}>Carbs</Text>
+            </View>
+            <View style={styles.statItem}>
+              <Text style={styles.statValue}>{totalFat > 0 ? `${totalFat}g` : '—'}</Text>
+              <Text style={styles.statLabel}>Fat</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* D) Distraction & Savings */}
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Distraction & Savings ({getRangeSuffix(filter)})</Text>
           <View style={styles.statGrid}>
@@ -290,8 +367,12 @@ export default function StatsScreen() {
               <Text style={styles.statLabel}>Est. time saved/meal</Text>
             </View>
             <View style={styles.statItem}>
-              <Text style={styles.statValue}>0</Text>
-              <Text style={styles.statLabel}>Blocked attempts</Text>
+              <Text style={[styles.statValue, { color: theme.primary }]}>
+                {avgDistractionMinutes > 0
+                  ? `${Math.round(avgDistractionMinutes * filtered.filter((s) => s.estimatedDistractionMinutes).length)} min`
+                  : '—'}
+              </Text>
+              <Text style={styles.statLabel}>Total time saved</Text>
             </View>
           </View>
         </View>
@@ -346,7 +427,7 @@ export default function StatsScreen() {
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Meals Completed Over Time</Text>
           {mealsChart.data.length > 0 && mealsChart.data.some((d) => d > 0) ? (
-            <BarChart
+            <LineChart
               data={{
                 labels: mealsChart.labels,
                 datasets: [{ data: mealsChart.data }],
@@ -355,14 +436,13 @@ export default function StatsScreen() {
               height={180}
               chartConfig={chartConfig}
               style={styles.chart}
-              yAxisLabel=""
               yAxisSuffix=""
+              bezier
               fromZero
-              showBarTops={false}
             />
           ) : (
             <View style={styles.chartEmpty}>
-              <MaterialIcons name="bar-chart" size={32} color={theme.textMuted} />
+              <MaterialIcons name="show-chart" size={32} color={theme.textMuted} />
               <Text style={styles.chartEmptyText}>
                 Start tracking meals to see your chart
               </Text>
@@ -392,6 +472,38 @@ export default function StatsScreen() {
               <MaterialIcons name="show-chart" size={32} color={theme.textMuted} />
               <Text style={styles.chartEmptyText}>
                 Complete meals to see duration trends
+              </Text>
+            </View>
+          )}
+        </View>
+
+        {/* Chart: Calories per day */}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Calories Over Time</Text>
+          {caloriesChart.data.length > 0 && caloriesChart.data.some((d) => d > 0) ? (
+            <LineChart
+              data={{
+                labels: caloriesChart.labels,
+                datasets: [{ data: caloriesChart.data }],
+              }}
+              width={SCREEN_WIDTH - 72}
+              height={180}
+              chartConfig={{
+                ...chartConfig,
+                color: (opacity = 1) => `rgba(255,149,0,${opacity})`,
+                propsForDots: { r: '4', strokeWidth: '2', stroke: '#FF9500' },
+                fillShadowGradientFrom: '#FF9500',
+              }}
+              style={styles.chart}
+              yAxisSuffix=""
+              bezier
+              fromZero
+            />
+          ) : (
+            <View style={styles.chartEmpty}>
+              <MaterialIcons name="show-chart" size={32} color={theme.textMuted} />
+              <Text style={styles.chartEmptyText}>
+                Scan meals to see calorie trends
               </Text>
             </View>
           )}

@@ -1,4 +1,4 @@
-import type { FoodCheckResult, CompareResult, SessionStatus } from '../services/vision/types';
+import type { FoodCheckResult, CompareResult, SessionStatus, NutritionEstimate } from '../services/vision/types';
 
 export type MealType = 'Breakfast' | 'Lunch' | 'Dinner' | 'Snack' | 'Custom';
 export type DayOfWeek = 'Mon' | 'Tue' | 'Wed' | 'Thu' | 'Fri' | 'Sat' | 'Sun';
@@ -82,6 +82,9 @@ export interface MealSession {
 
   /** Session lifecycle status */
   status: SessionStatus;
+
+  /** Pre-scan nutrition estimate (calories + macros) */
+  preNutrition?: NutritionEstimate;
 
   /** Roast or praise message from vision comparison */
   roastMessage?: string;

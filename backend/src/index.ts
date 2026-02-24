@@ -12,6 +12,7 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { handleVisionQueue, QueueMessage } from './queue/consumer';
 import { handleVerifyFood, handleCompareMeal } from './vision';
+import { handleNutritionEstimate } from './nutrition';
 
 export interface Env {
   IMAGES: R2Bucket;
@@ -245,6 +246,11 @@ export default {
       // POST /v1/vision/compare-meal (auth required, r2Key-based)
       if (method === 'POST' && path === '/v1/vision/compare-meal') {
         return await handleCompareMeal(request, env, supabase);
+      }
+
+      // POST /v1/nutrition/estimate (auth required, r2Key-based)
+      if (method === 'POST' && path === '/v1/nutrition/estimate') {
+        return await handleNutritionEstimate(request, env, supabase);
       }
 
       // POST /v1/vision/enqueue
