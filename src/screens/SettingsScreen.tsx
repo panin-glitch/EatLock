@@ -2,6 +2,7 @@ import React from 'react';
 import {
   View,
   Text,
+  Image,
   StyleSheet,
   ScrollView,
   TouchableOpacity,
@@ -65,7 +66,10 @@ export default function SettingsScreen() {
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <MaterialIcons name="arrow-back" size={26} color={theme.text} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Settings</Text>
+        <View style={styles.headerCenter}>
+          <Image source={require('../../assets/icon.png')} style={styles.headerLogo} resizeMode="contain" />
+          <Text style={styles.headerTitle}>Settings</Text>
+        </View>
         <View style={{ width: 26 }} />
       </View>
 
@@ -282,6 +286,16 @@ const makeStyles = (theme: any) =>
       paddingHorizontal: 20,
       paddingTop: 56,
       paddingBottom: 16,
+    },
+    headerCenter: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+    },
+    headerLogo: {
+      width: 22,
+      height: 22,
+      borderRadius: 6,
     },
     headerTitle: { fontSize: 18, fontWeight: '600', color: theme.text },
     scrollContent: { paddingHorizontal: 20, paddingBottom: 40 },

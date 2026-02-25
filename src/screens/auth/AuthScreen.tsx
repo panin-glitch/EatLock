@@ -8,6 +8,7 @@ import React, { useState } from 'react';
 import {
   View,
   Text,
+  Image,
   StyleSheet,
   TextInput,
   TouchableOpacity,
@@ -89,7 +90,7 @@ export default function AuthScreen({ navigation }: Props) {
 
       <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
         {/* Logo area */}
-        <MaterialIcons name="restaurant" size={48} color={theme.primary} />
+        <Image source={require('../../../assets/icon.png')} style={s.logoImage} resizeMode="contain" />
         <Text style={s.logoText}>EatLock</Text>
 
         {/* Email */}
@@ -206,6 +207,11 @@ const makeStyles = (c: any) =>
       color: c.text,
       marginTop: 8,
       marginBottom: 32,
+    },
+    logoImage: {
+      width: 64,
+      height: 64,
+      borderRadius: 16,
     },
     inputWrap: {
       flexDirection: 'row',
