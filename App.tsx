@@ -1,5 +1,7 @@
 import React, { useEffect } from 'react';
 import { StatusBar, View, ActivityIndicator, StyleSheet, LogBox } from 'react-native';
+import { useFonts } from 'expo-font';
+import { MaterialIcons } from '@expo/vector-icons';
 import { ThemeProvider } from './src/theme/ThemeProvider';
 import { AppStateProvider, useAppState } from './src/state/AppStateContext';
 import { AuthProvider } from './src/state/AuthContext';
@@ -37,6 +39,18 @@ function AppContent() {
 }
 
 export default function App() {
+  const [fontsLoaded, fontError] = useFonts({
+    ...MaterialIcons.font,
+  });
+
+  if (!fontsLoaded && !fontError) {
+    return (
+      <View style={styles.loader}>
+        <ActivityIndicator size="large" color="#34C759" />
+      </View>
+    );
+  }
+
   return (
     <ThemeProvider>
       <AuthProvider>

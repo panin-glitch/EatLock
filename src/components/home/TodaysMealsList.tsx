@@ -4,8 +4,8 @@
  * Tap a row to see full detail modal with calories, macros, roast, distraction.
  * Empty-state when no sessions exist.
  */
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Modal, Pressable } from 'react-native';
+import React, { useRef, useState } from 'react';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Modal, Pressable, Animated, Easing } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../../theme/ThemeProvider';
 import type { MealSession } from '../../types/models';
@@ -44,6 +44,50 @@ function mealIcon(type: string): keyof typeof MaterialIcons.glyphMap {
 export default function TodaysMealsList({ sessions }: Props) {
   const { theme } = useTheme();
   const [selected, setSelected] = useState<MealSession | null>(null);
+  const [detailVisible, setDetailVisible] = useState(false);
+  const backdropOpacity = useRef(new Animated.Value(0)).current;
+  const sheetTranslateY = useRef(new Animated.Value(36)).current;
+
+  const openDetail = (session: MealSession) => {
+    setSelected(session);
+    setDetailVisible(true);
+    backdropOpacity.setValue(0);
+    sheetTranslateY.setValue(36);
+    Animated.parallel([
+      Animated.timing(backdropOpacity, {
+        toValue: 1,
+        duration: 170,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      }),
+      Animated.timing(sheetTranslateY, {
+        toValue: 0,
+        duration: 220,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
+
+  const closeDetail = () => {
+    Animated.parallel([
+      Animated.timing(backdropOpacity, {
+        toValue: 0,
+        duration: 130,
+        easing: Easing.in(Easing.quad),
+        useNativeDriver: true,
+      }),
+      Animated.timing(sheetTranslateY, {
+        toValue: 28,
+        duration: 160,
+        easing: Easing.in(Easing.quad),
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      setDetailVisible(false);
+      setSelected(null);
+    });
+  };
 
   if (sessions.length === 0) {
     return (
@@ -67,9 +111,26 @@ export default function TodaysMealsList({ sessions }: Props) {
     const nut = selected.preNutrition;
     const stars = selected.distractionRating;
     return (
-      <Modal visible animationType="slide" transparent onRequestClose={() => setSelected(null)}>
-        <Pressable style={styles.modalOverlay} onPress={() => setSelected(null)}>
-          <Pressable style={[styles.modalSheet, { backgroundColor: theme.surface }]} onPress={() => {}}>
+      <Modal
+        visible={detailVisible}
+        animationType="none"
+        transparent
+        statusBarTranslucent
+        onRequestClose={closeDetail}
+      >
+        <View style={styles.modalRoot}>
+          <Animated.View
+            pointerEvents="none"
+            style={[styles.modalOverlay, { opacity: backdropOpacity }]}
+          />
+          <Pressable style={styles.modalBackdropTap} onPress={closeDetail} />
+
+          <Animated.View
+            style={[
+              styles.modalSheet,
+              { backgroundColor: theme.surface, transform: [{ translateY: sheetTranslateY }] },
+            ]}
+          >
             {/* Header */}
             <View style={styles.modalHeader}>
               <View style={[styles.iconWrap, { backgroundColor: theme.primary + '18' }]}>
@@ -153,12 +214,12 @@ export default function TodaysMealsList({ sessions }: Props) {
             {/* Close */}
             <TouchableOpacity
               style={[styles.closeBtn, { backgroundColor: theme.text }]}
-              onPress={() => setSelected(null)}
+              onPress={closeDetail}
             >
               <Text style={[styles.closeBtnText, { color: theme.background }]}>Close</Text>
             </TouchableOpacity>
-          </Pressable>
-        </Pressable>
+          </Animated.View>
+        </View>
       </Modal>
     );
   };
@@ -175,7 +236,7 @@ export default function TodaysMealsList({ sessions }: Props) {
           return (
             <TouchableOpacity
               activeOpacity={0.7}
-              onPress={() => setSelected(item)}
+              onPress={() => openDetail(item)}
               style={[styles.row, { backgroundColor: theme.surface }]}
             >
               <View style={[styles.iconWrap, { backgroundColor: theme.primary + '18' }]}>
@@ -239,10 +300,17 @@ const styles = StyleSheet.create({
   emptyTitle: { fontSize: 15, fontWeight: '600', marginTop: 12 },
   emptyHint: { fontSize: 13, marginTop: 4 },
   // ── Detail modal ──
-  modalOverlay: {
+  modalRoot: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.45)',
     justifyContent: 'flex-end',
+  },
+  modalOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.30)',
+  },
+  modalBackdropTap: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 1,
   },
   modalSheet: {
     borderTopLeftRadius: 22,
@@ -250,6 +318,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 20,
     paddingBottom: 36,
+    zIndex: 2,
   },
   modalHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 18 },
   modalTitle: { fontSize: 17, fontWeight: '700' },

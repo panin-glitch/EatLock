@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useRef, useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -28,7 +28,8 @@ type Props = NativeStackScreenProps<any, 'PostScanCamera'>;
 export default function PostScanCameraScreen({ navigation, route }: Props) {
   const { theme } = useTheme();
   const { activeSession, updateActiveSession, endSession } = useAppState();
-  const { preImageUri } = (route.params as { preImageUri: string }) || {};
+  const { preImageUri, preBarcodeData } =
+    (route.params as { preImageUri?: string; preBarcodeData?: { type: string; data: string } }) || {};
 
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef<CameraView>(null);
@@ -42,6 +43,12 @@ export default function PostScanCameraScreen({ navigation, route }: Props) {
   const [checking, setChecking] = useState(false);
   const [result, setResult] = useState<CompareResult | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!preImageUri && preBarcodeData?.data) {
+      setBarcodeMode(true);
+    }
+  }, [preImageUri, preBarcodeData?.data]);
 
   const freezeOpacity = useRef(new Animated.Value(0)).current;
   const shutterOpacity = useRef(new Animated.Value(0)).current;
@@ -119,6 +126,9 @@ export default function PostScanCameraScreen({ navigation, route }: Props) {
     showAnalyzing();
 
     try {
+      if (!preImageUri) {
+        throw new Error('Missing before photo for comparison. Please retake your before scan.');
+      }
       const vision = getVisionService();
       const comparison = await vision.compareMeal(preImageUri, uri);
       setResult(comparison);
@@ -173,6 +183,52 @@ export default function PostScanCameraScreen({ navigation, route }: Props) {
   const handleBarcodeScanned = async (_scan: BarcodeScanningResult) => {
     if (!barcodeMode || barcodeLockRef.current || checking || photoUri) return;
     barcodeLockRef.current = true;
+
+    if (preBarcodeData?.data) {
+      const normalize = (v: string) => v.replace(/\s+/g, '').trim();
+      const scanned = normalize(_scan.data || '');
+      const expected = normalize(preBarcodeData.data);
+      const isMatch = scanned.length > 0 && scanned === expected;
+
+      setChecking(true);
+      setErrorMsg(null);
+      showAnalyzing();
+
+      try {
+        const barcodeResult: CompareResult = {
+          isSameScene: isMatch,
+          duplicateScore: isMatch ? 1 : 0,
+          foodChangeScore: isMatch ? 1 : 0,
+          verdict: isMatch ? 'EATEN' : 'UNVERIFIABLE',
+          confidence: isMatch ? 0.95 : 0.3,
+          reasonCode: isMatch ? 'OK' : 'CANT_TELL',
+          roastLine: isMatch
+            ? 'Barcode verified. Meal complete — great consistency.'
+            : 'That barcode does not match your pre-scan item. Try scanning again.',
+          retakeHint: isMatch
+            ? 'Tap See Summary to finish.'
+            : 'Scan the same product barcode you used at the start.',
+        };
+        setResult(barcodeResult);
+        await updateActiveSession({
+          verification: {
+            ...activeSession?.verification,
+            compareResult: barcodeResult,
+          },
+          roastMessage: barcodeResult.roastLine,
+        });
+      } catch (e: any) {
+        setResult(null);
+        setErrorMsg(e?.message || 'Could not verify this barcode.');
+      } finally {
+        setChecking(false);
+        hideAnalyzing();
+        showCard();
+      }
+
+      return;
+    }
+
     await captureAndProcess();
   };
 
@@ -272,6 +328,15 @@ export default function PostScanCameraScreen({ navigation, route }: Props) {
         </View>
       )}
 
+      {!preImageUri && preBarcodeData?.data && !photoUri && (
+        <View style={styles.preThumbWrap}>
+          <View style={[styles.preThumb, styles.barcodeBadge]}>
+            <MaterialIcons name="qr-code-scanner" size={26} color="#FFF" />
+          </View>
+          <Text style={styles.preThumbLabel}>Before barcode</Text>
+        </View>
+      )}
+
       {!photoUri && (
         <View style={styles.controlsArea}>
           <View style={styles.modeRow}>
@@ -331,7 +396,7 @@ export default function PostScanCameraScreen({ navigation, route }: Props) {
       )}
 
       {(result || errorMsg) && !checking && (
-        <Animated.View style={[{ transform: [{ translateY: cardTranslateY }] }]} pointerEvents="box-none">
+        <Animated.View style={[styles.resultCardLayer, { transform: [{ translateY: cardTranslateY }] }]} pointerEvents="box-none">
           <ResultCard
             theme={theme}
             title={errorMsg
@@ -401,6 +466,11 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: 2,
     borderColor: 'rgba(255,255,255,0.35)',
+  },
+  barcodeBadge: {
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   preThumbLabel: { color: 'rgba(255,255,255,0.65)', fontSize: 10, fontWeight: '600', marginTop: 2 },
 
@@ -528,4 +598,9 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   analyzingText: { color: '#FFF', fontSize: 14, fontWeight: '600' },
+
+  resultCardLayer: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 30,
+  },
 });

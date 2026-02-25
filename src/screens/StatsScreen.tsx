@@ -98,36 +98,50 @@ function getCaloriesPerDayData(
   caloriesFromDb: Array<{ log_date: string; total_calories: number }>,
   filter: FilterType,
 ) {
-  const dayMap: Record<string, number> = {};
   const days = getDaysForFilter(filter);
   const now = new Date();
 
+  const orderedIsoKeys: string[] = [];
+  const displayLabelByIso: Record<string, string> = {};
+  const localCaloriesByIso: Record<string, number> = {};
+  const dbCaloriesByIso: Record<string, number> = {};
+
   for (let i = days - 1; i >= 0; i--) {
     const d = new Date(now);
+    d.setHours(0, 0, 0, 0);
     d.setDate(now.getDate() - i);
-    const key = `${d.getMonth() + 1}/${d.getDate()}`;
-    const isoKey = d.toISOString().slice(0, 10);
-    dayMap[key] = 0;
-    // Seed from DB data
-    const dbEntry = caloriesFromDb.find((c) => c.log_date === isoKey);
-    if (dbEntry) dayMap[key] = dbEntry.total_calories;
+    const iso = d.toISOString().slice(0, 10);
+    orderedIsoKeys.push(iso);
+    displayLabelByIso[iso] = `${d.getMonth() + 1}/${d.getDate()}`;
+    localCaloriesByIso[iso] = 0;
+    dbCaloriesByIso[iso] = 0;
   }
 
-  // Also add local session nutrition
-  for (const s of sessions) {
-    if (!s.endedAt || !s.preNutrition?.estimated_calories) continue;
-    const d = new Date(s.startedAt);
-    const key = `${d.getMonth() + 1}/${d.getDate()}`;
-    if (key in dayMap) {
-      // Avoid double-counting if DB already has it  — use max
-      // (DB should be source of truth, but local fallback if offline)
+  for (const row of caloriesFromDb) {
+    if (row.log_date in dbCaloriesByIso) {
+      dbCaloriesByIso[row.log_date] = Math.max(0, Math.round(row.total_calories || 0));
     }
   }
 
-  const entries = Object.entries(dayMap);
-  const step = Math.max(1, Math.floor(entries.length / 7));
-  const labels = entries.map(([k], i) => (i % step === 0 ? k : ''));
-  const data = entries.map(([, v]) => v);
+  for (const s of sessions) {
+    if (!s.endedAt) continue;
+    const calories = s.preNutrition?.estimated_calories;
+    if (!calories || calories <= 0) continue;
+    const iso = new Date(s.startedAt).toISOString().slice(0, 10);
+    if (iso in localCaloriesByIso) {
+      localCaloriesByIso[iso] += Math.round(calories);
+    }
+  }
+
+  const merged = orderedIsoKeys.map((iso) => {
+    const db = dbCaloriesByIso[iso] || 0;
+    const local = localCaloriesByIso[iso] || 0;
+    return { label: displayLabelByIso[iso], value: Math.max(db, local) };
+  });
+
+  const step = Math.max(1, Math.floor(merged.length / 7));
+  const labels = merged.map((entry, i) => (i % step === 0 ? entry.label : ''));
+  const data = merged.map((entry) => entry.value);
 
   return { labels, data };
 }
@@ -184,7 +198,7 @@ export default function StatsScreen() {
     const startDate = new Date(now);
     startDate.setDate(now.getDate() - days);
     fetchCaloriesByDateRange(startDate, now).then(setCaloriesFromDb).catch(() => setCaloriesFromDb([]));
-  }, [filter]);
+  }, [filter, sessions.length]);
 
   // Stats calculations
   const totalSessions = filtered.length;
@@ -229,11 +243,25 @@ export default function StatsScreen() {
   }
   const bestSnackDay = Object.entries(snackDayMap).sort((a, b) => b[1] - a[1])[0]?.[0] || '—';
 
-  // Calories stats
+  // Calories stats (DB + local fallback for immediate UI updates)
   const todayStr = new Date().toISOString().slice(0, 10);
-  const todayCalories = caloriesFromDb.find((c) => c.log_date === todayStr)?.total_calories || 0;
-  const totalCaloriesInRange = caloriesFromDb.reduce((sum, c) => sum + c.total_calories, 0);
-  const daysWithCalories = caloriesFromDb.filter((c) => c.total_calories > 0).length;
+  const dbTodayCalories = caloriesFromDb.find((c) => c.log_date === todayStr)?.total_calories || 0;
+  const dbTotalCaloriesInRange = caloriesFromDb.reduce((sum, c) => sum + c.total_calories, 0);
+  const dbDaysWithCalories = caloriesFromDb.filter((c) => c.total_calories > 0).length;
+
+  const localCaloriesByDate: Record<string, number> = {};
+  for (const s of filtered) {
+    if (!s.endedAt || !s.preNutrition?.estimated_calories) continue;
+    const day = new Date(s.startedAt).toISOString().slice(0, 10);
+    localCaloriesByDate[day] = (localCaloriesByDate[day] || 0) + Math.round(s.preNutrition.estimated_calories);
+  }
+  const localTodayCalories = localCaloriesByDate[todayStr] || 0;
+  const localTotalCaloriesInRange = Object.values(localCaloriesByDate).reduce((sum, v) => sum + v, 0);
+  const localDaysWithCalories = Object.values(localCaloriesByDate).filter((v) => v > 0).length;
+
+  const todayCalories = Math.max(dbTodayCalories, localTodayCalories);
+  const totalCaloriesInRange = Math.max(dbTotalCaloriesInRange, localTotalCaloriesInRange);
+  const daysWithCalories = Math.max(dbDaysWithCalories, localDaysWithCalories);
   const avgDailyCalories = daysWithCalories > 0 ? Math.round(totalCaloriesInRange / daysWithCalories) : 0;
 
   const mealsChart = useMemo(() => getMealsPerDayData(filtered, filter), [filtered, filter]);
