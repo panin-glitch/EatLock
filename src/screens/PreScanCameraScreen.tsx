@@ -388,7 +388,7 @@ export default function PreScanCameraScreen({ navigation }: Props) {
 
       {/* Barcode result card */}
       {barcodeResult && !barcodeLoading && (
-        <Animated.View style={[{ transform: [{ translateY: cardTranslateY }] }]} pointerEvents="box-none">
+        <Animated.View style={[styles.resultCardLayer, { transform: [{ translateY: cardTranslateY }] }]} pointerEvents="box-none">
           <ResultCard
             theme={theme}
             title={barcodeResult.name}
@@ -422,7 +422,7 @@ export default function PreScanCameraScreen({ navigation }: Props) {
 
       {/* Photo scan result card */}
       {(result || aiError) && !checking && !barcodeResult && (
-        <Animated.View style={[{ transform: [{ translateY: cardTranslateY }] }]} pointerEvents="box-none">
+        <Animated.View style={[styles.resultCardLayer, { transform: [{ translateY: cardTranslateY }] }]} pointerEvents="box-none">
           <ResultCard
             theme={theme}
             title={aiError ? 'AI unavailable' : result?.isFood ? (nutrition?.food_label || 'Meal detected') : 'Not food'}
@@ -629,4 +629,9 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   analyzingText: { color: '#FFF', fontSize: 14, fontWeight: '600' },
+
+  resultCardLayer: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 30,
+  },
 });

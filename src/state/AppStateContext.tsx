@@ -13,7 +13,7 @@ import * as Storage from '../services/storage';
 import { blockingEngine } from '../services/blockingEngine';
 import { scheduleAllMealNotifications } from '../services/notifications';
 import { ensureAuth } from '../services/authService';
-import { logCompletedMeal } from '../services/mealLogger';
+import { logCompletedMeal, updateSessionDistraction } from '../services/mealLogger';
 
 interface AppState {
   schedules: MealSchedule[];
@@ -28,11 +28,26 @@ interface AppState {
   updateSchedule: (s: MealSchedule) => Promise<void>;
   deleteSchedule: (id: string) => Promise<void>;
   toggleSchedule: (id: string) => Promise<void>;
-  startSession: (mealType: MealType, note: string, strictMode: boolean, preImageUri?: string, foodName?: string, preCheck?: FoodCheckResult, preNutrition?: NutritionEstimate) => Promise<void>;
+  startSession: (
+    mealType: MealType,
+    note: string,
+    strictMode: boolean,
+    preImageUri?: string,
+    foodName?: string,
+    preCheck?: FoodCheckResult,
+    preNutrition?: NutritionEstimate,
+    barcode?: string,
+    preBarcodeData?: { type: string; data: string },
+  ) => Promise<void>;
   endSession: (status: SessionStatus, roastMessage?: string) => Promise<void>;
   updateActiveSession: (updates: Partial<MealSession>) => Promise<void>;
   updateBlockConfig: (config: BlockConfig) => Promise<void>;
   updateSettings: (settings: UserSettings) => Promise<void>;
+  updateCompletedSessionFeedback: (
+    sessionId: string,
+    distractionRating: number,
+    estimatedDistractionMinutes: number,
+  ) => Promise<void>;
   clearAll: () => Promise<void>;
 }
 
@@ -103,7 +118,17 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const startSession = async (mealType: MealType, note: string, strictMode: boolean, preImageUri?: string, foodName?: string, preCheck?: FoodCheckResult, preNutrition?: NutritionEstimate) => {
+  const startSession = async (
+    mealType: MealType,
+    note: string,
+    strictMode: boolean,
+    preImageUri?: string,
+    foodName?: string,
+    preCheck?: FoodCheckResult,
+    preNutrition?: NutritionEstimate,
+    barcode?: string,
+    preBarcodeData?: { type: string; data: string },
+  ) => {
     const session: MealSession = {
       id: Date.now().toString(),
       startedAt: new Date().toISOString(),
@@ -113,6 +138,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       strictMode,
       preImageUri,
       preNutrition,
+      barcode,
+      preBarcodeData,
       verification: preCheck ? { preCheck } : {},
       status: 'ACTIVE',
       overrideUsed: false,
@@ -168,6 +195,28 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     setSettings(s);
   };
 
+  const updateCompletedSessionFeedback = async (
+    sessionId: string,
+    distractionRating: number,
+    estimatedDistractionMinutes: number,
+  ) => {
+    const existing = sessions.find((s) => s.id === sessionId);
+    if (!existing) return;
+
+    const updated: MealSession = {
+      ...existing,
+      distractionRating,
+      estimatedDistractionMinutes,
+    };
+
+    await Storage.saveMealSession(updated);
+    setSessions((prev) => prev.map((s) => (s.id === sessionId ? updated : s)));
+
+    updateSessionDistraction(sessionId, distractionRating, estimatedDistractionMinutes).catch((e) =>
+      console.warn('[AppState] updateSessionDistraction failed:', e?.message),
+    );
+  };
+
   const clearAll = async () => {
     await Storage.clearAllData();
     await loadAll();
@@ -192,6 +241,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         updateActiveSession,
         updateBlockConfig,
         updateSettings,
+        updateCompletedSessionFeedback,
         clearAll,
       }}
     >

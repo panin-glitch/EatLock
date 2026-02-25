@@ -86,6 +86,12 @@ export interface MealSession {
   /** Pre-scan nutrition estimate (calories + macros) */
   preNutrition?: NutritionEstimate;
 
+  /** Barcode scanned at pre-check (when barcode flow is used) */
+  barcode?: string;
+
+  /** Optional barcode payload used by post-scan route */
+  preBarcodeData?: { type: string; data: string };
+
   /** Roast or praise message from vision comparison */
   roastMessage?: string;
 

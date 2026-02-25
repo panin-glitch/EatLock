@@ -65,6 +65,7 @@ export default function LockSetupConfirmScreen({ navigation, route }: Props) {
     if (!confirmed || starting) return;
     setStarting(true);
     try {
+      const resolvedPreBarcodeData = preBarcodeData || (routeBarcode ? { type: 'barcode', data: routeBarcode } : undefined);
       await startSession(
         selectedMealType,
         '', // note
@@ -73,12 +74,14 @@ export default function LockSetupConfirmScreen({ navigation, route }: Props) {
         routeFoodName || undefined,
         preCheck,
         preNutrition,
+        routeBarcode,
+        resolvedPreBarcodeData,
       );
       navigation.reset({
         index: 0,
         routes: [
           { name: 'Main' },
-          { name: 'MealSessionActive', params: { mealType: selectedMealType, preBarcodeData } },
+          { name: 'MealSessionActive', params: { mealType: selectedMealType, preBarcodeData: resolvedPreBarcodeData } },
         ],
       });
     } catch (e) {

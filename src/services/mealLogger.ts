@@ -68,7 +68,7 @@ export async function logCompletedMeal(session: MealSession): Promise<void> {
       carbs_g: n?.carbs_g ?? null,
       fat_g: n?.fat_g ?? null,
       source: n?.source || 'vision',
-      barcode: (session as any).barcode || null,
+      barcode: session.barcode || null,
       completed: true,
     });
 
@@ -150,5 +150,31 @@ export async function fetchCaloriesByDateRange(startDate: Date, endDate: Date): 
     }));
   } catch {
     return [];
+  }
+}
+
+export async function updateSessionDistraction(
+  sessionId: string,
+  distractionRating: number | null,
+  _estimatedDistractionMinutes: number | null,
+): Promise<void> {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user?.id) return;
+
+    const { error } = await supabase
+      .from('meal_sessions')
+      .update({
+        distraction_rating: distractionRating,
+      })
+      .eq('id', sessionId)
+      .eq('user_id', session.user.id);
+
+    if (error) {
+      console.warn('[mealLogger] updateSessionDistraction error:', error.message);
+      return;
+    }
+  } catch (e: any) {
+    console.warn('[mealLogger] updateSessionDistraction failed:', e?.message);
   }
 }

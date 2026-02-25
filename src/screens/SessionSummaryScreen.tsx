@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -16,7 +16,7 @@ import { formatDuration } from '../utils/helpers';
 
 export default function SessionSummaryScreen() {
   const { theme } = useTheme();
-  const { sessions } = useAppState();
+  const { sessions, updateCompletedSessionFeedback } = useAppState();
   const navigation = useNavigation<any>();
 
   // Grab the most recently completed session
@@ -56,7 +56,15 @@ export default function SessionSummaryScreen() {
     session?.status === 'INCOMPLETE' ? 'Incomplete' :
     'Done';
 
-  const handleDone = () => {
+  const [distractionRating, setDistractionRating] = useState<number>(session?.distractionRating ?? 0);
+  const [distractionMinutes, setDistractionMinutes] = useState<number>(session?.estimatedDistractionMinutes ?? 0);
+
+  const minuteOptions = useMemo(() => [0, 5, 10, 15, 20], []);
+
+  const handleDone = async () => {
+    if (session && distractionRating > 0) {
+      await updateCompletedSessionFeedback(session.id, distractionRating, distractionMinutes);
+    }
     navigation.reset({
       index: 0,
       routes: [{ name: 'Main' }],
@@ -138,6 +146,50 @@ export default function SessionSummaryScreen() {
           </View>
         </View>
 
+        <View style={s.statCard}>
+          <Text style={s.statLabel}>Distraction Rating</Text>
+          <View style={s.ratingRow}>
+            {[1, 2, 3, 4, 5].map((n) => (
+              <TouchableOpacity key={n} onPress={() => setDistractionRating(n)}>
+                <MaterialIcons
+                  name={n <= distractionRating ? 'star' : 'star-border'}
+                  size={26}
+                  color={n <= distractionRating ? '#FF9500' : theme.textMuted}
+                />
+              </TouchableOpacity>
+            ))}
+          </View>
+          <Text style={[s.statLabel, { marginTop: 12 }]}>Estimated distraction time</Text>
+          <View style={s.minutesRow}>
+            {minuteOptions.map((m) => {
+              const selectedMinutes = distractionMinutes === m;
+              return (
+                <TouchableOpacity
+                  key={m}
+                  onPress={() => setDistractionMinutes(m)}
+                  style={[
+                    s.minuteChip,
+                    {
+                      backgroundColor: selectedMinutes ? theme.primary + '22' : theme.surfaceElevated,
+                      borderColor: selectedMinutes ? theme.primary : theme.border,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={{
+                      color: selectedMinutes ? theme.primary : theme.textSecondary,
+                      fontSize: 12,
+                      fontWeight: '700',
+                    }}
+                  >
+                    {m} min
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+
         {session?.overrideUsed && (
           <View style={[s.overrideBadge, { backgroundColor: theme.warning + '22' }]}>
             <MaterialIcons name="warning" size={16} color={theme.warning} />
@@ -215,6 +267,14 @@ const makeStyles = (c: any) =>
       borderColor: c.border,
     },
     statRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+    ratingRow: { flexDirection: 'row', gap: 6, marginTop: 6 },
+    minutesRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },
+    minuteChip: {
+      borderRadius: 12,
+      borderWidth: 1,
+      paddingHorizontal: 10,
+      paddingVertical: 7,
+    },
     statLabel: { fontSize: 13, color: c.textSecondary },
     statValue: { fontSize: 20, fontWeight: '700', color: c.text },
     overrideBadge: {
