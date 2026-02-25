@@ -264,13 +264,53 @@ export default function StatsScreen() {
   const daysWithCalories = Math.max(dbDaysWithCalories, localDaysWithCalories);
   const avgDailyCalories = daysWithCalories > 0 ? Math.round(totalCaloriesInRange / daysWithCalories) : 0;
 
+  // 7-day average (always last 7 days regardless of filter)
+  const avg7dCalories = useMemo(() => {
+    const now = new Date();
+    const sevenDaysAgo = new Date(now);
+    sevenDaysAgo.setDate(now.getDate() - 7);
+    const sevenDaysAgoIso = sevenDaysAgo.toISOString().slice(0, 10);
+    const recent = caloriesFromDb.filter((c) => c.log_date >= sevenDaysAgoIso && c.total_calories > 0);
+    // Also merge local
+    const localRecent: Record<string, number> = {};
+    for (const s of sessions) {
+      if (!s.endedAt || !s.preNutrition?.estimated_calories) continue;
+      const iso = new Date(s.startedAt).toISOString().slice(0, 10);
+      if (iso >= sevenDaysAgoIso) {
+        localRecent[iso] = (localRecent[iso] || 0) + Math.round(s.preNutrition.estimated_calories);
+      }
+    }
+    const mergedDays = new Set([...recent.map((r) => r.log_date), ...Object.keys(localRecent)]);
+    let total = 0;
+    for (const day of mergedDays) {
+      const db = recent.find((r) => r.log_date === day)?.total_calories || 0;
+      const local = localRecent[day] || 0;
+      total += Math.max(db, local);
+    }
+    const daysCount = mergedDays.size;
+    return daysCount > 0 ? Math.round(total / daysCount) : 0;
+  }, [caloriesFromDb, sessions]);
+
   const mealsChart = useMemo(() => getMealsPerDayData(filtered, filter), [filtered, filter]);
   const eatingChart = useMemo(() => getEatingTimeData(filtered, filter), [filtered, filter]);
   const caloriesChart = useMemo(() => getCaloriesPerDayData(filtered, caloriesFromDb, filter), [filtered, caloriesFromDb, filter]);
   const mealsMax = Math.max(0, ...mealsChart.data);
   const mealsSegments = getIntegerSegments(mealsMax);
   const caloriesMax = Math.max(0, ...caloriesChart.data);
-  const caloriesSegments = caloriesMax > 0 ? Math.min(5, Math.max(1, Math.ceil(caloriesMax / 500))) : 1;
+  // Use integer-safe segments: ensure step >= 1 so labels never duplicate
+  const caloriesSegments = (() => {
+    if (caloriesMax <= 0) return 1;
+    // Pick a nice step size so we get 3-5 segments with no duplicates
+    const niceSteps = [50, 100, 200, 250, 500, 1000, 2000];
+    const desiredSegments = 4;
+    let step = Math.max(1, Math.ceil(caloriesMax / desiredSegments));
+    // Snap to a nice step
+    for (const ns of niceSteps) {
+      if (ns >= step) { step = ns; break; }
+    }
+    const segs = Math.max(1, Math.ceil(caloriesMax / step));
+    return Math.min(segs, 6);
+  })();
 
   const chartConfig = {
     backgroundGradientFrom: theme.card,
@@ -373,6 +413,12 @@ export default function StatsScreen() {
                 {todayCalories > 0 ? todayCalories : '—'}
               </Text>
               <Text style={styles.statLabel}>Today</Text>
+            </View>
+            <View style={styles.statItem}>
+              <Text style={[styles.statValue, { color: '#FF9F0A' }]}>
+                {avg7dCalories > 0 ? avg7dCalories : '—'}
+              </Text>
+              <Text style={styles.statLabel}>Avg (7d)</Text>
             </View>
             <View style={styles.statItem}>
               <Text style={styles.statValue}>

@@ -45,6 +45,7 @@ secrets/
 backend/.dev.vars
 backend/.env
 backend/.env.*
+backend/.wrangler/
 
 # typescript
 *.tsbuildinfo

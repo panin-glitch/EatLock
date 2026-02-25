@@ -13,6 +13,29 @@ const rateBuckets = new Map<string, { count: number; resetAt: number }>();
 const burstBuckets = new Map<string, number[]>();
 const activeBuckets = new Map<string, number[]>();
 
+// ── Supabase RPC quota helper ────────────────
+
+async function consumeNutritionQuota(
+  env: Env,
+  userId: string,
+  limit: number,
+): Promise<{ allowed: boolean; used: number; limit: number }> {
+  const res = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/consume_nutrition_quota`, {
+    method: 'POST',
+    headers: {
+      apikey: env.SUPABASE_SERVICE_KEY,
+      Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ p_user_id: userId, p_limit: limit }),
+  });
+  if (!res.ok) {
+    console.error('[nutrition-quota] RPC error', res.status, await res.text().catch(() => ''));
+    return { allowed: true, used: 0, limit };
+  }
+  return (await res.json()) as { allowed: boolean; used: number; limit: number };
+}
+
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
     status,
@@ -145,9 +168,34 @@ const NUTRITION_SCHEMA = {
   },
 };
 
-const NUTRITION_SYSTEM = `Estimate meal calories from a single food photo.
-Return a realistic range and a concise assumption note.
-Never claim certainty.`;
+const NUTRITION_SYSTEM = `You are a conservative calorie estimator for a meal-tracking app.
+Given a single food photo, estimate total calories for what is visible.
+
+CRITICAL RULES — avoid overestimation:
+1. Default to SMALL/MEDIUM portions unless there are clear visual cues of a large serving.
+   - A "bowl" of rice is ~150–200 g cooked unless it is visibly heaped.
+   - A "plate" of pasta is ~180–250 g cooked unless it is a large restaurant portion.
+   - A single fried egg ≈ 90 kcal.
+   - Do NOT assume "full bowl" or "large plate" by default.
+2. When uncertain about portion size, make min_calories and max_calories wide (±40 %).
+3. Never claim certainty; set confidence < 0.7 for ambiguous photos.
+
+ANCHOR TABLE (per typical home serving):
+| Food              | Typical serving | kcal  |
+|-------------------|----------------|-------|
+| White rice        | 150 g cooked   | 195   |
+| Pasta (cooked)    | 200 g cooked   | 260   |
+| Chicken breast    | 120 g          | 200   |
+| Beef stew (1 cup) | 240 ml         | 220   |
+| French fries      | 100 g          | 310   |
+| Pizza (1 slice)   | ~110 g         | 270   |
+| Fried egg (1)     | 46 g           | 90    |
+| Soda (330 ml can) | 330 ml         | 140   |
+| Mixed salad, no dressing | 150 g   | 30    |
+
+Use these as anchors. Scale up or down based on what you see.
+
+Output STRICT JSON only. Do not include macros if you cannot estimate them with reasonable confidence.`;
 
 export async function handleNutritionEstimate(
   request: Request,
@@ -156,6 +204,13 @@ export async function handleNutritionEstimate(
   const auth = await getUser(request, env);
   if (auth instanceof Response) return auth;
 
+  // Persistent daily quota (DB-backed)
+  const quota = await consumeNutritionQuota(env, auth.user_id, NUTRITION_LIMIT);
+  if (!quota.allowed) {
+    return err('Daily limit reached (10 nutrition estimates/day)', 429);
+  }
+
+  // In-memory daily rate limit (fast layer, secondary)
   if (!checkRate(`nutrition:${auth.user_id}`, NUTRITION_LIMIT)) {
     return err('Rate limit exceeded (10 nutrition estimates/day)', 429);
   }

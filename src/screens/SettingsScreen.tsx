@@ -75,12 +75,12 @@ export default function SettingsScreen() {
       >
         {/* Account */}
         <Text style={styles.sectionLabel}>ACCOUNT</Text>
-        {isAuthenticated ? (
+        {isAuthenticated && user?.email ? (
           <>
             <View style={styles.row}>
               <MaterialIcons name="person" size={22} color={theme.primary} />
               <Text style={[styles.rowText, { color: theme.primary }]}>
-                {user?.email || 'Signed in'}
+                {user.email}
               </Text>
             </View>
             <TouchableOpacity
@@ -97,6 +97,20 @@ export default function SettingsScreen() {
             >
               <MaterialIcons name="logout" size={22} color={theme.textSecondary} />
               <Text style={styles.rowText}>Sign out</Text>
+              <MaterialIcons name="chevron-right" size={22} color={theme.textMuted} />
+            </TouchableOpacity>
+          </>
+        ) : isAuthenticated ? (
+          <>
+            <View style={styles.row}>
+              <MaterialIcons name="person" size={22} color={theme.primary} />
+              <Text style={[styles.rowText, { color: theme.primary }]}>
+                Signed in (anonymous)
+              </Text>
+            </View>
+            <TouchableOpacity style={styles.row} onPress={() => navigation.navigate('Auth')}>
+              <MaterialIcons name="email" size={22} color={theme.textSecondary} />
+              <Text style={styles.rowText}>Upgrade to email sign-in</Text>
               <MaterialIcons name="chevron-right" size={22} color={theme.textMuted} />
             </TouchableOpacity>
           </>
