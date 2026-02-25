@@ -14,6 +14,31 @@
 
 import type { Env } from './index';
 
+// ── Supabase RPC quota helper ────────────────
+
+async function consumeQuota(
+  env: Env,
+  userId: string,
+  kind: string,
+  limit: number,
+): Promise<{ allowed: boolean; used: number; limit: number }> {
+  const res = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/consume_vision_quota`, {
+    method: 'POST',
+    headers: {
+      apikey: env.SUPABASE_SERVICE_KEY,
+      Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ p_user_id: userId, p_kind: kind, p_limit: limit }),
+  });
+  if (!res.ok) {
+    console.error('[quota] RPC error', res.status, await res.text().catch(() => ''));
+    // Fall through to in-memory if RPC fails
+    return { allowed: true, used: 0, limit };
+  }
+  return (await res.json()) as { allowed: boolean; used: number; limit: number };
+}
+
 // ── Constants ────────────────────────────────
 
 const MODEL = 'gpt-4o-mini';
@@ -243,17 +268,24 @@ const COMPARE_SYSTEM = `You are EatLock's before/after meal comparison AI.
 You receive two photos: BEFORE eating (first) and AFTER eating (second).
 Determine how much food was consumed.
 
-Rules:
+CRITICAL — Scene consistency check (do this FIRST):
+- isSameScene: Both photos must show the same table, plate/container, and general setting.
+- If the plate, bowl, or container is clearly different between photos → verdict=UNVERIFIABLE, reasonCode="CANT_TELL"
+- If the angle is so different you can't confirm it's the same meal → verdict=UNVERIFIABLE, reasonCode="ANGLE_MISMATCH"
+- If lighting changed so much it's unrecognizable → verdict=UNVERIFIABLE, reasonCode="LIGHTING_MISMATCH"
+- Do NOT accuse the user of cheating. Simply request a retake in retakeHint.
+
+Verdicts (only if isSameScene is true):
 - EATEN: plate is clearly emptier (foodChangeScore > 0.75)
 - PARTIAL: some food gone but visible leftovers (0.25 < foodChangeScore <= 0.75)
 - UNCHANGED: food looks the same as before (foodChangeScore <= 0.25)
 - UNVERIFIABLE: can't tell (different angle, lighting, blurry, or photos don't match)
 - duplicateScore: 0 = completely different, 1 = identical (detect duplicate/resubmitted photos)
-- If duplicateScore > 0.9 -> reasonCode = "DUPLICATE_AFTER"
+- If duplicateScore > 0.9 → reasonCode = "DUPLICATE_AFTER"
 - foodChangeScore: 0 = no change, 1 = all food gone
-- isSameScene: are both photos from the same table/setting?
 
-Write a short witty roastLine (max 18 words, include 1-2 emojis). Provide retakeHint when UNVERIFIABLE.
+Write a short witty roastLine (max 18 words, 1-2 emojis). Keep roasts light, never accusatory.
+Provide retakeHint when UNVERIFIABLE (e.g. "Try taking the after photo from the same angle").
 Confidence is 0-1.`;
 
 // ── OpenAI Responses API call ────────────────
@@ -331,7 +363,13 @@ export async function handleVerifyFood(
     return err('Too many verify requests. Please slow down.', 429);
   }
 
-  // Rate limit (per user)
+  // Persistent daily quota (DB-backed, survives cold starts)
+  const quota = await consumeQuota(env, auth.user_id, 'verify', VERIFY_LIMIT);
+  if (!quota.allowed) {
+    return err('Daily limit reached (30 verify/day)', 429, { remaining: 0 });
+  }
+
+  // In-memory burst rate limit (fast layer)
   const rate = checkRate(`verify:${auth.user_id}`, VERIFY_LIMIT);
   if (!rate.ok) {
     return err('Rate limit exceeded (30 verify/day)', 429, { remaining: 0 });
@@ -409,7 +447,13 @@ export async function handleCompareMeal(
     return err('Too many compare requests. Please slow down.', 429);
   }
 
-  // Rate limit (per user)
+  // Persistent daily quota (DB-backed)
+  const quota = await consumeQuota(env, auth.user_id, 'compare', COMPARE_LIMIT);
+  if (!quota.allowed) {
+    return err('Daily limit reached (10 compare/day)', 429, { remaining: 0 });
+  }
+
+  // In-memory burst rate limit (fast layer)
   const rate = checkRate(`compare:${auth.user_id}`, COMPARE_LIMIT);
   if (!rate.ok) {
     return err('Rate limit exceeded (10 compare/day)', 429, { remaining: 0 });

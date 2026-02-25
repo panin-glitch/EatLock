@@ -12,6 +12,24 @@
 import type { Env } from './index';
 import { createClient } from '@supabase/supabase-js';
 
+// ── Burst rate limiting ──────────────────────
+
+const BARCODE_BURST_LIMIT = 10;
+const SHORT_WINDOW_MS = 60 * 1000;
+const burstBuckets = new Map<string, number[]>();
+
+function checkBurst(key: string, limit: number, windowMs: number): boolean {
+  const now = Date.now();
+  const current = (burstBuckets.get(key) || []).filter((ts) => now - ts < windowMs);
+  if (current.length >= limit) {
+    burstBuckets.set(key, current);
+    return false;
+  }
+  current.push(now);
+  burstBuckets.set(key, current);
+  return true;
+}
+
 // ── Helpers ──────────────────────────────────
 
 function json(data: unknown, status = 200): Response {
@@ -128,6 +146,14 @@ export async function handleBarcodeLookup(
   // Auth
   const auth = await getUser(request, env);
   if (auth instanceof Response) return auth;
+
+  // Per-IP + per-user burst limit
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  const burstUserOk = checkBurst(`barcode:user:${auth.user_id}`, BARCODE_BURST_LIMIT, SHORT_WINDOW_MS);
+  const burstIpOk = checkBurst(`barcode:ip:${ip}`, BARCODE_BURST_LIMIT * 2, SHORT_WINDOW_MS);
+  if (!burstUserOk || !burstIpOk) {
+    return err('Too many barcode requests. Please slow down.', 429);
+  }
 
   let body: { barcode?: string };
   try {
