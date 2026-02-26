@@ -181,16 +181,15 @@ export default function PlannerScreen() {
                   disabled={!schedule.enabled}
                   rowBackgroundColor={theme.card}
                 >
-                  <TouchableOpacity
-                    style={styles.mealRow}
-                    onPress={() =>
-                      navigation.navigate('EditSchedule', { scheduleId: schedule.id })
-                    }
-                    onLongPress={() => {
-                      navigation.navigate('PreScanCamera');
-                    }}
-                  >
-                    <View style={styles.mealRowLeft}>
+                  <View style={styles.mealRow}>
+                    <TouchableOpacity
+                      style={styles.mealRowLeft}
+                      onPress={() =>
+                        navigation.navigate('EditSchedule', { scheduleId: schedule.id })
+                      }
+                      onLongPress={() => navigation.navigate('PreScanCamera')}
+                      activeOpacity={0.7}
+                    >
                       <View
                         style={[
                           styles.mealDot,
@@ -217,7 +216,7 @@ export default function PlannerScreen() {
                           {!schedule.enabled ? 'Disabled · not active today' : schedule.repeatDays.join(', ')}
                         </Text>
                       </View>
-                    </View>
+                    </TouchableOpacity>
                     <View style={styles.mealRowRight}>
                       <Text
                         style={[
@@ -237,7 +236,7 @@ export default function PlannerScreen() {
                         />
                       )}
                     </View>
-                  </TouchableOpacity>
+                  </View>
                 </SwipeableRow>
               );
             })

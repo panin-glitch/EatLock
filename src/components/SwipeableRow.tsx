@@ -17,7 +17,6 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 }
 
 const ACTION_WIDTH = 84;
-const FULL_SWIPE_THRESHOLD = -150;
 
 interface Props {
   children: React.ReactNode;
@@ -35,17 +34,27 @@ export function SwipeableRow({
   rowBackgroundColor = '#1C1C1E',
 }: Props) {
   const translateX = useRef(new Animated.Value(0)).current;
-  const [isUnderlayVisible, setIsUnderlayVisible] = useState(false);
+  const [isOpen, setIsOpen] = useState(false);
+  const isOpenRef = useRef(false);
 
-  const snapTo = useCallback((toValue: number, callback?: () => void) => {
-    Animated.spring(translateX, {
-      toValue,
-      useNativeDriver: true,
-      stiffness: 210,
-      damping: 22,
-      mass: 0.8,
-    }).start(callback);
-  }, [translateX]);
+  const snapTo = useCallback(
+    (toValue: number, callback?: () => void) => {
+      Animated.spring(translateX, {
+        toValue,
+        useNativeDriver: true,
+        stiffness: 210,
+        damping: 22,
+        mass: 0.8,
+      }).start(callback);
+    },
+    [translateX],
+  );
+
+  const close = useCallback(() => {
+    isOpenRef.current = false;
+    setIsOpen(false);
+    snapTo(0);
+  }, [snapTo]);
 
   const handleDelete = useCallback(() => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -54,31 +63,34 @@ export function SwipeableRow({
 
   const panResponder = useRef(
     PanResponder.create({
-      onMoveShouldSetPanResponder: (_, gs) => !disabled && Math.abs(gs.dx) > 8 && Math.abs(gs.dx) > Math.abs(gs.dy),
+      onMoveShouldSetPanResponder: (_, gs) =>
+        Math.abs(gs.dx) > 10 && Math.abs(gs.dx) > Math.abs(gs.dy) * 1.5,
+      onPanResponderGrant: () => {
+        // If already open and user starts a new gesture, close first
+        if (isOpenRef.current) {
+          isOpenRef.current = false;
+          setIsOpen(false);
+          snapTo(0);
+        }
+      },
       onPanResponderMove: (_, gs) => {
-        if (disabled) return;
         const next = Math.min(0, gs.dx);
-        setIsUnderlayVisible(next < -2);
         translateX.setValue(next);
       },
       onPanResponderRelease: (_, gs) => {
-        if (disabled) {
-          setIsUnderlayVisible(false);
-          snapTo(0);
-          return;
-        }
-
-        if (gs.dx < FULL_SWIPE_THRESHOLD || gs.vx < -1.4 || gs.dx < -ACTION_WIDTH / 2 || gs.vx < -0.45) {
-          // Always snap to reveal delete button — never auto-delete
-          setIsUnderlayVisible(true);
+        if (gs.dx < -ACTION_WIDTH * 0.5) {
+          isOpenRef.current = true;
+          setIsOpen(true);
           snapTo(-ACTION_WIDTH);
         } else {
-          setIsUnderlayVisible(false);
+          isOpenRef.current = false;
+          setIsOpen(false);
           snapTo(0);
         }
       },
       onPanResponderTerminate: () => {
-        setIsUnderlayVisible(false);
+        isOpenRef.current = false;
+        setIsOpen(false);
         snapTo(0);
       },
       onPanResponderTerminationRequest: () => true,
@@ -86,14 +98,13 @@ export function SwipeableRow({
   ).current;
 
   return (
-    <View style={[styles.container, { backgroundColor: rowBackgroundColor }]}> 
-      {!disabled && isUnderlayVisible && (
-        <View style={[styles.deleteWrap, { backgroundColor: deleteColor }]}> 
+    <View style={[styles.container, { backgroundColor: rowBackgroundColor }]}>
+      {isOpen && (
+        <View style={[styles.deleteWrap, { backgroundColor: deleteColor }]}>
           <TouchableOpacity
             style={styles.deleteBtn}
             onPress={() => {
-              setIsUnderlayVisible(false);
-              snapTo(0);
+              close();
               setTimeout(handleDelete, 140);
             }}
             activeOpacity={0.72}
@@ -108,7 +119,15 @@ export function SwipeableRow({
         style={{ transform: [{ translateX: disabled ? 0 : translateX }] }}
         {...(disabled ? {} : panResponder.panHandlers)}
       >
-        {children}
+        <TouchableOpacity
+          activeOpacity={1}
+          onPress={() => {
+            if (isOpenRef.current) close();
+          }}
+          disabled={!isOpenRef.current}
+        >
+          {children}
+        </TouchableOpacity>
       </Animated.View>
     </View>
   );
@@ -117,8 +136,8 @@ export function SwipeableRow({
 const styles = StyleSheet.create({
   container: {
     overflow: 'hidden',
-    borderRadius: 16,
-    marginBottom: 12,
+    borderRadius: 14,
+    marginBottom: 8,
   },
   deleteWrap: {
     position: 'absolute',

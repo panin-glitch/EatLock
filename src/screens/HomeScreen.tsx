@@ -184,14 +184,18 @@ function MacroRing({ label, value, color }: { label: string; value: string; colo
   const size = 74;
   const stroke = 8;
   const radius = (size - stroke) / 2;
+  const hasData = value !== '—';
+  const ringColor = hasData ? color : 'rgba(255,255,255,0.14)';
   return (
     <View style={styles.macroItem}>
       <Svg width={size} height={size}>
         <Circle cx={size / 2} cy={size / 2} r={radius} stroke="rgba(255,255,255,0.14)" strokeWidth={stroke} fill="none" />
-        <Circle cx={size / 2} cy={size / 2} r={radius} stroke={color} strokeWidth={stroke} fill="none" strokeDasharray="160 220" rotation="-90" origin={`${size / 2}, ${size / 2}`} />
+        {hasData && (
+          <Circle cx={size / 2} cy={size / 2} r={radius} stroke={ringColor} strokeWidth={stroke} fill="none" strokeDasharray="160 220" rotation="-90" origin={`${size / 2}, ${size / 2}`} />
+        )}
       </Svg>
       <View style={styles.macroCenterText}>
-        <Text style={styles.macroValue}>{value}</Text>
+        <Text style={[styles.macroValue, !hasData && { color: '#666' }]}>{value}</Text>
       </View>
       <Text style={styles.macroLabel}>{label}</Text>
     </View>
