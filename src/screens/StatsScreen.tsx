@@ -22,7 +22,7 @@ import { MealSession } from '../types/models';
 import { fetchCaloriesByDateRange } from '../services/mealLogger';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
-const FILTERS = ['Last week', 'Last 30 days', 'All time'] as const;
+const FILTERS = ['Weekly', 'Monthly', 'All-time'] as const;
 type FilterType = typeof FILTERS[number];
 
 function filterSessions(sessions: MealSession[], filter: FilterType): MealSession[] {
@@ -30,12 +30,12 @@ function filterSessions(sessions: MealSession[], filter: FilterType): MealSessio
   return sessions.filter((s) => {
     if (!s.endedAt) return false;
     const start = new Date(s.startedAt);
-    if (filter === 'Last week') {
+    if (filter === 'Weekly') {
       const weekAgo = new Date(now);
       weekAgo.setDate(now.getDate() - 7);
       return start >= weekAgo;
     }
-    if (filter === 'Last 30 days') {
+    if (filter === 'Monthly') {
       const monthAgo = new Date(now);
       monthAgo.setDate(now.getDate() - 30);
       return start >= monthAgo;
@@ -45,8 +45,8 @@ function filterSessions(sessions: MealSession[], filter: FilterType): MealSessio
 }
 
 function getDaysForFilter(filter: FilterType): number {
-  if (filter === 'Last week') return 7;
-  if (filter === 'Last 30 days') return 30;
+  if (filter === 'Weekly') return 7;
+  if (filter === 'Monthly') return 30;
   return 90;
 }
 
@@ -178,15 +178,15 @@ function getEatingTimeData(sessions: MealSession[], filter: FilterType) {
 }
 
 function getRangeSuffix(filter: FilterType): string {
-  if (filter === 'Last week') return 'this week';
-  if (filter === 'Last 30 days') return 'last 30 days';
+  if (filter === 'Weekly') return 'this week';
+  if (filter === 'Monthly') return 'this month';
   return 'all time';
 }
 
 export default function StatsScreen() {
   const { theme } = useTheme();
   const { sessions } = useAppState();
-  const [filter, setFilter] = useState<FilterType>('Last week');
+  const [filter, setFilter] = useState<FilterType>('Weekly');
   const [caloriesFromDb, setCaloriesFromDb] = useState<Array<{ log_date: string; total_calories: number }>>([]);
 
   const filtered = useMemo(() => filterSessions(sessions, filter), [sessions, filter]);
@@ -339,13 +339,14 @@ export default function StatsScreen() {
   const styles = makeStyles(theme);
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: theme.background }]}>
       <StatusBar barStyle="light-content" backgroundColor={theme.background} />
       <View style={styles.header}>
-        <Text style={styles.title}>Stats</Text>
+        <Text style={styles.title}>Progress</Text>
       </View>
 
       <ScrollView
+        style={{ backgroundColor: theme.background }}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
