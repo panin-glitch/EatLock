@@ -8,7 +8,7 @@
  * OpenAI Responses API with Structured Outputs (strict JSON schema).
  *
  * Auth: Supabase Bearer token required.
- * Rate-limited per user_id:  30 verify/day, 10 compare/day.
+ * Rate-limited per user_id:  150 verify/day, 10 compare/day.
  * Max image size: 5 MB per object.
  */
 
@@ -45,12 +45,9 @@ const MODEL = 'gpt-4o-mini';
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5 MB
 const OPENAI_API = 'https://api.openai.com/v1/responses';
 
-// Rate-limit windows (per user_id, in-memory — resets on cold start, OK for v1)
-const VERIFY_LIMIT = 30;
-const COMPARE_LIMIT = 10;
-const WINDOW_MS = 24 * 60 * 60 * 1000; // 24 h
+// Rate-limit windows (per user_id, in-memory)
 const SHORT_WINDOW_MS = 60 * 1000;
-const VERIFY_BURST_LIMIT = 8;
+const VERIFY_BURST_LIMIT = 10;
 const COMPARE_BURST_LIMIT = 6;
 const CONCURRENT_WINDOW_MS = 60 * 1000;
 const CONCURRENT_LIMIT = 3;
@@ -58,22 +55,37 @@ const NOT_FOOD_WINDOW_MS = 10 * 60 * 1000;
 const NOT_FOOD_LIMIT = 10;
 const NOT_FOOD_COOLDOWN_MS = 5 * 60 * 1000;
 
-const rateBuckets = new Map<string, { count: number; resetAt: number }>();
 const burstBuckets = new Map<string, number[]>();
 const activeOpBuckets = new Map<string, number[]>();
 const failedScanBuckets = new Map<string, number[]>();
 const failedCooldownBuckets = new Map<string, number>();
 
-function checkRate(key: string, limit: number): { ok: boolean; remaining: number } {
-  const now = Date.now();
-  const bucket = rateBuckets.get(key);
-  if (!bucket || now > bucket.resetAt) {
-    rateBuckets.set(key, { count: 1, resetAt: now + WINDOW_MS });
-    return { ok: true, remaining: limit - 1 };
-  }
-  if (bucket.count >= limit) return { ok: false, remaining: 0 };
-  bucket.count++;
-  return { ok: true, remaining: limit - bucket.count };
+function parseCsvSet(raw?: string): Set<string> {
+  return new Set((raw || '').split(',').map((v) => v.trim()).filter(Boolean));
+}
+
+function toLimit(value: string | undefined, fallback: number): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.floor(parsed);
+}
+
+function secondsUntilUtcMidnight(): number {
+  const now = new Date();
+  const nextUtcMidnight = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0);
+  return Math.max(1, Math.floor((nextUtcMidnight - now.getTime()) / 1000));
+}
+
+function isDevBypassEnabled(request: Request, env: Env, userId: string): boolean {
+  const bypassHeader = request.headers.get('x-dev-bypass')?.toLowerCase() === 'true';
+  const bypassToken = request.headers.get('x-dev-bypass-token')?.trim();
+  const allowedUsers = parseCsvSet(env.DEV_BYPASS_USER_IDS);
+  const allowedTokens = parseCsvSet(env.DEV_BYPASS_TOKENS);
+  const userAllowed = allowedUsers.has(userId);
+  if (!userAllowed) return false;
+  if (bypassHeader) return true;
+  if (bypassToken && allowedTokens.has(bypassToken)) return true;
+  return false;
 }
 
 function checkBurst(key: string, limit: number, windowMs: number): boolean {
@@ -256,7 +268,7 @@ const COMPARE_SCHEMA = {
 
 // ── Prompts ──────────────────────────────────
 
-const VERIFY_SYSTEM = `You are EatLock's strict meal-photo verifier.
+const VERIFY_SYSTEM = `You are TadLock's strict meal-photo verifier.
 Given a single photo, determine whether it shows REAL food on a plate/bowl that someone is about to eat.
 Be harsh: reject selfies, fingers covering the lens, screenshots, dark/blurry shots, and non-food objects.
 Write a short witty roastLine (max 18 words, include 1-2 emojis). If rejected, provide a helpful retakeHint (max 15 words).
@@ -264,7 +276,7 @@ If accepted (isFood=true), set reasonCode to "OK", roastLine to a compliment, an
 quality.brightness/blur/framing are 0-1 scores (1 = perfect).
 Confidence is 0-1.`;
 
-const COMPARE_SYSTEM = `You are EatLock's before/after meal comparison AI.
+const COMPARE_SYSTEM = `You are TadLock's before/after meal comparison AI.
 You receive two photos: BEFORE eating (first) and AFTER eating (second).
 Determine how much food was consumed.
 
@@ -344,9 +356,12 @@ export async function handleVerifyFood(
   request: Request,
   env: Env,
 ): Promise<Response> {
+  const verifyDailyLimit = toLimit(env.VERIFY_DAILY_LIMIT, 1000);
+
   // Auth
   const auth = await getUser(request, env);
   if (auth instanceof Response) return auth;
+  const bypassQuota = isDevBypassEnabled(request, env, auth.user_id);
 
   if (isInFailedCooldown(`failed:${auth.user_id}`)) {
     return err('Too many failed scans, try again in 5 minutes.', 429);
@@ -357,22 +372,12 @@ export async function handleVerifyFood(
   }
 
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  console.log('[verify-food] request start', { user_id: auth.user_id, ip });
   const burstUserOk = checkBurst(`verify:user:${auth.user_id}`, VERIFY_BURST_LIMIT, SHORT_WINDOW_MS);
   const burstIpOk = checkBurst(`verify:ip:${ip}`, VERIFY_BURST_LIMIT * 2, SHORT_WINDOW_MS);
   if (!burstUserOk || !burstIpOk) {
-    return err('Too many verify requests. Please slow down.', 429);
-  }
-
-  // Persistent daily quota (DB-backed, survives cold starts)
-  const quota = await consumeQuota(env, auth.user_id, 'verify', VERIFY_LIMIT);
-  if (!quota.allowed) {
-    return err('Daily limit reached (30 verify/day)', 429, { remaining: 0 });
-  }
-
-  // In-memory burst rate limit (fast layer)
-  const rate = checkRate(`verify:${auth.user_id}`, VERIFY_LIMIT);
-  if (!rate.ok) {
-    return err('Rate limit exceeded (30 verify/day)', 429, { remaining: 0 });
+    console.warn('[verify-food] burst limited', { user_id: auth.user_id, ip, burstUserOk, burstIpOk });
+    return json({ error: 'Too many requests', retry_after_seconds: 30 }, 429);
   }
 
   // Parse body
@@ -402,6 +407,20 @@ export async function handleVerifyFood(
       return err('Image not found in R2 (expired or invalid key)', 404);
     }
 
+    if (!bypassQuota) {
+      const quota = await consumeQuota(env, auth.user_id, 'verify', verifyDailyLimit);
+      if (!quota.allowed) {
+        console.warn('[verify-food] daily quota reached', { user_id: auth.user_id, limit: verifyDailyLimit });
+        return json({
+          error: 'Daily limit reached',
+          kind: 'verify',
+          limit: verifyDailyLimit,
+          remaining: 0,
+          reset_in_seconds: secondsUntilUtcMidnight(),
+        }, 429);
+      }
+    }
+
     const input: OpenAIInput[] = [
       {
         role: 'user',
@@ -413,6 +432,7 @@ export async function handleVerifyFood(
     ];
 
     const result = await callOpenAI(env, VERIFY_SYSTEM, input, FOOD_CHECK_SCHEMA);
+    console.log('[verify-food] OpenAI success', { user_id: auth.user_id });
 
     const typed = result as { isFood?: boolean };
     if (typed?.isFood === false) {
@@ -423,7 +443,11 @@ export async function handleVerifyFood(
     return json(result);
   } catch (e: any) {
     if (e.status === 413) return err(e.message, 413);
-    console.error('[verify-food]', e);
+    console.error('[verify-food] failure', {
+      user_id: auth.user_id,
+      message: e?.message,
+      stack: e?.stack,
+    });
     return err(`Vision error: ${e.message}`, 502);
   }
 }
@@ -432,9 +456,12 @@ export async function handleCompareMeal(
   request: Request,
   env: Env,
 ): Promise<Response> {
+  const compareDailyLimit = toLimit(env.COMPARE_DAILY_LIMIT, 300);
+
   // Auth
   const auth = await getUser(request, env);
   if (auth instanceof Response) return auth;
+  const bypassQuota = isDevBypassEnabled(request, env, auth.user_id);
 
   if (!checkConcurrent(`active:${auth.user_id}`)) {
     return err('Too many active scan requests. Please wait a moment.', 429);
@@ -445,18 +472,6 @@ export async function handleCompareMeal(
   const burstIpOk = checkBurst(`compare:ip:${ip}`, COMPARE_BURST_LIMIT * 2, SHORT_WINDOW_MS);
   if (!burstUserOk || !burstIpOk) {
     return err('Too many compare requests. Please slow down.', 429);
-  }
-
-  // Persistent daily quota (DB-backed)
-  const quota = await consumeQuota(env, auth.user_id, 'compare', COMPARE_LIMIT);
-  if (!quota.allowed) {
-    return err('Daily limit reached (10 compare/day)', 429, { remaining: 0 });
-  }
-
-  // In-memory burst rate limit (fast layer)
-  const rate = checkRate(`compare:${auth.user_id}`, COMPARE_LIMIT);
-  if (!rate.ok) {
-    return err('Rate limit exceeded (10 compare/day)', 429, { remaining: 0 });
   }
 
   // Parse body
@@ -488,6 +503,19 @@ export async function handleCompareMeal(
 
     if (!beforeUrl || !afterUrl) {
       return err('One or both images not found in R2 (expired or invalid key)', 404);
+    }
+
+    if (!bypassQuota) {
+      const quota = await consumeQuota(env, auth.user_id, 'compare', compareDailyLimit);
+      if (!quota.allowed) {
+        return json({
+          error: 'Daily limit reached',
+          kind: 'compare',
+          limit: compareDailyLimit,
+          remaining: 0,
+          reset_in_seconds: secondsUntilUtcMidnight(),
+        }, 429);
+      }
     }
 
     // First attempt: detail:"low"

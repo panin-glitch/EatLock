@@ -16,7 +16,7 @@ import { CameraView, useCameraPermissions, type BarcodeScanningResult } from 'ex
 import { useTheme } from '../theme/ThemeProvider';
 import { getVisionService, CloudVisionService } from '../services/vision';
 import { getPreScanRoast, getFoodConfirmedMessage } from '../services/vision/roasts';
-import type { FoodCheckResult, NutritionEstimate } from '../services/vision/types';
+import type { FoodCheckResult, NutritionEstimate, VisionSoftError } from '../services/vision/types';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ScanFrameOverlay } from '../components/scan/ScanFrameOverlay';
 import { ScanTipsModal } from '../components/scan/ScanTipsModal';
@@ -25,6 +25,10 @@ import { CaloriesEditModal } from '../components/scan/CaloriesEditModal';
 import { lookupBarcode, type BarcodeLookupResult } from '../services/barcodeService';
 
 type Props = NativeStackScreenProps<any, 'PreScanCamera'>;
+
+function isVisionSoftError(value: unknown): value is VisionSoftError {
+  return !!value && typeof value === 'object' && (value as VisionSoftError).kind === 'soft_error';
+}
 
 export default function PreScanCameraScreen({ navigation }: Props) {
   const { theme } = useTheme();
@@ -40,6 +44,7 @@ export default function PreScanCameraScreen({ navigation }: Props) {
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
   const [result, setResult] = useState<FoodCheckResult | null>(null);
+  const [softError, setSoftError] = useState<VisionSoftError | null>(null);
   const [roast, setRoast] = useState<string | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
 
@@ -127,6 +132,7 @@ export default function PreScanCameraScreen({ navigation }: Props) {
   const verifyPhoto = async (uri: string) => {
     setChecking(true);
     setAiError(null);
+    setSoftError(null);
     setNutrition(null);
     setNutritionLoading(false);
     setNutritionError(false);
@@ -135,6 +141,10 @@ export default function PreScanCameraScreen({ navigation }: Props) {
     try {
       const vision = getVisionService();
       const check = await vision.verifyFood(uri);
+      if (isVisionSoftError(check)) {
+        setSoftError(check);
+        return;
+      }
       setResult(check);
       setRoast(
         check.isFood
@@ -158,6 +168,12 @@ export default function PreScanCameraScreen({ navigation }: Props) {
         setNutritionLoading(false);
       }
     } catch (e: any) {
+      if (__DEV__) {
+        console.log('[PreScan] verifyPhoto failed', {
+          message: e?.message,
+          stack: e?.stack,
+        });
+      }
       setResult(null);
       setRoast(null);
       setAiError(e?.message || 'Could not reach verification service.');
@@ -232,6 +248,7 @@ export default function PreScanCameraScreen({ navigation }: Props) {
       barcodeLockRef.current = false;
       setPhotoUri(null);
       setResult(null);
+      setSoftError(null);
       setRoast(null);
       setAiError(null);
       setNutrition(null);
@@ -421,14 +438,24 @@ export default function PreScanCameraScreen({ navigation }: Props) {
       )}
 
       {/* Photo scan result card */}
-      {(result || aiError) && !checking && !barcodeResult && (
+      {(result || aiError || softError) && !checking && !barcodeResult && (
         <Animated.View style={[styles.resultCardLayer, { transform: [{ translateY: cardTranslateY }] }]} pointerEvents="box-none">
           <ResultCard
             theme={theme}
-            title={aiError ? 'AI unavailable' : result?.isFood ? (nutrition?.food_label || 'Meal detected') : 'Not food'}
-            accentColor={aiError ? theme.warning : result?.isFood ? theme.success : theme.danger}
+            title={
+              softError
+                ? softError.title
+                : aiError
+                  ? aiError.toLowerCase().includes('daily limit')
+                  ? 'Daily limit reached'
+                  : 'AI unavailable'
+                  : result?.isFood
+                  ? (nutrition?.food_label || 'Meal detected')
+                  : 'Not food'
+            }
+            accentColor={(aiError || softError) ? theme.warning : result?.isFood ? theme.success : theme.danger}
             roast={aiError ? undefined : roast || undefined}
-            subtext={aiError || (!result?.isFood ? result?.retakeHint : undefined) || undefined}
+            subtext={softError?.subtitle || aiError || (!result?.isFood ? result?.retakeHint : undefined) || undefined}
             calories={result?.isFood ? {
               nutrition,
               loading: nutritionLoading,
@@ -436,8 +463,18 @@ export default function PreScanCameraScreen({ navigation }: Props) {
               onEdit: nutrition ? () => setEditCalVisible(true) : undefined,
             } : undefined}
             buttons={[
+              ...(softError?.code === 'SESSION_EXPIRED'
+                ? [{ label: 'Sign in again', onPress: () => navigation.navigate('Auth') }]
+                : []),
+              ...(softError?.code === 'RATE_LIMIT'
+                ? [{ label: 'OK', onPress: handleRetake }]
+                : []),
               ...(result?.isFood ? [{ label: 'Confirm & Start', onPress: handleContinue }] : []),
-              { label: aiError ? 'Retry' : 'Retake', onPress: handleRetake, secondary: !!result?.isFood },
+              {
+                label: softError?.code === 'SESSION_EXPIRED' ? 'Cancel' : softError?.code === 'RATE_LIMIT' ? 'Retake' : aiError ? 'Retry' : 'Retake',
+                onPress: handleRetake,
+                secondary: !!result?.isFood || !!softError,
+              },
             ]}
           />
         </Animated.View>
@@ -607,7 +644,7 @@ const styles = StyleSheet.create({
   },
   shutterOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#FFF',
+    backgroundColor: '#000',
     zIndex: 20,
   },
 

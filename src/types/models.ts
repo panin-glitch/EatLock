@@ -133,6 +133,9 @@ export interface HomeWidgetSettings {
 export interface UserSettings {
   truthBomb: TruthBombSettings;
   homeWidgets: HomeWidgetSettings;
+  developer?: {
+    disableQuotasDev: boolean;
+  };
 }
 
 export const DEFAULT_BLOCK_CONFIG: BlockConfig = {
@@ -215,6 +218,9 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
     showNextMeal: true,
     showLockedApps: true,
     showTruthBomb: true,
+  },
+  developer: {
+    disableQuotasDev: false,
   },
 };
 

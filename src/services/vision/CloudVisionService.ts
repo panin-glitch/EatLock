@@ -1,31 +1,37 @@
 /**
  * CloudVisionService — R2 signed-upload flow.
- *
- * 1. Compress image on-device (768px JPEG 0.65)
- * 2. POST /v1/r2/signed-upload  → get { uploadUrl, r2Key }
- * 3. PUT binary to uploadUrl     → image lands in R2
- * 4. POST /v1/vision/verify-food or /compare-meal with r2Key(s)
- *
- * All requests carry a Supabase Bearer token.
- * No OpenAI API key ever leaves the backend.
  */
 
 import type { MealVisionService } from './MealVisionService';
-import type { FoodCheckResult, CompareResult, NutritionEstimate } from './types';
+import type { FoodCheckResult, CompareResult, NutritionEstimate, VisionSoftError } from './types';
 import { compressImage } from './imageCompress';
 import { getAccessToken, ensureAuth, refreshAuthSession, recreateAnonymousSession } from '../authService';
+import { getUserSettings } from '../storage';
 import { ENV } from '../../config/env';
 
 const API = ENV.WORKER_API_URL;
-
-/** Timeout for each backend call (ms) */
-const REQUEST_TIMEOUT = 45_000; // Raised: upload + vision can take a while
+const REQUEST_TIMEOUT = 45_000;
 
 const __DEV__ = process.env.NODE_ENV !== 'production';
+const DEBUG = __DEV__;
 let hasLoggedTokenDebug = false;
 
 function isJwt(token: string): boolean {
   return token.split('.').length === 3;
+}
+
+function isSoftError<T>(value: T | VisionSoftError): value is VisionSoftError {
+  return (value as VisionSoftError)?.kind === 'soft_error';
+}
+
+function makeSoftError(code: VisionSoftError['code'], title: string, subtitle: string, extras?: Partial<VisionSoftError>): VisionSoftError {
+  return {
+    kind: 'soft_error',
+    code,
+    title,
+    subtitle,
+    ...extras,
+  };
 }
 
 async function getBearerToken(): Promise<string> {
@@ -39,16 +45,27 @@ async function getBearerToken(): Promise<string> {
   if (!isJwt(token)) {
     throw new Error('Auth token invalid');
   }
-  if (__DEV__ && !hasLoggedTokenDebug) {
+  if (DEBUG && !hasLoggedTokenDebug) {
     console.log(`[Auth] token head=${token.slice(0, 12)} len=${token.length}`);
     hasLoggedTokenDebug = true;
   }
   return token;
 }
 
+async function shouldSendDevBypassHeader(): Promise<boolean> {
+  if (!__DEV__) return false;
+  try {
+    const settings = await getUserSettings();
+    return !!settings.developer?.disableQuotasDev;
+  } catch {
+    return false;
+  }
+}
+
 async function fetchWithAuth(url: string, init: RequestInit, retryOn401 = true): Promise<Response> {
   const token = await getBearerToken();
   const baseHeaders = (init.headers || {}) as Record<string, string>;
+  const useDevBypass = await shouldSendDevBypassHeader();
 
   const makeInit = (bearer: string): RequestInit => ({
     ...init,
@@ -56,13 +73,15 @@ async function fetchWithAuth(url: string, init: RequestInit, retryOn401 = true):
       ...baseHeaders,
       Authorization: `Bearer ${bearer}`,
       'x-eatlock-supabase-url': ENV.SUPABASE_URL,
+      'x-tadlock-supabase-url': ENV.SUPABASE_URL,
+      ...(useDevBypass ? { 'X-Dev-Bypass': 'true' } : {}),
     },
   });
 
   let res = await fetch(url, makeInit(token));
 
   if (res.status === 401 && retryOn401) {
-    if (__DEV__) console.warn(`[Vision] 401 on ${url} — refreshing token and retrying once`);
+    if (DEBUG) console.warn(`[Vision] 401 on ${url} — refreshing token and retrying once`);
     let refreshed = await refreshAuthSession();
     if (!refreshed) {
       try {
@@ -73,7 +92,7 @@ async function fetchWithAuth(url: string, init: RequestInit, retryOn401 = true):
     }
 
     if (!refreshed) {
-      throw new Error('Sign-in expired. Please try again.');
+      return res;
     }
 
     res = await fetch(url, makeInit(refreshed));
@@ -82,47 +101,86 @@ async function fetchWithAuth(url: string, init: RequestInit, retryOn401 = true):
   return res;
 }
 
-// ── Generic JSON POST ────────────────────────
-
-async function postJSON<T>(
-  endpoint: string,
-  body: Record<string, unknown>,
-): Promise<T> {
+async function postJSON<T>(endpoint: string, body: Record<string, unknown>): Promise<T | VisionSoftError> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
   const url = `${API}${endpoint}`;
 
-  if (__DEV__) console.log(`[Vision] POST ${url}`, JSON.stringify(body).slice(0, 120));
+  if (DEBUG) console.log(`[Vision] POST ${url}`, JSON.stringify(body).slice(0, 120));
 
   try {
-    const res = await fetchWithAuth(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
+    let res: Response;
+    try {
+      res = await fetchWithAuth(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+    } catch (networkErr: any) {
+      if (DEBUG) {
+        console.log('[Vision] network issue', {
+          endpoint,
+          message: networkErr?.message,
+        });
+      }
+      return makeSoftError('NETWORK', 'Connection issue', 'Could not reach the server. Check your connection and try again.');
+    }
 
-    if (__DEV__) console.log(`[Vision] ${endpoint} → ${res.status}`);
+    if (DEBUG) console.log(`[Vision] ${endpoint} → ${res.status}`);
 
     if (!res.ok) {
-      if (res.status === 401) {
-        throw new Error('Sign-in expired. Please try again.');
+      const raw = await res.text().catch(() => '');
+      let errBody: Record<string, unknown> = {};
+      try {
+        errBody = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+      } catch {
+        errBody = {};
       }
-      const errBody = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-      const errMsg = (errBody.error as string) || `HTTP ${res.status}`;
-      if (__DEV__) console.error(`[Vision] ${endpoint} ERROR:`, errMsg);
-      throw new Error(errMsg);
+
+      if (res.status === 401) {
+        return makeSoftError('SESSION_EXPIRED', 'Session expired', 'Please sign in again.');
+      }
+
+      if (res.status === 429) {
+        const retryAfter = Number(errBody.retry_after_seconds ?? 30);
+        const resetInSeconds = Number(errBody.reset_in_seconds ?? 0);
+        const isBurst = (errBody.error as string)?.toLowerCase().includes('too many requests');
+        return makeSoftError(
+          'RATE_LIMIT',
+          'Slow down',
+          isBurst
+            ? `Rate limit reached. Try again in ${Number.isFinite(retryAfter) ? retryAfter : 30}s.`
+            : 'Daily limit reached. Resets at midnight.',
+          {
+            retryAfterSeconds: Number.isFinite(retryAfter) ? retryAfter : 30,
+            resetInSeconds: Number.isFinite(resetInSeconds) ? resetInSeconds : undefined,
+          },
+        );
+      }
+
+      const errMsg =
+        (errBody.error as string) ||
+        (errBody.message as string) ||
+        (raw ? raw.slice(0, 220) : `HTTP ${res.status}`);
+
+      if (DEBUG) {
+        console.log('[Vision] API error', {
+          endpoint,
+          status: res.status,
+          message: errMsg,
+        });
+      }
+
+      return makeSoftError('SERVER', 'AI unavailable', errMsg || 'Something went wrong.');
     }
 
     const data = (await res.json()) as T;
-    if (__DEV__) console.log(`[Vision] ${endpoint} OK:`, JSON.stringify(data).slice(0, 200));
     return data;
   } finally {
     clearTimeout(timer);
   }
 }
-
-// ── Signed-upload flow ───────────────────────
 
 interface SignedUploadResponse {
   uploadUrl: string;
@@ -132,103 +190,76 @@ interface SignedUploadResponse {
   expiresInSeconds: number;
 }
 
-/**
- * Compress an image, request a signed upload URL, and PUT the binary to R2.
- * Returns the r2Key for subsequent vision calls.
- */
-async function uploadToR2(imageUri: string, kind: 'before' | 'after'): Promise<string> {
-  // 1. Compress
-  if (__DEV__) console.log(`[Vision] Compressing ${kind} image…`);
+async function uploadToR2(imageUri: string, kind: 'before' | 'after'): Promise<string | VisionSoftError> {
+  if (DEBUG) console.log(`[Vision] Compressing ${kind} image…`);
   const { buffer } = await compressImage(imageUri);
-  if (__DEV__) console.log(`[Vision] Compressed → ${(buffer.byteLength / 1024).toFixed(1)} KB`);
 
-  // 2. Request signed upload URL
-  const signed = await postJSON<SignedUploadResponse>(
-    '/v1/r2/signed-upload',
-    { kind },
-  );
-  if (__DEV__) console.log(`[Vision] Signed URL → ${signed.uploadUrl.slice(0, 80)}…`);
+  const signed = await postJSON<SignedUploadResponse>('/v1/r2/signed-upload', { kind });
+  if (isSoftError(signed)) return signed;
 
-  // 3. PUT binary to R2 via the worker proxy
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
 
   try {
-    const putRes = await fetchWithAuth(signed.uploadUrl, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'image/jpeg' },
-      body: buffer,
-      signal: controller.signal,
-    });
-
-    if (__DEV__) console.log(`[Vision] R2 PUT → ${putRes.status}`);
+    let putRes: Response;
+    try {
+      putRes = await fetchWithAuth(signed.uploadUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'image/jpeg' },
+        body: buffer,
+        signal: controller.signal,
+      });
+    } catch {
+      return makeSoftError('NETWORK', 'Connection issue', 'Upload failed due to a network issue.');
+    }
 
     if (!putRes.ok) {
       if (putRes.status === 401) {
-        throw new Error('Sign-in expired. Please try again.');
+        return makeSoftError('SESSION_EXPIRED', 'Session expired', 'Please sign in again.');
       }
-      const text = await putRes.text().catch(() => '');
-      throw new Error(`R2 upload failed: ${putRes.status} ${text.slice(0, 200)}`);
+      if (putRes.status === 429) {
+        return makeSoftError('RATE_LIMIT', 'Slow down', 'Rate limit reached. Try again in 30s.', {
+          retryAfterSeconds: 30,
+        });
+      }
+      return makeSoftError('SERVER', 'Upload failed', `Upload failed with status ${putRes.status}.`);
     }
   } finally {
     clearTimeout(timer);
   }
 
-  if (__DEV__) console.log(`[Vision] Upload complete → ${signed.r2Key}`);
   return signed.r2Key;
 }
 
-// ── Service implementation ───────────────────
-
 export class CloudVisionService implements MealVisionService {
-  /** The r2Key from the most recent verifyFood upload. */
   private _lastR2Key: string | null = null;
-  get lastR2Key(): string | null { return this._lastR2Key; }
-
-  /** Upload image to R2, then call /verify-food with the r2Key. */
-  async verifyFood(imageUri: string): Promise<FoodCheckResult> {
-    const r2Key = await uploadToR2(imageUri, 'before');
-    this._lastR2Key = r2Key;
-
-    return postJSON<FoodCheckResult>(
-      '/v1/vision/verify-food',
-      { r2Key },
-    );
+  get lastR2Key(): string | null {
+    return this._lastR2Key;
   }
 
-  /**
-   * Upload the after image to R2, then call /compare-meal with both keys.
-   * The preImageUri is the *original* (already uploaded during verifyFood),
-   * but we accept it as a URI so the interface stays the same.
-   *
-   * If preImageUri looks like an r2Key (starts with "uploads/"), we reuse it.
-   * Otherwise we upload it fresh as "before".
-   */
-  async compareMeal(preImageUri: string, postImageUri: string): Promise<CompareResult> {
-    // Pre-image: if it's already an r2Key (passed from verify step), reuse it
+  async verifyFood(imageUri: string): Promise<FoodCheckResult | VisionSoftError> {
+    const r2Key = await uploadToR2(imageUri, 'before');
+    if (isSoftError(r2Key)) return r2Key;
+
+    this._lastR2Key = r2Key;
+    return postJSON<FoodCheckResult>('/v1/vision/verify-food', { r2Key });
+  }
+
+  async compareMeal(preImageUri: string, postImageUri: string): Promise<CompareResult | VisionSoftError> {
     const preKey = preImageUri.startsWith('uploads/')
       ? preImageUri
       : await uploadToR2(preImageUri, 'before');
+    if (isSoftError(preKey)) return preKey;
 
-    // Post-image: always upload fresh
     const postKey = await uploadToR2(postImageUri, 'after');
+    if (isSoftError(postKey)) return postKey;
 
-    return postJSON<CompareResult>(
-      '/v1/vision/compare-meal',
-      { preKey, postKey },
-    );
+    return postJSON<CompareResult>('/v1/vision/compare-meal', { preKey, postKey });
   }
 
-  /** Estimate calories from a previously uploaded R2 image. */
   async estimateCalories(r2Key: string): Promise<NutritionEstimate | null> {
-    try {
-      const data = await postJSON<Omit<NutritionEstimate, 'source'>>(        '/v1/nutrition/estimate',
-        { r2Key },
-      );
-      return { ...data, source: 'vision' };
-    } catch (e: any) {
-      if (__DEV__) console.warn('[Vision] estimateCalories failed:', e?.message);
-      return null;
-    }
+    const data = await postJSON<Omit<NutritionEstimate, 'source'>>('/v1/nutrition/estimate', { r2Key });
+    if (isSoftError(data)) return null;
+    return { ...data, source: 'vision' };
   }
 }

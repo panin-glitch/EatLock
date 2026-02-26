@@ -1,12 +1,12 @@
 /**
- * EatLock Cloudflare Worker — main entry point.
+ * TadLock Cloudflare Worker — main entry point.
  *
  * Endpoints:
  *   POST /v1/r2/signed-upload        → returns signed upload URL + r2_key
  *   POST /v1/vision/enqueue          → creates vision_jobs row + enqueues message
  *   GET  /v1/vision/job/:job_id      → returns job status + result if done
  *
- * Queue consumer bound to eatlock-vision queue.
+ * Queue consumer bound to tadlock-vision queue.
  */
 
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
@@ -21,6 +21,11 @@ export interface Env {
   SUPABASE_URL: string;
   SUPABASE_SERVICE_KEY: string;
   OPENAI_API_KEY: string;
+  VERIFY_DAILY_LIMIT?: string;
+  COMPARE_DAILY_LIMIT?: string;
+  NUTRITION_DAILY_LIMIT?: string;
+  DEV_BYPASS_USER_IDS?: string;
+  DEV_BYPASS_TOKENS?: string;
 }
 
 const MINUTE_MS = 60 * 1000;
@@ -77,7 +82,7 @@ async function getUser(
   }
 
   const configuredHost = new URL(env.SUPABASE_URL).host;
-  const appSupabaseUrl = request.headers.get('x-eatlock-supabase-url');
+  const appSupabaseUrl = request.headers.get('x-tadlock-supabase-url') || request.headers.get('x-eatlock-supabase-url');
   if (appSupabaseUrl) {
     try {
       const appHost = new URL(appSupabaseUrl).host;
@@ -85,7 +90,7 @@ async function getUser(
         console.error(`[Auth] Supabase URL mismatch app=${appHost} worker=${configuredHost}`);
       }
     } catch {
-      console.error('[Auth] Invalid x-eatlock-supabase-url header from client');
+      console.error('[Auth] Invalid x-tadlock-supabase-url header from client');
     }
   }
 
@@ -381,7 +386,7 @@ export default {
 
       // Health check
       if (method === 'GET' && (path === '/' || path === '/health')) {
-        return finalize(json({ status: 'ok', service: 'eatlock-worker' }));
+        return finalize(json({ status: 'ok', service: 'tadlock-worker' }));
       }
 
       return finalize(error('Not found', 404));
