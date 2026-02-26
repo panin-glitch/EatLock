@@ -371,9 +371,7 @@ export default function PreScanCameraScreen({ navigation }: Props) {
           {barcodeMode ? <Text style={styles.barcodeHint}>Scan barcode</Text> : null}
 
           <View style={styles.bottomControlsRow}>
-            <TouchableOpacity style={styles.bottomIconBtn} onPress={() => setTorch((prev) => !prev)}>
-              <MaterialIcons name={torch ? 'flash-on' : 'flash-off'} size={20} color="#FFF" />
-            </TouchableOpacity>
+            <View style={styles.bottomLeftSpacer} />
 
             {barcodeMode ? (
               <View style={styles.shutterPlaceholder}>
@@ -389,7 +387,9 @@ export default function PreScanCameraScreen({ navigation }: Props) {
               </TouchableOpacity>
             )}
 
-            <View style={styles.bottomRightSpacer} />
+            <TouchableOpacity style={styles.bottomIconBtn} onPress={() => setTorch((prev) => !prev)}>
+              <MaterialIcons name={torch ? 'flash-on' : 'flash-off'} size={20} color="#FFF" />
+            </TouchableOpacity>
           </View>
         </View>
       )}
@@ -611,7 +611,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  bottomRightSpacer: {
+  bottomLeftSpacer: {
     width: 42,
     height: 42,
   },

@@ -54,6 +54,17 @@ function toLimit(value: string | undefined, fallback: number): number {
   return Math.floor(parsed);
 }
 
+function dailyLimitsDisabled(env: Env): boolean {
+  const value = (env.DISABLE_DAILY_LIMITS || '').trim().toLowerCase();
+  return value === '1' || value === 'true' || value === 'yes' || value === 'on';
+}
+
+/** All rate-limiting + quota enforcement is OFF unless ENFORCE_LIMITS === "true" */
+function limitsEnforced(env: Env): boolean {
+  const value = (env.ENFORCE_LIMITS || '').trim().toLowerCase();
+  return value === 'true';
+}
+
 function secondsUntilUtcMidnight(): number {
   const now = new Date();
   const nextUtcMidnight = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0);
@@ -166,6 +177,9 @@ const NUTRITION_SCHEMA = {
       estimated_calories: { type: 'number' },
       min_calories: { type: 'number' },
       max_calories: { type: 'number' },
+      protein_g: { type: 'number' },
+      carbs_g: { type: 'number' },
+      fat_g: { type: 'number' },
       confidence: { type: 'number' },
       notes: { type: 'string' },
     },
@@ -174,6 +188,9 @@ const NUTRITION_SCHEMA = {
       'estimated_calories',
       'min_calories',
       'max_calories',
+      'protein_g',
+      'carbs_g',
+      'fat_g',
       'confidence',
       'notes',
     ],
@@ -208,27 +225,30 @@ ANCHOR TABLE (per typical home serving):
 
 Use these as anchors. Scale up or down based on what you see.
 
-Output STRICT JSON only. Do not include macros if you cannot estimate them with reasonable confidence.`;
+Output STRICT JSON only. Always include protein_g, carbs_g, fat_g estimates. Use 0 if you truly cannot estimate a macro.`;
 
 export async function handleNutritionEstimate(
   request: Request,
   env: Env,
 ): Promise<Response> {
   const nutritionDailyLimit = toLimit(env.NUTRITION_DAILY_LIMIT, 300);
+  const enforce = limitsEnforced(env);
 
   const auth = await getUser(request, env);
   if (auth instanceof Response) return auth;
   const bypassQuota = isDevBypassEnabled(request, env, auth.user_id);
 
-  if (!checkActive(`nutrition-active:${auth.user_id}`)) {
+  if (enforce && !checkActive(`nutrition-active:${auth.user_id}`)) {
     return err('Too many active scan requests. Please wait a moment.', 429);
   }
 
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
-  const burstUserOk = checkBurst(`nutrition:user:${auth.user_id}`, NUTRITION_BURST_LIMIT, SHORT_WINDOW_MS);
-  const burstIpOk = checkBurst(`nutrition:ip:${ip}`, NUTRITION_BURST_LIMIT * 2, SHORT_WINDOW_MS);
-  if (!burstUserOk || !burstIpOk) {
-    return err('Too many nutrition requests. Please slow down.', 429);
+  if (enforce) {
+    const burstUserOk = checkBurst(`nutrition:user:${auth.user_id}`, NUTRITION_BURST_LIMIT, SHORT_WINDOW_MS);
+    const burstIpOk = checkBurst(`nutrition:ip:${ip}`, NUTRITION_BURST_LIMIT * 2, SHORT_WINDOW_MS);
+    if (!burstUserOk || !burstIpOk) {
+      return err('Too many nutrition requests. Please slow down.', 429);
+    }
   }
 
   let body: { r2Key?: string };
@@ -254,7 +274,7 @@ export async function handleNutritionEstimate(
       return err('Image not found in R2 (expired or invalid key)', 404);
     }
 
-    if (!bypassQuota) {
+    if (enforce && !bypassQuota && !dailyLimitsDisabled(env)) {
       const quota = await consumeNutritionQuota(env, auth.user_id, nutritionDailyLimit);
       if (!quota.allowed) {
         return err('Daily limit reached', 429, {

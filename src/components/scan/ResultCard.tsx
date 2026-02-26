@@ -39,8 +39,6 @@ export interface ResultCardProps {
   title: string;
   /** Icon + title colour (verdict colour) */
   accentColor: string;
-  /** Optional confidence string, e.g. "95%". */
-  confidence?: string;
   /** The roast / praise line */
   roast?: string;
   /** Smaller sub-text (reason, retake hint, etc.) */
@@ -59,7 +57,6 @@ export function ResultCard({
   theme,
   accentColor,
   title,
-  confidence,
   roast,
   subtext,
   calories,
@@ -70,6 +67,9 @@ export function ResultCard({
   const s = makeStyles(theme, isDark, bottomInset);
   const n = calories?.nutrition;
 
+  // Determine source label
+  const sourceLabel = n?.source === 'barcode' ? 'From barcode' : n?.source === 'user' ? 'Edited' : 'Estimate';
+
   return (
     <View style={s.card}>
       {/* ── Header: two columns ── */}
@@ -78,9 +78,6 @@ export function ResultCard({
           <Text style={[s.titleText, { color: accentColor }]} numberOfLines={1}>
             {title}
           </Text>
-          {confidence ? (
-            <Text style={s.confidenceText}>{confidence} confidence</Text>
-          ) : null}
         </View>
 
         {calories ? (
@@ -95,6 +92,9 @@ export function ResultCard({
                 <Text style={s.calUnit}>cal</Text>
               </View>
             )}
+            {n && !calories.loading ? (
+              <Text style={s.sourceLabel}>{sourceLabel}</Text>
+            ) : null}
             {n && !calories.loading && calories.onEdit ? (
               <TouchableOpacity onPress={calories.onEdit} hitSlop={8}>
                 <Text style={[s.editLink, { color: theme.primary }]}>Edit</Text>
@@ -207,7 +207,7 @@ const makeStyles = (c: ThemeColors, isDark: boolean, bottomInset: number) =>
       position: 'absolute',
       left: 16,
       right: 16,
-      bottom: bottomInset,
+      bottom: Math.max(bottomInset, 22),
       backgroundColor: c.card,
       borderRadius: 24,
       paddingHorizontal: 16,
@@ -219,9 +219,9 @@ const makeStyles = (c: ThemeColors, isDark: boolean, bottomInset: number) =>
         : {
             shadowColor: '#000',
             shadowOffset: { width: 0, height: 6 },
-            shadowOpacity: 0.18,
-            shadowRadius: 16,
-            elevation: 10,
+            shadowOpacity: 0.22,
+            shadowRadius: 18,
+            elevation: 12,
           }),
       zIndex: 30,
     },
@@ -240,11 +240,6 @@ const makeStyles = (c: ThemeColors, isDark: boolean, bottomInset: number) =>
       fontSize: 19,
       fontWeight: '700',
       marginBottom: 2,
-    },
-    confidenceText: {
-      fontSize: 12,
-      fontWeight: '500',
-      color: c.textSecondary,
     },
     headerRight: {
       alignItems: 'flex-end',
@@ -265,6 +260,12 @@ const makeStyles = (c: ThemeColors, isDark: boolean, bottomInset: number) =>
       fontSize: 13,
       fontWeight: '600',
     },
+    sourceLabel: {
+      fontSize: 11,
+      fontWeight: '500',
+      color: c.textSecondary,
+      marginTop: 1,
+    },
     editLink: {
       fontSize: 12,
       fontWeight: '600',
@@ -273,16 +274,16 @@ const makeStyles = (c: ThemeColors, isDark: boolean, bottomInset: number) =>
     // Roast
     roast: {
       color: c.text,
-      fontSize: 16,
+      fontSize: 17,
       fontWeight: '500',
-      lineHeight: 21,
+      lineHeight: 22,
       marginBottom: 4,
     },
     // Subtext
     subtext: {
       color: c.textSecondary,
-      fontSize: 12,
-      lineHeight: 16,
+      fontSize: 13,
+      lineHeight: 17,
       marginBottom: 4,
     },
     // Macros

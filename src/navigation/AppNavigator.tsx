@@ -195,7 +195,7 @@ export default function AppNavigator() {
             />
               <RootStack.Group
                 screenOptions={{
-                  animation: 'fade',
+                  animation: 'none',
                   presentation: 'transparentModal',
                   contentStyle: { backgroundColor: '#000' },
                 }}
@@ -208,12 +208,12 @@ export default function AppNavigator() {
             <RootStack.Screen
               name="LockSetupConfirm"
               component={LockSetupConfirmScreen}
-              options={{ animation: 'fade' }}
+              options={{ animation: 'none' }}
             />
             <RootStack.Screen
               name="MealSessionActive"
               component={MealSessionActiveScreen}
-              options={{ animation: 'fade', gestureEnabled: false }}
+              options={{ animation: 'none', gestureEnabled: false }}
             />
             <RootStack.Screen
               name="PostScanCamera"

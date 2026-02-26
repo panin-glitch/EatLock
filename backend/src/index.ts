@@ -21,11 +21,13 @@ export interface Env {
   SUPABASE_URL: string;
   SUPABASE_SERVICE_KEY: string;
   OPENAI_API_KEY: string;
+  DISABLE_DAILY_LIMITS?: string;
   VERIFY_DAILY_LIMIT?: string;
   COMPARE_DAILY_LIMIT?: string;
   NUTRITION_DAILY_LIMIT?: string;
   DEV_BYPASS_USER_IDS?: string;
   DEV_BYPASS_TOKENS?: string;
+  ENFORCE_LIMITS?: string;
 }
 
 const MINUTE_MS = 60 * 1000;
@@ -130,11 +132,14 @@ async function handleSignedUpload(
   const auth = await getUser(request, env);
   if (auth instanceof Response) return auth;
   const ip = getClientIp(request);
+  const enforce = (env.ENFORCE_LIMITS || '').trim().toLowerCase() === 'true';
 
-  const userAllowed = checkWindowLimit(signedUploadHits, `signed:user:${auth.user_id}`, 18, SHORT_WINDOW_MS);
-  const ipAllowed = checkWindowLimit(signedUploadHits, `signed:ip:${ip}`, 40, SHORT_WINDOW_MS);
-  if (!userAllowed || !ipAllowed) {
-    return error('Too many upload requests. Please wait and try again.', 429);
+  if (enforce) {
+    const userAllowed = checkWindowLimit(signedUploadHits, `signed:user:${auth.user_id}`, 18, SHORT_WINDOW_MS);
+    const ipAllowed = checkWindowLimit(signedUploadHits, `signed:ip:${ip}`, 40, SHORT_WINDOW_MS);
+    if (!userAllowed || !ipAllowed) {
+      return error('Too many upload requests. Please wait and try again.', 429);
+    }
   }
 
   const body = await request.json() as { kind?: string };
@@ -163,11 +168,14 @@ async function handleDirectUpload(
   const auth = await getUser(request, env);
   if (auth instanceof Response) return auth;
   const ip = getClientIp(request);
+  const enforce = (env.ENFORCE_LIMITS || '').trim().toLowerCase() === 'true';
 
-  const userAllowed = checkWindowLimit(directUploadHits, `upload:user:${auth.user_id}`, 16, SHORT_WINDOW_MS);
-  const ipAllowed = checkWindowLimit(directUploadHits, `upload:ip:${ip}`, 36, SHORT_WINDOW_MS);
-  if (!userAllowed || !ipAllowed) {
-    return error('Upload rate limited. Please slow down and retry.', 429);
+  if (enforce) {
+    const userAllowed = checkWindowLimit(directUploadHits, `upload:user:${auth.user_id}`, 16, SHORT_WINDOW_MS);
+    const ipAllowed = checkWindowLimit(directUploadHits, `upload:ip:${ip}`, 36, SHORT_WINDOW_MS);
+    if (!userAllowed || !ipAllowed) {
+      return error('Upload rate limited. Please slow down and retry.', 429);
+    }
   }
 
   // Verify the key belongs to this user
