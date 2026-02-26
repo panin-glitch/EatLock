@@ -70,6 +70,17 @@ function toLimit(value: string | undefined, fallback: number): number {
   return Math.floor(parsed);
 }
 
+function dailyLimitsDisabled(env: Env): boolean {
+  const value = (env.DISABLE_DAILY_LIMITS || '').trim().toLowerCase();
+  return value === '1' || value === 'true' || value === 'yes' || value === 'on';
+}
+
+/** All rate-limiting + quota enforcement is OFF unless ENFORCE_LIMITS === "true" */
+function limitsEnforced(env: Env): boolean {
+  const value = (env.ENFORCE_LIMITS || '').trim().toLowerCase();
+  return value === 'true';
+}
+
 function secondsUntilUtcMidnight(): number {
   const now = new Date();
   const nextUtcMidnight = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0);
@@ -357,27 +368,30 @@ export async function handleVerifyFood(
   env: Env,
 ): Promise<Response> {
   const verifyDailyLimit = toLimit(env.VERIFY_DAILY_LIMIT, 1000);
+  const enforce = limitsEnforced(env);
 
   // Auth
   const auth = await getUser(request, env);
   if (auth instanceof Response) return auth;
   const bypassQuota = isDevBypassEnabled(request, env, auth.user_id);
 
-  if (isInFailedCooldown(`failed:${auth.user_id}`)) {
+  if (enforce && isInFailedCooldown(`failed:${auth.user_id}`)) {
     return err('Too many failed scans, try again in 5 minutes.', 429);
   }
 
-  if (!checkConcurrent(`active:${auth.user_id}`)) {
+  if (enforce && !checkConcurrent(`active:${auth.user_id}`)) {
     return err('Too many active scan requests. Please wait a moment.', 429);
   }
 
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
-  console.log('[verify-food] request start', { user_id: auth.user_id, ip });
-  const burstUserOk = checkBurst(`verify:user:${auth.user_id}`, VERIFY_BURST_LIMIT, SHORT_WINDOW_MS);
-  const burstIpOk = checkBurst(`verify:ip:${ip}`, VERIFY_BURST_LIMIT * 2, SHORT_WINDOW_MS);
-  if (!burstUserOk || !burstIpOk) {
-    console.warn('[verify-food] burst limited', { user_id: auth.user_id, ip, burstUserOk, burstIpOk });
-    return json({ error: 'Too many requests', retry_after_seconds: 30 }, 429);
+  console.log('[verify-food] request start', { user_id: auth.user_id, ip, enforce });
+  if (enforce) {
+    const burstUserOk = checkBurst(`verify:user:${auth.user_id}`, VERIFY_BURST_LIMIT, SHORT_WINDOW_MS);
+    const burstIpOk = checkBurst(`verify:ip:${ip}`, VERIFY_BURST_LIMIT * 2, SHORT_WINDOW_MS);
+    if (!burstUserOk || !burstIpOk) {
+      console.warn('[verify-food] burst limited', { user_id: auth.user_id, ip, burstUserOk, burstIpOk });
+      return json({ error: 'Too many requests', retry_after_seconds: 30 }, 429);
+    }
   }
 
   // Parse body
@@ -407,7 +421,7 @@ export async function handleVerifyFood(
       return err('Image not found in R2 (expired or invalid key)', 404);
     }
 
-    if (!bypassQuota) {
+    if (enforce && !bypassQuota && !dailyLimitsDisabled(env)) {
       const quota = await consumeQuota(env, auth.user_id, 'verify', verifyDailyLimit);
       if (!quota.allowed) {
         console.warn('[verify-food] daily quota reached', { user_id: auth.user_id, limit: verifyDailyLimit });
@@ -435,7 +449,7 @@ export async function handleVerifyFood(
     console.log('[verify-food] OpenAI success', { user_id: auth.user_id });
 
     const typed = result as { isFood?: boolean };
-    if (typed?.isFood === false) {
+    if (enforce && typed?.isFood === false) {
       markFailedScan(`failed:${auth.user_id}`);
     }
 
@@ -457,21 +471,24 @@ export async function handleCompareMeal(
   env: Env,
 ): Promise<Response> {
   const compareDailyLimit = toLimit(env.COMPARE_DAILY_LIMIT, 300);
+  const enforce = limitsEnforced(env);
 
   // Auth
   const auth = await getUser(request, env);
   if (auth instanceof Response) return auth;
   const bypassQuota = isDevBypassEnabled(request, env, auth.user_id);
 
-  if (!checkConcurrent(`active:${auth.user_id}`)) {
+  if (enforce && !checkConcurrent(`active:${auth.user_id}`)) {
     return err('Too many active scan requests. Please wait a moment.', 429);
   }
 
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
-  const burstUserOk = checkBurst(`compare:user:${auth.user_id}`, COMPARE_BURST_LIMIT, SHORT_WINDOW_MS);
-  const burstIpOk = checkBurst(`compare:ip:${ip}`, COMPARE_BURST_LIMIT * 2, SHORT_WINDOW_MS);
-  if (!burstUserOk || !burstIpOk) {
-    return err('Too many compare requests. Please slow down.', 429);
+  if (enforce) {
+    const burstUserOk = checkBurst(`compare:user:${auth.user_id}`, COMPARE_BURST_LIMIT, SHORT_WINDOW_MS);
+    const burstIpOk = checkBurst(`compare:ip:${ip}`, COMPARE_BURST_LIMIT * 2, SHORT_WINDOW_MS);
+    if (!burstUserOk || !burstIpOk) {
+      return err('Too many compare requests. Please slow down.', 429);
+    }
   }
 
   // Parse body
@@ -505,7 +522,7 @@ export async function handleCompareMeal(
       return err('One or both images not found in R2 (expired or invalid key)', 404);
     }
 
-    if (!bypassQuota) {
+    if (enforce && !bypassQuota && !dailyLimitsDisabled(env)) {
       const quota = await consumeQuota(env, auth.user_id, 'compare', compareDailyLimit);
       if (!quota.allowed) {
         return json({

@@ -1,5 +1,6 @@
 /**
  * Auth context — manages Supabase auth state across the app.
+ * Auto-signs-in anonymously if no session exists on boot.
  */
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { Session, User } from '@supabase/supabase-js';
@@ -26,9 +27,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Get initial session
-    supabase.auth.getSession().then(({ data: { session: s } }) => {
-      setSession(s);
+    // Get initial session — if none exists, sign in anonymously
+    supabase.auth.getSession().then(async ({ data: { session: s } }) => {
+      if (s) {
+        setSession(s);
+      } else {
+        // No persisted session — auto sign-in anonymously
+        console.log('[AuthProvider] No session found, signing in anonymously…');
+        try {
+          const { data: anonData, error } = await supabase.auth.signInAnonymously();
+          if (!error && anonData.session) {
+            setSession(anonData.session);
+            console.log('[AuthProvider] Anonymous sign-in ✓');
+          } else {
+            console.warn('[AuthProvider] Anonymous sign-in failed:', error?.message);
+          }
+        } catch (e: any) {
+          console.warn('[AuthProvider] Anonymous sign-in error:', e?.message);
+        }
+      }
       setIsLoading(false);
     });
 
