@@ -6,7 +6,6 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../theme/ThemeProvider';
 
-import HomeScreen from '../screens/HomeScreen';
 import StatsScreen from '../screens/StatsScreen';
 import BlockScreen from '../screens/BlockScreen';
 import SettingsScreen from '../screens/SettingsScreen';
@@ -19,9 +18,10 @@ import NotificationHelpScreen from '../screens/NotificationHelpScreen';
 import LockSetupConfirmScreen from '../screens/LockSetupConfirmScreen';
 import MealSessionActiveScreen from '../screens/MealSessionActiveScreen';
 import AuthScreen from '../screens/auth/AuthScreen';
-import LeaderboardScreen from '../screens/LeaderboardScreen';
 import PlannerScreen from '../screens/PlannerScreen';
 
+const HomeScreen = require('../screens/HomeScreen').default;
+const LeaderboardScreen = require('../screens/LeaderboardScreen').default;
 const PreScanCameraScreen = require('../screens/PreScanCameraScreen').default;
 const PostScanCameraScreen = require('../screens/PostScanCameraScreen').default;
 
