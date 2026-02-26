@@ -76,6 +76,17 @@ export interface NutritionEstimate {
   source: 'vision' | 'barcode' | 'user';
 }
 
+export type VisionSoftErrorCode = 'RATE_LIMIT' | 'SESSION_EXPIRED' | 'NETWORK' | 'SERVER';
+
+export interface VisionSoftError {
+  kind: 'soft_error';
+  code: VisionSoftErrorCode;
+  title: string;
+  subtitle: string;
+  retryAfterSeconds?: number;
+  resetInSeconds?: number;
+}
+
 // ── Session lifecycle ──
 
 export type SessionStatus =

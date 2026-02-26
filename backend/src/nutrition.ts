@@ -3,13 +3,10 @@ import type { Env } from './index';
 const MODEL = 'gpt-4o-mini';
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const OPENAI_API = 'https://api.openai.com/v1/responses';
-const NUTRITION_LIMIT = 10;
-const WINDOW_MS = 24 * 60 * 60 * 1000;
 const SHORT_WINDOW_MS = 60 * 1000;
 const NUTRITION_BURST_LIMIT = 6;
 const ACTIVE_LIMIT = 3;
 
-const rateBuckets = new Map<string, { count: number; resetAt: number }>();
 const burstBuckets = new Map<string, number[]>();
 const activeBuckets = new Map<string, number[]>();
 
@@ -43,20 +40,36 @@ function json(data: unknown, status = 200): Response {
   });
 }
 
-function err(message: string, status = 400): Response {
-  return json({ error: message }, status);
+function err(message: string, status = 400, extra?: Record<string, unknown>): Response {
+  return json({ error: message, ...extra }, status);
 }
 
-function checkRate(key: string, limit: number): boolean {
-  const now = Date.now();
-  const bucket = rateBuckets.get(key);
-  if (!bucket || now > bucket.resetAt) {
-    rateBuckets.set(key, { count: 1, resetAt: now + WINDOW_MS });
-    return true;
-  }
-  if (bucket.count >= limit) return false;
-  bucket.count++;
-  return true;
+function parseCsvSet(raw?: string): Set<string> {
+  return new Set((raw || '').split(',').map((v) => v.trim()).filter(Boolean));
+}
+
+function toLimit(value: string | undefined, fallback: number): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.floor(parsed);
+}
+
+function secondsUntilUtcMidnight(): number {
+  const now = new Date();
+  const nextUtcMidnight = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0);
+  return Math.max(1, Math.floor((nextUtcMidnight - now.getTime()) / 1000));
+}
+
+function isDevBypassEnabled(request: Request, env: Env, userId: string): boolean {
+  const bypassHeader = request.headers.get('x-dev-bypass')?.toLowerCase() === 'true';
+  const bypassToken = request.headers.get('x-dev-bypass-token')?.trim();
+  const allowedUsers = parseCsvSet(env.DEV_BYPASS_USER_IDS);
+  const allowedTokens = parseCsvSet(env.DEV_BYPASS_TOKENS);
+  const userAllowed = allowedUsers.has(userId);
+  if (!userAllowed) return false;
+  if (bypassHeader) return true;
+  if (bypassToken && allowedTokens.has(bypassToken)) return true;
+  return false;
 }
 
 function checkBurst(key: string, limit: number, windowMs: number): boolean {
@@ -201,19 +214,11 @@ export async function handleNutritionEstimate(
   request: Request,
   env: Env,
 ): Promise<Response> {
+  const nutritionDailyLimit = toLimit(env.NUTRITION_DAILY_LIMIT, 300);
+
   const auth = await getUser(request, env);
   if (auth instanceof Response) return auth;
-
-  // Persistent daily quota (DB-backed)
-  const quota = await consumeNutritionQuota(env, auth.user_id, NUTRITION_LIMIT);
-  if (!quota.allowed) {
-    return err('Daily limit reached (10 nutrition estimates/day)', 429);
-  }
-
-  // In-memory daily rate limit (fast layer, secondary)
-  if (!checkRate(`nutrition:${auth.user_id}`, NUTRITION_LIMIT)) {
-    return err('Rate limit exceeded (10 nutrition estimates/day)', 429);
-  }
+  const bypassQuota = isDevBypassEnabled(request, env, auth.user_id);
 
   if (!checkActive(`nutrition-active:${auth.user_id}`)) {
     return err('Too many active scan requests. Please wait a moment.', 429);
@@ -247,6 +252,18 @@ export async function handleNutritionEstimate(
     const dataUrl = await r2ToDataUrl(env.IMAGES, body.r2Key);
     if (!dataUrl) {
       return err('Image not found in R2 (expired or invalid key)', 404);
+    }
+
+    if (!bypassQuota) {
+      const quota = await consumeNutritionQuota(env, auth.user_id, nutritionDailyLimit);
+      if (!quota.allowed) {
+        return err('Daily limit reached', 429, {
+          kind: 'nutrition',
+          limit: nutritionDailyLimit,
+          remaining: 0,
+          reset_in_seconds: secondsUntilUtcMidnight(),
+        });
+      }
     }
 
     const apiBody = {

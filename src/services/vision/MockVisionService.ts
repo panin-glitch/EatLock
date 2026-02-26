@@ -13,12 +13,13 @@ import {
   FoodReasonCode,
   CompareVerdict,
   CompareReasonCode,
+  VisionSoftError,
 } from './types';
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export class MockVisionService implements MealVisionService {
-  async verifyFood(_imageUri: string): Promise<FoodCheckResult> {
+  async verifyFood(_imageUri: string): Promise<FoodCheckResult | VisionSoftError> {
     await delay(800 + Math.random() * 400);
 
     const roll = Math.random();
@@ -52,7 +53,7 @@ export class MockVisionService implements MealVisionService {
     };
   }
 
-  async compareMeal(_preImageUri: string, _postImageUri: string): Promise<CompareResult> {
+  async compareMeal(_preImageUri: string, _postImageUri: string): Promise<CompareResult | VisionSoftError> {
     await delay(1000 + Math.random() * 500);
 
     const roll = Math.random();

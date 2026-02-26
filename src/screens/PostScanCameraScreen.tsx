@@ -17,13 +17,17 @@ import { useTheme } from '../theme/ThemeProvider';
 import { useAppState } from '../state/AppStateContext';
 import { getVisionService } from '../services/vision';
 import { getPostScanRoast } from '../services/vision/roasts';
-import type { CompareResult } from '../services/vision/types';
+import type { CompareResult, VisionSoftError } from '../services/vision/types';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ScanFrameOverlay } from '../components/scan/ScanFrameOverlay';
 import { ScanTipsModal } from '../components/scan/ScanTipsModal';
 import { ResultCard } from '../components/scan/ResultCard';
 
 type Props = NativeStackScreenProps<any, 'PostScanCamera'>;
+
+function isVisionSoftError(value: unknown): value is VisionSoftError {
+  return !!value && typeof value === 'object' && (value as VisionSoftError).kind === 'soft_error';
+}
 
 export default function PostScanCameraScreen({ navigation, route }: Props) {
   const { theme } = useTheme();
@@ -42,6 +46,7 @@ export default function PostScanCameraScreen({ navigation, route }: Props) {
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
   const [result, setResult] = useState<CompareResult | null>(null);
+  const [softError, setSoftError] = useState<VisionSoftError | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   useEffect(() => {
@@ -123,6 +128,7 @@ export default function PostScanCameraScreen({ navigation, route }: Props) {
   const processPhoto = async (uri: string) => {
     setChecking(true);
     setErrorMsg(null);
+    setSoftError(null);
     showAnalyzing();
 
     try {
@@ -131,6 +137,10 @@ export default function PostScanCameraScreen({ navigation, route }: Props) {
       }
       const vision = getVisionService();
       const comparison = await vision.compareMeal(preImageUri, uri);
+      if (isVisionSoftError(comparison)) {
+        setSoftError(comparison);
+        return;
+      }
       setResult(comparison);
 
       await updateActiveSession({
@@ -142,6 +152,12 @@ export default function PostScanCameraScreen({ navigation, route }: Props) {
         roastMessage: comparison.roastLine,
       });
     } catch (e: any) {
+      if (__DEV__) {
+        console.log('[PostScan] processPhoto failed', {
+          message: e?.message,
+          stack: e?.stack,
+        });
+      }
       setResult(null);
       setErrorMsg(e?.message || 'Could not verify this photo.');
     } finally {
@@ -167,6 +183,7 @@ export default function PostScanCameraScreen({ navigation, route }: Props) {
       }
       setPhotoUri(pic.uri);
       setResult(null);
+      setSoftError(null);
       setErrorMsg(null);
       await processPhoto(pic.uri);
     } catch {
@@ -395,25 +412,45 @@ export default function PostScanCameraScreen({ navigation, route }: Props) {
         </Animated.View>
       )}
 
-      {(result || errorMsg) && !checking && (
+      {(result || errorMsg || softError) && !checking && (
         <Animated.View style={[styles.resultCardLayer, { transform: [{ translateY: cardTranslateY }] }]} pointerEvents="box-none">
           <ResultCard
             theme={theme}
-            title={errorMsg
-              ? 'AI unavailable'
-              : result?.verdict === 'EATEN'
+            title={softError
+              ? softError.title
+              : errorMsg
+                ? errorMsg.toLowerCase().includes('daily limit')
+                ? 'Daily limit reached'
+                : 'AI unavailable'
+                : result?.verdict === 'EATEN'
                 ? 'Meal finished'
                 : result?.verdict === 'PARTIAL'
                   ? 'Partially eaten'
                   : result?.verdict === 'UNCHANGED'
                     ? 'Not eaten'
                     : 'Uncertain'}
-            accentColor={errorMsg ? theme.warning : verdictColor}
+            accentColor={(errorMsg || softError) ? theme.warning : verdictColor}
             roast={errorMsg ? undefined : (result ? result.roastLine || getPostScanRoast(result.verdict) : undefined)}
-            subtext={errorMsg || undefined}
+            subtext={softError?.subtitle || errorMsg || undefined}
             buttons={[
+              ...(softError?.code === 'SESSION_EXPIRED'
+                ? [{ label: 'Sign in again', onPress: () => navigation.navigate('Auth') }]
+                : []),
+              ...(softError?.code === 'RATE_LIMIT'
+                ? [{ label: 'OK', onPress: handleRetake }]
+                : []),
               ...(result ? [{ label: 'See Summary', onPress: handleContinue }] : []),
-              { label: errorMsg ? 'Retry' : 'Retake', onPress: handleRetake, secondary: !!result },
+              {
+                label: softError?.code === 'SESSION_EXPIRED'
+                  ? 'Cancel'
+                  : softError?.code === 'RATE_LIMIT'
+                    ? 'Retake'
+                    : errorMsg
+                      ? 'Retry'
+                      : 'Retake',
+                onPress: handleRetake,
+                secondary: !!result || !!softError,
+              },
             ]}
           />
         </Animated.View>
@@ -576,7 +613,7 @@ const styles = StyleSheet.create({
   },
   shutterOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#FFF',
+    backgroundColor: '#000',
     zIndex: 20,
   },
 

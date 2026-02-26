@@ -38,6 +38,15 @@ export default function SettingsScreen() {
     });
   };
 
+  const toggleDevDisableQuotas = () => {
+    updateSettings({
+      ...settings,
+      developer: {
+        disableQuotasDev: !(settings.developer?.disableQuotasDev ?? false),
+      },
+    });
+  };
+
   const handleDeleteAccount = () => {
     Alert.alert(
       'Clear All Data',
@@ -79,6 +88,14 @@ export default function SettingsScreen() {
       >
         {/* Account */}
         <Text style={styles.sectionLabel}>ACCOUNT</Text>
+        <TouchableOpacity
+          style={styles.row}
+          onPress={() => navigation.navigate('Planner')}
+        >
+          <MaterialIcons name="calendar-today" size={22} color={theme.text} />
+          <Text style={styles.rowText}>Meal Planner</Text>
+          <MaterialIcons name="chevron-right" size={22} color={theme.textSecondary} />
+        </TouchableOpacity>
         {isAuthenticated && user?.email ? (
           <>
             <View style={styles.row}>
@@ -190,16 +207,16 @@ export default function SettingsScreen() {
         <Text style={styles.sectionLabel}>HOME WIDGETS</Text>
         <View style={styles.widgetGroup}>
           <View style={styles.widgetRow}>
-            <Text style={styles.widgetLabel}>What are you eating?</Text>
+            <Text style={styles.widgetLabel}>Show fun quips</Text>
             <Switch
-              value={settings.homeWidgets.showWhatEating}
-              onValueChange={() => toggleWidget('showWhatEating')}
+              value={settings.homeWidgets.showTruthBomb}
+              onValueChange={() => toggleWidget('showTruthBomb')}
               trackColor={{ false: theme.inputBg, true: theme.primaryDim }}
-              thumbColor={settings.homeWidgets.showWhatEating ? theme.primary : theme.textMuted}
+              thumbColor={settings.homeWidgets.showTruthBomb ? theme.primary : theme.textMuted}
             />
           </View>
           <View style={styles.widgetRow}>
-            <Text style={styles.widgetLabel}>Next meal</Text>
+            <Text style={styles.widgetLabel}>Show next meal</Text>
             <Switch
               value={settings.homeWidgets.showNextMeal}
               onValueChange={() => toggleWidget('showNextMeal')}
@@ -208,7 +225,7 @@ export default function SettingsScreen() {
             />
           </View>
           <View style={[styles.widgetRow, { borderBottomWidth: 0 }]}>
-            <Text style={styles.widgetLabel}>Locked apps</Text>
+            <Text style={styles.widgetLabel}>Show locked apps</Text>
             <Switch
               value={settings.homeWidgets.showLockedApps}
               onValueChange={() => toggleWidget('showLockedApps')}
@@ -217,6 +234,23 @@ export default function SettingsScreen() {
             />
           </View>
         </View>
+
+        {__DEV__ && (
+          <>
+            <Text style={styles.sectionLabel}>DEVELOPER</Text>
+            <View style={styles.widgetGroup}>
+              <View style={[styles.widgetRow, { borderBottomWidth: 0 }]}> 
+                <Text style={styles.widgetLabel}>Disable quotas (dev)</Text>
+                <Switch
+                  value={settings.developer?.disableQuotasDev ?? false}
+                  onValueChange={toggleDevDisableQuotas}
+                  trackColor={{ false: theme.inputBg, true: theme.primaryDim }}
+                  thumbColor={(settings.developer?.disableQuotasDev ?? false) ? theme.primary : theme.textMuted}
+                />
+              </View>
+            </View>
+          </>
+        )}
 
         {/* General */}
         <Text style={styles.sectionLabel}>GENERAL</Text>
