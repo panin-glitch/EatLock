@@ -1,7 +1,9 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, StatusBar } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../theme/ThemeProvider';
 import { useAppState } from '../state/AppStateContext';
+import ScreenHeader from '../components/common/ScreenHeader';
 
 type ScopeType = 'Global' | 'Groups';
 type WindowType = 'Weekly' | 'All-time';
@@ -80,12 +82,22 @@ export default function LeaderboardScreen() {
   const styles = makeStyles(theme);
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <View style={styles.toggleRow}>
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor={theme.background} />
+      <ScreenHeader
+        title="Leaderboard"
+        rightActions={[
+          <TouchableOpacity key="groups" style={styles.headerIconBtn}>
+            <MaterialIcons name="groups" size={18} color={theme.textSecondary} />
+          </TouchableOpacity>,
+        ]}
+      />
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
+        <View style={styles.toggleRow}>
         {(['Global', 'Groups'] as ScopeType[]).map((item) => (
           <Chip key={item} label={item} active={scope === item} onPress={() => setScope(item)} />
         ))}
-      </View>
+        </View>
 
       <View style={styles.toggleRow}>
         {(['Weekly', 'All-time'] as WindowType[]).map((item) => (
@@ -112,7 +124,7 @@ export default function LeaderboardScreen() {
       </View>
 
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>Leaderboard</Text>
+        <Text style={styles.cardTitle}>Rankings</Text>
         {tableRows.map((row) => (
           <View key={row.rank} style={styles.row}>
             <Text style={styles.rank}>#{row.rank}</Text>
@@ -139,7 +151,8 @@ export default function LeaderboardScreen() {
           );
         })}
       </View>
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }
 
@@ -176,7 +189,16 @@ function Chip({ label, active, onPress, compact }: { label: string; active: bool
 const makeStyles = (theme: any) =>
   StyleSheet.create({
     container: { flex: 1, backgroundColor: theme.background },
+    scroll: { backgroundColor: theme.background },
     content: { padding: 16, gap: 12, paddingBottom: 24 },
+    headerIconBtn: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      justifyContent: 'center',
+      alignItems: 'center',
+      backgroundColor: theme.surface,
+    },
     toggleRow: { flexDirection: 'row', gap: 8 },
     card: { backgroundColor: theme.surface, borderRadius: 16, padding: 14 },
     cardTitle: { color: theme.text, fontSize: 15, fontWeight: '800', marginBottom: 10 },

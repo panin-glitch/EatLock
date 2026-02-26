@@ -1,16 +1,19 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, StatusBar, TouchableOpacity, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, StatusBar, TouchableOpacity } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import Svg, { Circle } from 'react-native-svg';
 import { useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../theme/ThemeProvider';
 import { useAppState } from '../state/AppStateContext';
 import { useAuth } from '../state/AuthContext';
 import { computeStreak, getSessionDuration, getSessionsForDate, getWeekDates } from '../utils/helpers';
 import TodaysMealsList from '../components/home/TodaysMealsList';
+import { HEADER_BOTTOM_PADDING, HEADER_HORIZONTAL_PADDING } from '../components/common/ScreenHeader';
 
 export default function HomeScreen() {
   const { theme } = useTheme();
+  const insets = useSafeAreaInsets();
   const { settings, activeSession, sessions } = useAppState();
   const { user } = useAuth();
   const navigation = useNavigation<any>();
@@ -74,7 +77,16 @@ export default function HomeScreen() {
         translucent
       />
 
-      <View style={styles.headerRow}>
+      <View
+        style={[
+          styles.headerRow,
+          {
+            paddingTop: insets.top + 8,
+            paddingHorizontal: HEADER_HORIZONTAL_PADDING,
+            paddingBottom: HEADER_BOTTOM_PADDING,
+          },
+        ]}
+      >
         <TouchableOpacity style={[styles.avatar, { backgroundColor: theme.surface }]} onPress={() => navigation.navigate('Settings')}>
           <MaterialIcons name="person" size={20} color={theme.textSecondary} />
         </TouchableOpacity>
@@ -190,8 +202,6 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   headerRow: {
     flexDirection: 'row',
-    paddingHorizontal: 16,
-    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight ?? 0) + 8 : 12,
     gap: 10,
     alignItems: 'center',
   },
