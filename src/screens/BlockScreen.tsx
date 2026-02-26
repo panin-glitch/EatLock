@@ -16,6 +16,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../theme/ThemeProvider';
 import { useAppState } from '../state/AppStateContext';
 import { AVAILABLE_APPS, AppInfo } from '../types/models';
+import ScreenHeader from '../components/common/ScreenHeader';
 
 export default function BlockScreen() {
   const { theme } = useTheme();
@@ -98,12 +99,14 @@ export default function BlockScreen() {
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}> 
       <StatusBar barStyle="light-content" backgroundColor={theme.background} />
-      <View style={styles.header}>
-        <Text style={styles.title}>Blocks</Text>
-        <TouchableOpacity onPress={() => setShowHelpModal(true)}>
-          <MaterialIcons name="help-outline" size={24} color={theme.textSecondary} />
-        </TouchableOpacity>
-      </View>
+      <ScreenHeader
+        title="Blocks"
+        rightActions={[
+          <TouchableOpacity key="help" onPress={() => setShowHelpModal(true)}>
+            <MaterialIcons name="help-outline" size={24} color={theme.textSecondary} />
+          </TouchableOpacity>,
+        ]}
+      />
 
       <ScrollView
         style={{ backgroundColor: theme.background }}
@@ -319,15 +322,6 @@ export default function BlockScreen() {
 const makeStyles = (theme: any) =>
   StyleSheet.create({
     container: { flex: 1, backgroundColor: theme.background },
-    header: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      paddingHorizontal: 20,
-      paddingTop: 56,
-      paddingBottom: 8,
-    },
-    title: { fontSize: 28, fontWeight: '700', color: theme.text },
     scrollContent: { paddingHorizontal: 20, paddingBottom: 100 },
     section: {
       marginTop: 24,

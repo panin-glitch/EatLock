@@ -20,6 +20,7 @@ import {
 import { LineChart } from 'react-native-chart-kit';
 import { MealSession } from '../types/models';
 import { fetchCaloriesByDateRange } from '../services/mealLogger';
+import ScreenHeader from '../components/common/ScreenHeader';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const FILTERS = ['Weekly', 'Monthly', 'All-time'] as const;
@@ -341,9 +342,7 @@ export default function StatsScreen() {
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       <StatusBar barStyle="light-content" backgroundColor={theme.background} />
-      <View style={styles.header}>
-        <Text style={styles.title}>Progress</Text>
-      </View>
+      <ScreenHeader title="Progress" />
 
       <ScrollView
         style={{ backgroundColor: theme.background }}
@@ -636,12 +635,6 @@ export default function StatsScreen() {
 const makeStyles = (theme: any) =>
   StyleSheet.create({
     container: { flex: 1, backgroundColor: theme.background },
-    header: {
-      paddingHorizontal: 20,
-      paddingTop: 56,
-      paddingBottom: 8,
-    },
-    title: { fontSize: 28, fontWeight: '700', color: theme.text },
     scrollContent: { paddingHorizontal: 20, paddingBottom: 100 },
     encourageCard: {
       flexDirection: 'row',
