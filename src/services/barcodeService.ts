@@ -36,7 +36,7 @@ export async function lookupBarcode(barcode: string): Promise<BarcodeLookupResul
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${bearer}`,
-      'x-eatlock-supabase-url': ENV.SUPABASE_URL,
+      'x-tadlock-supabase-url': ENV.SUPABASE_URL,
     },
     body: JSON.stringify({ barcode }),
   });

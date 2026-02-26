@@ -91,7 +91,7 @@ export default function AuthScreen({ navigation }: Props) {
       <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
         {/* Logo area */}
         <Image source={require('../../../assets/icon.png')} style={s.logoImage} resizeMode="contain" />
-        <Text style={s.logoText}>EatLock</Text>
+        <Text style={s.logoText}>TadLock</Text>
 
         {/* Email */}
         <View style={s.inputWrap}>

@@ -41,6 +41,7 @@ async function fetchWithAuth(url: string, init: RequestInit, retryOn401 = true):
       ...baseHeaders,
       Authorization: `Bearer ${bearer}`,
       'x-eatlock-supabase-url': ENV.SUPABASE_URL,
+      'x-tadlock-supabase-url': ENV.SUPABASE_URL,
     },
   });
 

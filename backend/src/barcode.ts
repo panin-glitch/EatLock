@@ -109,7 +109,7 @@ async function fetchOpenFoodFacts(barcode: string): Promise<BarcodeLookupResult 
   try {
     const res = await fetch(
       `https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(barcode)}.json`,
-      { headers: { 'User-Agent': 'EatLock/1.0 (contact@eatlock.app)' } },
+      { headers: { 'User-Agent': 'TadLock/1.0 (contact@tadlock.app)' } },
     );
 
     if (!res.ok) return null;

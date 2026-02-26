@@ -5,7 +5,7 @@
  * Empty-state when no sessions exist.
  */
 import React, { useRef, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Modal, Pressable, Animated, Easing } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Modal, Pressable, Animated, Easing, Image } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../../theme/ThemeProvider';
 import type { MealSession } from '../../types/models';
@@ -110,6 +110,9 @@ export default function TodaysMealsList({ sessions }: Props) {
     const sc = statusConfig[selected.status] ?? statusConfig.INCOMPLETE;
     const nut = selected.preNutrition;
     const stars = selected.distractionRating;
+    const timeSpentMin = selected.endedAt
+      ? Math.max(0, Math.round((new Date(selected.endedAt).getTime() - new Date(selected.startedAt).getTime()) / 60000))
+      : null;
     return (
       <Modal
         visible={detailVisible}
@@ -181,6 +184,26 @@ export default function TodaysMealsList({ sessions }: Props) {
               </View>
             )}
 
+            {(selected.preImageUri || selected.postImageUri) && (
+              <View style={styles.detailSection}>
+                <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>Photos</Text>
+                <View style={styles.thumbRow}>
+                  {selected.preImageUri ? (
+                    <View style={styles.thumbItem}>
+                      <Image source={{ uri: selected.preImageUri }} style={styles.thumb} />
+                      <Text style={[styles.thumbLabel, { color: theme.textSecondary }]}>Before</Text>
+                    </View>
+                  ) : null}
+                  {selected.postImageUri ? (
+                    <View style={styles.thumbItem}>
+                      <Image source={{ uri: selected.postImageUri }} style={styles.thumb} />
+                      <Text style={[styles.thumbLabel, { color: theme.textSecondary }]}>After</Text>
+                    </View>
+                  ) : null}
+                </View>
+              </View>
+            )}
+
             {/* Roast */}
             {selected.roastMessage ? (
               <View style={styles.detailSection}>
@@ -211,6 +234,13 @@ export default function TodaysMealsList({ sessions }: Props) {
               </View>
             )}
 
+            {timeSpentMin != null && (
+              <View style={styles.detailSection}>
+                <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>Time spent</Text>
+                <Text style={[styles.detailText, { color: theme.text }]}>{timeSpentMin} min</Text>
+              </View>
+            )}
+
             {/* Close */}
             <TouchableOpacity
               style={[styles.closeBtn, { backgroundColor: theme.text }]}
@@ -226,7 +256,7 @@ export default function TodaysMealsList({ sessions }: Props) {
 
   return (
     <View style={styles.container}>
-      <Text style={[styles.heading, { color: theme.text }]}>Today's Meals</Text>
+      <Text style={[styles.heading, { color: theme.text }]}>Tracked today</Text>
       <FlatList
         data={sorted}
         scrollEnabled={false}
@@ -325,6 +355,10 @@ const styles = StyleSheet.create({
   detailSection: { marginBottom: 14 },
   detailLabel: { fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 },
   detailText: { fontSize: 14, lineHeight: 20 },
+  thumbRow: { flexDirection: 'row', gap: 10 },
+  thumbItem: { alignItems: 'center' },
+  thumb: { width: 112, height: 112, borderRadius: 12, backgroundColor: '#111' },
+  thumbLabel: { fontSize: 12, marginTop: 5, fontWeight: '600' },
   macroRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   macroPill: { borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8, alignItems: 'center' },
   macroVal: { fontSize: 15, fontWeight: '700' },
