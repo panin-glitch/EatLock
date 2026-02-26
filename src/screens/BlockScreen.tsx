@@ -96,7 +96,7 @@ export default function BlockScreen() {
   ];
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: theme.background }]}> 
       <StatusBar barStyle="light-content" backgroundColor={theme.background} />
       <View style={styles.header}>
         <Text style={styles.title}>Blocks</Text>
@@ -106,6 +106,7 @@ export default function BlockScreen() {
       </View>
 
       <ScrollView
+        style={{ backgroundColor: theme.background }}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
