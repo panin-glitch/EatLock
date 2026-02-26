@@ -1,13 +1,13 @@
 {
   "expo": {
-    "name": "EatLock",
-    "slug": "EatLock",
+    "name": "TadLock",
+    "slug": "TadLock",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
-    "scheme": "eatlock",
+    "scheme": "tadlock",
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
@@ -23,7 +23,7 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.eatlock.app",
+      "package": "com.tadlock.app",
       "permissions": [
         "android.permission.SYSTEM_ALERT_WINDOW",
         "android.permission.FOREGROUND_SERVICE",
@@ -37,7 +37,7 @@
           "autoVerify": true,
           "data": [
             {
-              "scheme": "eatlock"
+              "scheme": "tadlock"
             }
           ],
           "category": ["BROWSABLE", "DEFAULT"]
