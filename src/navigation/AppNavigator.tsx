@@ -188,6 +188,7 @@ export default function AppNavigator() {
         screenOptions={{
           headerShown: false,
           contentStyle: { backgroundColor: theme.background },
+          freezeOnBlur: false,
           animation: 'fade',
           animationDuration: 160,
         }}
@@ -201,7 +202,7 @@ export default function AppNavigator() {
             <RootStack.Screen
               name="Planner"
               component={PlannerScreen}
-              options={{ animation: 'fade', animationDuration: 140, contentStyle: { backgroundColor: theme.background } }}
+              options={{ animation: 'none', contentStyle: { backgroundColor: theme.background } }}
             />
             <RootStack.Screen
               name="Profile"

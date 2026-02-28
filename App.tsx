@@ -52,18 +52,24 @@ export default function App() {
   }
 
   return (
-    <ThemeProvider>
-      <AuthProvider>
-        <AppStateProvider>
-          <StatusBar barStyle="light-content" />
-          <AppContent />
-        </AppStateProvider>
-      </AuthProvider>
-    </ThemeProvider>
+    <View style={styles.appRoot}>
+      <ThemeProvider>
+        <AuthProvider>
+          <AppStateProvider>
+            <StatusBar barStyle="light-content" backgroundColor="#0D0D0D" translucent={false} />
+            <AppContent />
+          </AppStateProvider>
+        </AuthProvider>
+      </ThemeProvider>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  appRoot: {
+    flex: 1,
+    backgroundColor: '#0D0D0D',
+  },
   loader: {
     flex: 1,
     justifyContent: 'center',
