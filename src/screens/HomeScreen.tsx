@@ -133,7 +133,6 @@ export default function HomeScreen() {
         <View style={{ flex: 1 }}>
           <Text style={[styles.greeting, { color: theme.textSecondary }]}>{greeting}</Text>
           <Text style={[styles.username, { color: theme.text }]}>{username}</Text>
-          {showQuips ? <Text style={[styles.quip, { color: theme.textMuted }]}>{quip}</Text> : null}
         </View>
 
         <View style={styles.headerIconsRow}>
@@ -182,7 +181,7 @@ export default function HomeScreen() {
             <Gauge progress={gaugeProgress} color={gaugeColor} trackColor={theme.border} />
             <View>
               <Text style={[styles.gaugeValue, { color: theme.text }]}>{timeSpentMinutes} min</Text>
-              <Text style={[styles.gaugeHint, { color: theme.textMuted }]}>Stay steady, Tadlock style</Text>
+              {showQuips ? <Text style={[styles.gaugeHint, { color: theme.textMuted }]}>{quip}</Text> : null}
             </View>
           </View>
         </View>
@@ -270,7 +269,6 @@ const styles = StyleSheet.create({
   avatarImage: { width: '100%', height: '100%' },
   greeting: { fontSize: 12, fontWeight: '600' },
   username: { fontSize: 19, fontWeight: '800' },
-  quip: { fontSize: 12, marginTop: 2 },
   headerIconsRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   streakPill: { flexDirection: 'row', alignItems: 'center', borderRadius: 16, paddingHorizontal: 10, height: 32, gap: 4 },
   streakText: { fontSize: 12, fontWeight: '700' },

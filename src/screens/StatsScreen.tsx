@@ -11,15 +11,14 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../theme/ThemeProvider';
 import { useAppState } from '../state/AppStateContext';
+import { useAuth } from '../state/AuthContext';
 import {
-  getSessionDuration,
-  formatDurationMinutes,
   computeFocusScore,
   computeStreak,
 } from '../utils/helpers';
 import InteractiveLineChart from '../components/charts/InteractiveLineChart';
 import { MealSession } from '../types/models';
-import { fetchCaloriesByDateRange } from '../services/mealLogger';
+import { supabase } from '../services/supabaseClient';
 import ScreenHeader from '../components/common/ScreenHeader';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
@@ -28,130 +27,116 @@ type FilterType = (typeof FILTERS)[number];
 
 // ── Helpers ──────────────────────────────────
 
-function filterSessions(sessions: MealSession[], filter: FilterType): MealSession[] {
-  const now = new Date();
-  return sessions.filter((s) => {
-    if (!s.endedAt) return false;
-    const start = new Date(s.startedAt);
-    if (filter === 'Weekly') {
-      const weekAgo = new Date(now);
-      weekAgo.setDate(now.getDate() - 7);
-      return start >= weekAgo;
-    }
-    const monthAgo = new Date(now);
-    monthAgo.setDate(now.getDate() - 30);
-    return start >= monthAgo;
-  });
-}
-
-function prevFilterSessions(sessions: MealSession[], filter: FilterType): MealSession[] {
-  const now = new Date();
-  return sessions.filter((s) => {
-    if (!s.endedAt) return false;
-    const start = new Date(s.startedAt);
-    if (filter === 'Weekly') {
-      const weekAgo = new Date(now);
-      weekAgo.setDate(now.getDate() - 7);
-      const twoWeeksAgo = new Date(now);
-      twoWeeksAgo.setDate(now.getDate() - 14);
-      return start >= twoWeeksAgo && start < weekAgo;
-    }
-    const monthAgo = new Date(now);
-    monthAgo.setDate(now.getDate() - 30);
-    const twoMonthsAgo = new Date(now);
-    twoMonthsAgo.setDate(now.getDate() - 60);
-    return start >= twoMonthsAgo && start < monthAgo;
-  });
-}
-
 function getDaysForFilter(filter: FilterType): number {
   return filter === 'Weekly' ? 7 : 30;
 }
 
-function getMealsPerDayData(sessions: MealSession[], filter: FilterType) {
-  const dayMap: Record<string, number> = {};
-  const days = getDaysForFilter(filter);
-  const now = new Date();
-
-  for (let i = days - 1; i >= 0; i--) {
-    const d = new Date(now);
-    d.setDate(now.getDate() - i);
-    const key = `${d.getMonth() + 1}/${d.getDate()}`;
-    dayMap[key] = 0;
-  }
-
-  for (const s of sessions) {
-    if (!s.endedAt) continue;
-    const d = new Date(s.startedAt);
-    const key = `${d.getMonth() + 1}/${d.getDate()}`;
-    if (key in dayMap) dayMap[key]++;
-  }
-
-  const entries = Object.entries(dayMap);
-  const step = Math.max(1, Math.floor(entries.length / 7));
-  const labels = entries.map(([k], i) => (i % step === 0 ? k : ''));
-  const data = entries.map(([, v]) => v);
-
-  return { labels, data };
+interface AggregatedDayPoint {
+  key: string;
+  label: string;
+  meals: number;
+  calories: number;
+  focusMinutes: number;
+  lowDistraction: number;
 }
 
-function getCaloriesPerDayData(
-  sessions: MealSession[],
-  caloriesFromDb: Array<{ log_date: string; total_calories: number }>,
-  filter: FilterType,
-) {
-  const days = getDaysForFilter(filter);
-  const now = new Date();
-
-  const orderedIsoKeys: string[] = [];
-  const displayLabelByIso: Record<string, string> = {};
-  const localCaloriesByIso: Record<string, number> = {};
-  const dbCaloriesByIso: Record<string, number> = {};
-
-  for (let i = days - 1; i >= 0; i--) {
-    const d = new Date(now);
-    d.setHours(0, 0, 0, 0);
-    d.setDate(now.getDate() - i);
-    const iso = d.toISOString().slice(0, 10);
-    orderedIsoKeys.push(iso);
-    displayLabelByIso[iso] = `${d.getMonth() + 1}/${d.getDate()}`;
-    localCaloriesByIso[iso] = 0;
-    dbCaloriesByIso[iso] = 0;
-  }
-
-  for (const row of caloriesFromDb) {
-    if (row.log_date in dbCaloriesByIso) {
-      dbCaloriesByIso[row.log_date] = Math.max(0, Math.round(row.total_calories || 0));
-    }
-  }
-
-  for (const s of sessions) {
-    if (!s.endedAt) continue;
-    const calories = s.preNutrition?.estimated_calories;
-    if (!calories || calories <= 0) continue;
-    const iso = new Date(s.startedAt).toISOString().slice(0, 10);
-    if (iso in localCaloriesByIso) {
-      localCaloriesByIso[iso] += Math.round(calories);
-    }
-  }
-
-  const merged = orderedIsoKeys.map((iso) => {
-    const db = dbCaloriesByIso[iso] || 0;
-    const local = localCaloriesByIso[iso] || 0;
-    return { label: displayLabelByIso[iso], value: Math.max(db, local) };
-  });
-
-  const step = Math.max(1, Math.floor(merged.length / 7));
-  const labels = merged.map((entry, i) => (i % step === 0 ? entry.label : ''));
-  const data = merged.map((entry) => entry.value);
-
-  return { labels, data };
+interface SessionRow {
+  id: string;
+  started_at: string;
+  ended_at: string | null;
+  status: string | null;
+  distraction_rating: number | null;
 }
 
-/** Generate unique integer ticks for Y axis – never returns duplicate values. */
 function getSafeSegments(maxValue: number): number {
   if (maxValue <= 0) return 1;
   return Math.min(Math.max(1, Math.ceil(maxValue)), 6);
+}
+
+function startOfLocalDay(d: Date): Date {
+  const out = new Date(d);
+  out.setHours(0, 0, 0, 0);
+  return out;
+}
+
+function endOfLocalDay(d: Date): Date {
+  const out = new Date(d);
+  out.setHours(23, 59, 59, 999);
+  return out;
+}
+
+function addDays(d: Date, delta: number): Date {
+  const out = new Date(d);
+  out.setDate(out.getDate() + delta);
+  return out;
+}
+
+function toLocalDayKey(dateLike: string | Date): string {
+  const date = new Date(dateLike);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function toLocalLabel(dateLike: string | Date): string {
+  const date = new Date(dateLike);
+  return `${date.getMonth() + 1}/${date.getDate()}`;
+}
+
+function buildDaySeries(dayCount: number, offsetDays = 0): AggregatedDayPoint[] {
+  const now = new Date();
+  return Array.from({ length: dayCount }, (_, index) => {
+    const dayOffset = dayCount - 1 - index + offsetDays;
+    const d = addDays(now, -dayOffset);
+    return {
+      key: toLocalDayKey(d),
+      label: toLocalLabel(d),
+      meals: 0,
+      calories: 0,
+      focusMinutes: 0,
+      lowDistraction: 0,
+    };
+  });
+}
+
+function chartSeries(points: AggregatedDayPoint[], metric: keyof Pick<AggregatedDayPoint, 'meals' | 'calories' | 'focusMinutes' | 'lowDistraction'>) {
+  const step = Math.max(1, Math.floor(points.length / 7));
+  return {
+    labels: points.map((p, i) => (i % step === 0 ? p.label : '')),
+    data: points.map((p) => p[metric]),
+  };
+}
+
+function buildUniqueIntegerFormatter(maxValue: number, segments: number): (v: string) => string {
+  const safeMax = Math.max(0, Math.round(maxValue));
+  const safeSegments = Math.max(1, segments);
+  const rawTicks = Array.from({ length: safeSegments + 1 }, (_, i) => safeMax - (safeMax / safeSegments) * i);
+  const labels: number[] = [];
+  let previous = Number.POSITIVE_INFINITY;
+
+  for (const tick of rawTicks) {
+    let value = Math.round(tick);
+    value = Math.min(value, previous - 1);
+    value = Math.max(value, 0);
+    labels.push(value);
+    previous = value;
+  }
+
+  return (v: string) => {
+    const n = Number(v);
+    if (Number.isNaN(n)) return '';
+    let closestIndex = 0;
+    let closestDiff = Infinity;
+    for (let i = 0; i < rawTicks.length; i++) {
+      const diff = Math.abs(rawTicks[i] - n);
+      if (diff < closestDiff) {
+        closestDiff = diff;
+        closestIndex = i;
+      }
+    }
+    return String(labels[closestIndex]);
+  };
 }
 
 function formatDelta(cur: number, prev: number, unit: string): string {
@@ -163,57 +148,156 @@ function formatDelta(cur: number, prev: number, unit: string): string {
 export default function StatsScreen() {
   const { theme } = useTheme();
   const { sessions } = useAppState();
+  const { user } = useAuth();
   const [filter, setFilter] = useState<FilterType>('Weekly');
-  const [caloriesFromDb, setCaloriesFromDb] = useState<Array<{ log_date: string; total_calories: number }>>([]);
+  const [currentPoints, setCurrentPoints] = useState<AggregatedDayPoint[]>(() => buildDaySeries(getDaysForFilter('Weekly')));
+  const [prevPoints, setPrevPoints] = useState<AggregatedDayPoint[]>(() => buildDaySeries(getDaysForFilter('Weekly'), getDaysForFilter('Weekly')));
 
-  const filtered = useMemo(() => filterSessions(sessions, filter), [sessions, filter]);
-  const prevFiltered = useMemo(() => prevFilterSessions(sessions, filter), [sessions, filter]);
+  const filteredLocal = useMemo(() => {
+    const days = getDaysForFilter(filter);
+    const rangeStart = startOfLocalDay(addDays(new Date(), -(days - 1))).getTime();
+    return sessions.filter((s) => {
+      if (!s.endedAt) return false;
+      const startedAt = new Date(s.startedAt).getTime();
+      return startedAt >= rangeStart;
+    });
+  }, [sessions, filter]);
+
+  const localCaloriesBySessionId = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const session of sessions) {
+      const localCalories = session.preNutrition?.estimated_calories;
+      if (localCalories && localCalories > 0) {
+        map.set(session.id, Math.round(localCalories));
+      }
+    }
+    return map;
+  }, [sessions]);
 
   useEffect(() => {
-    const now = new Date();
-    const days = getDaysForFilter(filter) * 2; // fetch prev period too
-    const startDate = new Date(now);
-    startDate.setDate(now.getDate() - days);
-    fetchCaloriesByDateRange(startDate, now).then(setCaloriesFromDb).catch(() => setCaloriesFromDb([]));
-  }, [filter, sessions.length]);
+    let cancelled = false;
+
+    const loadAggregates = async () => {
+      const days = getDaysForFilter(filter);
+      const nextCurrent = buildDaySeries(days);
+      const nextPrev = buildDaySeries(days, days);
+
+      const currentByKey = new Map(nextCurrent.map((point) => [point.key, point]));
+      const prevByKey = new Map(nextPrev.map((point) => [point.key, point]));
+
+      if (!user?.id) {
+        if (!cancelled) {
+          setCurrentPoints(nextCurrent);
+          setPrevPoints(nextPrev);
+        }
+        return;
+      }
+
+      const rangeStart = startOfLocalDay(addDays(new Date(), -(days * 2 - 1)));
+      const rangeEnd = endOfLocalDay(new Date());
+
+      const { data: sessionRows, error: sessionError } = await supabase
+        .from('meal_sessions')
+        .select('id, started_at, ended_at, status, distraction_rating')
+        .eq('user_id', user.id)
+        .eq('status', 'completed')
+        .not('ended_at', 'is', null)
+        .gte('started_at', rangeStart.toISOString())
+        .lte('started_at', rangeEnd.toISOString());
+
+      if (sessionError || !sessionRows) {
+        if (!cancelled) {
+          setCurrentPoints(nextCurrent);
+          setPrevPoints(nextPrev);
+        }
+        return;
+      }
+
+      const typedRows = sessionRows as SessionRow[];
+      const sessionIds = typedRows.map((row) => row.id);
+      const nutritionCaloriesBySessionId = new Map<string, number>();
+
+      if (sessionIds.length > 0) {
+        const { data: nutritionRows } = await supabase
+          .from('meal_nutrition')
+          .select('meal_session_id, estimated_calories')
+          .eq('user_id', user.id)
+          .in('meal_session_id', sessionIds);
+
+        for (const row of nutritionRows ?? []) {
+          const sessionId = row.meal_session_id as string | null;
+          const calories = row.estimated_calories as number | null;
+          if (!sessionId || !calories || calories <= 0) continue;
+          nutritionCaloriesBySessionId.set(
+            sessionId,
+            (nutritionCaloriesBySessionId.get(sessionId) ?? 0) + Math.round(calories),
+          );
+        }
+      }
+
+      for (const row of typedRows) {
+        const dayKey = toLocalDayKey(row.started_at);
+        const target = currentByKey.get(dayKey) ?? prevByKey.get(dayKey);
+        if (!target) continue;
+
+        target.meals += 1;
+
+        const startedMs = new Date(row.started_at).getTime();
+        const endedMs = row.ended_at ? new Date(row.ended_at).getTime() : startedMs;
+        const minutes = Math.max(0, Math.round((endedMs - startedMs) / 60000));
+        target.focusMinutes += minutes;
+
+        if (typeof row.distraction_rating === 'number' && row.distraction_rating <= 2) {
+          target.lowDistraction += 1;
+        }
+
+        const calories = nutritionCaloriesBySessionId.get(row.id) ?? localCaloriesBySessionId.get(row.id) ?? 0;
+        if (calories > 0) {
+          target.calories += calories;
+        }
+      }
+
+      if (!cancelled) {
+        setCurrentPoints(nextCurrent);
+        setPrevPoints(nextPrev);
+      }
+    };
+
+    loadAggregates().catch(() => {
+      if (!cancelled) {
+        const days = getDaysForFilter(filter);
+        setCurrentPoints(buildDaySeries(days));
+        setPrevPoints(buildDaySeries(days, days));
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [filter, user?.id, localCaloriesBySessionId]);
 
   // ── Stats ──
-  const totalSessions = filtered.length;
-  const prevTotalSessions = prevFiltered.length;
-  const durations = filtered.map(getSessionDuration).filter((d) => d > 0);
-  const avgDuration = durations.length > 0 ? durations.reduce((a, b) => a + b, 0) / durations.length : 0;
-  const prevDurations = prevFiltered.map(getSessionDuration).filter((d) => d > 0);
-  const prevAvgDuration = prevDurations.length > 0 ? prevDurations.reduce((a, b) => a + b, 0) / prevDurations.length : 0;
-  const focusScore = computeFocusScore(filtered);
+  const totalSessions = currentPoints.reduce((sum, point) => sum + point.meals, 0);
+  const prevTotalSessions = prevPoints.reduce((sum, point) => sum + point.meals, 0);
+  const totalFocusMinutes = currentPoints.reduce((sum, point) => sum + point.focusMinutes, 0);
+  const prevTotalFocusMinutes = prevPoints.reduce((sum, point) => sum + point.focusMinutes, 0);
+  const avgDuration = totalSessions > 0 ? (totalFocusMinutes / totalSessions) * 60000 : 0;
+  const prevAvgDuration = prevTotalSessions > 0 ? (prevTotalFocusMinutes / prevTotalSessions) * 60000 : 0;
+  const focusScore = computeFocusScore(filteredLocal);
   const streaks = computeStreak(sessions);
 
   // ── Calories ──
-  const localCaloriesByDate: Record<string, number> = {};
-  for (const s of filtered) {
-    if (!s.endedAt || !s.preNutrition?.estimated_calories) continue;
-    const day = new Date(s.startedAt).toISOString().slice(0, 10);
-    localCaloriesByDate[day] = (localCaloriesByDate[day] || 0) + Math.round(s.preNutrition.estimated_calories);
-  }
-
-  const totalCaloriesInRange = Math.max(
-    caloriesFromDb.reduce((sum, c) => sum + c.total_calories, 0),
-    Object.values(localCaloriesByDate).reduce((sum, v) => sum + v, 0),
-  );
-  const prevCalories = prevFiltered.reduce((sum, s) => sum + (s.preNutrition?.estimated_calories ?? 0), 0);
+  const totalCaloriesInRange = currentPoints.reduce((sum, point) => sum + point.calories, 0);
+  const prevCalories = prevPoints.reduce((sum, point) => sum + point.calories, 0);
 
   const displayPeriod = filter === 'Weekly' ? 'week' : 'month';
 
   // ── Chart data ──
-  const mealsChart = useMemo(() => getMealsPerDayData(filtered, filter), [filtered, filter]);
-  const caloriesChart = useMemo(
-    () => getCaloriesPerDayData(filtered, caloriesFromDb, filter),
-    [filtered, caloriesFromDb, filter],
-  );
-  const weeklyCalories = useMemo(() => {
-    const weeklySessions = filterSessions(sessions, 'Weekly');
-    const weeklyData = getCaloriesPerDayData(weeklySessions, caloriesFromDb, 'Weekly');
-    return weeklyData.data.reduce((sum, v) => sum + v, 0);
-  }, [sessions, caloriesFromDb]);
+  const mealsChart = useMemo(() => chartSeries(currentPoints, 'meals'), [currentPoints]);
+  const caloriesChart = useMemo(() => chartSeries(currentPoints, 'calories'), [currentPoints]);
+  const weeklyCalories = filter === 'Weekly'
+    ? totalCaloriesInRange
+    : Math.round(totalCaloriesInRange / Math.max(1, getDaysForFilter(filter) / 7));
   const mealsMax = Math.max(1, ...mealsChart.data);
   const mealsSegments = getSafeSegments(mealsMax);
   const caloriesMax = Math.max(1, ...caloriesChart.data);
@@ -227,6 +311,8 @@ export default function StatsScreen() {
     }
     return Math.min(Math.max(1, Math.ceil(caloriesMax / step)), 6);
   })();
+  const mealsYFormatter = useMemo(() => buildUniqueIntegerFormatter(mealsMax, mealsSegments), [mealsMax, mealsSegments]);
+  const caloriesYFormatter = useMemo(() => buildUniqueIntegerFormatter(caloriesMax, caloriesSegments), [caloriesMax, caloriesSegments]);
 
   const chartConfig = {
     backgroundGradientFrom: theme.card,
@@ -250,7 +336,7 @@ export default function StatsScreen() {
   };
 
   // ── Habit insights ──
-  const lowDistractionCount = filtered.filter((s) => (s.distractionRating ?? 5) <= 2).length;
+  const lowDistractionCount = currentPoints.reduce((sum, point) => sum + point.lowDistraction, 0);
   const avgMealMin = avgDuration > 0 ? Math.round(avgDuration / 60000) : 0;
   const habitsData = [
     { label: 'Meals tracked', current: totalSessions, goal: filter === 'Weekly' ? 21 : 90 },
@@ -261,15 +347,15 @@ export default function StatsScreen() {
   // ── Suggestions ──
   const getSuggestions = () => {
     const suggestions: string[] = [];
-    if (!filtered.length) return ["Log your first meal to get personalized tips!"];
+    if (!filteredLocal.length) return ["Log your first meal to get personalized tips!"];
 
-    const missingCals = filtered.filter(s => !s.preNutrition?.estimated_calories).length;
-    if (missingCals > filtered.length * 0.5) {
+    const missingCals = filteredLocal.filter(s => !s.preNutrition?.estimated_calories).length;
+    if (missingCals > filteredLocal.length * 0.5) {
       suggestions.push("Try scanning at least 1 meal per day to stay on top of your calories.");
     }
 
-    const lateMeals = filtered.filter(s => new Date(s.startedAt).getHours() >= 21).length;
-    if (lateMeals > filtered.length * 0.25) {
+    const lateMeals = filteredLocal.filter(s => new Date(s.startedAt).getHours() >= 21).length;
+    if (lateMeals > filteredLocal.length * 0.25) {
       suggestions.push("Try eating dinner a bit earlier to reduce late-night snacking.");
     }
 
@@ -321,10 +407,7 @@ export default function StatsScreen() {
               chartConfig={chartConfig}
               style={styles.chart}
               segments={mealsSegments}
-              formatYLabel={(v: string) => {
-                const n = Number(v);
-                return Number.isNaN(n) ? '' : String(Math.max(0, Math.round(n)));
-              }}
+              formatYLabel={mealsYFormatter}
               yAxisSuffix=""
               fromZero
               bezier
@@ -387,10 +470,7 @@ export default function StatsScreen() {
               chartConfig={caloriesChartConfig}
               style={styles.chart}
               segments={caloriesSegments}
-              formatYLabel={(v: string) => {
-                const n = Number(v);
-                return Number.isNaN(n) ? '' : String(Math.max(0, Math.round(n)));
-              }}
+              formatYLabel={caloriesYFormatter}
               yAxisSuffix=""
               fromZero
               bezier
