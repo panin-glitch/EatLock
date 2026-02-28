@@ -17,7 +17,7 @@ import {
   computeFocusScore,
   computeStreak,
 } from '../utils/helpers';
-import { LineChart } from 'react-native-chart-kit';
+import InteractiveLineChart from '../components/charts/InteractiveLineChart';
 import { MealSession } from '../types/models';
 import { fetchCaloriesByDateRange } from '../services/mealLogger';
 import ScreenHeader from '../components/common/ScreenHeader';
@@ -257,6 +257,33 @@ export default function StatsScreen() {
     { label: 'Avg meal length (min)', current: avgMealMin, goal: 20 },
   ];
 
+  // ── Suggestions ──
+  const getSuggestions = () => {
+    const suggestions: string[] = [];
+    if (!filtered.length) return ["Log your first meal to get personalized tips!"];
+
+    const missingCals = filtered.filter(s => !s.preNutrition?.estimated_calories).length;
+    if (missingCals > filtered.length * 0.5) {
+      suggestions.push("Try scanning at least 1 meal per day to stay on top of your calories.");
+    }
+
+    const lateMeals = filtered.filter(s => new Date(s.startedAt).getHours() >= 21).length;
+    if (lateMeals > filtered.length * 0.25) {
+      suggestions.push("Try eating dinner a bit earlier to reduce late-night snacking.");
+    }
+
+    if (focusScore < 70) {
+       suggestions.push("Try taking shorter meals and keep your phone locked to improve focus.");
+    }
+
+    if (suggestions.length === 0) {
+      suggestions.push("You're doing great! Keep building those healthy habits.");
+    }
+
+    return suggestions;
+  };
+  const activeSuggestions = getSuggestions();
+
   const styles = makeStyles(theme);
 
   return (
@@ -286,7 +313,7 @@ export default function StatsScreen() {
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Meals per day</Text>
           {mealsChart.data.some((d) => d > 0) ? (
-            <LineChart
+            <InteractiveLineChart
               data={{ labels: mealsChart.labels, datasets: [{ data: mealsChart.data }] }}
               width={SCREEN_WIDTH - 72}
               height={180}
@@ -300,6 +327,7 @@ export default function StatsScreen() {
               yAxisSuffix=""
               fromZero
               bezier
+              metricLabel="meals"
             />
           ) : (
             <View style={styles.chartEmpty}>
@@ -351,7 +379,7 @@ export default function StatsScreen() {
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Calories over time</Text>
           {caloriesChart.data.some((d) => d > 0) ? (
-            <LineChart
+            <InteractiveLineChart
               data={{ labels: caloriesChart.labels, datasets: [{ data: caloriesChart.data }] }}
               width={SCREEN_WIDTH - 72}
               height={180}
@@ -365,6 +393,7 @@ export default function StatsScreen() {
               yAxisSuffix=""
               fromZero
               bezier
+              metricLabel="cal"
             />
           ) : (
             <View style={styles.chartEmpty}>
@@ -417,6 +446,20 @@ export default function StatsScreen() {
               <Text style={styles.focusValue}>{focusScore}/100</Text>
             </View>
           </View>
+        </View>
+
+        {/* ── Eat better suggestions ── */}
+        <View style={styles.card}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10 }}>
+            <MaterialIcons name="lightbulb-outline" size={22} color={theme.primary} />
+            <Text style={[styles.cardTitle, { marginBottom: 0, marginLeft: 8 }]}>Eat better</Text>
+          </View>
+          {activeSuggestions.map((sug, i) => (
+            <View key={i} style={styles.suggestionRow}>
+              <View style={[styles.suggestionDot, { backgroundColor: theme.primary }]} />
+              <Text style={styles.suggestionText}>{sug}</Text>
+            </View>
+          ))}
         </View>
       </ScrollView>
     </View>
@@ -474,4 +517,7 @@ const makeStyles = (theme: any) =>
     progressFill: { height: 8, borderRadius: 8 },
     focusRow: { flexDirection: 'row', alignItems: 'center' },
     focusValue: { fontSize: 28, fontWeight: '800', color: theme.primary },
+    suggestionRow: { flexDirection: 'row', alignItems: 'flex-start', marginTop: 8 },
+    suggestionDot: { width: 6, height: 6, borderRadius: 3, marginTop: 7, marginRight: 10 },
+    suggestionText: { flex: 1, fontSize: 13, color: theme.textSecondary, lineHeight: 18 },
   });
