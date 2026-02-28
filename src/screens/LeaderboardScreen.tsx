@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  Modal,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -18,7 +19,6 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../theme/ThemeProvider';
-import { useAppState } from '../state/AppStateContext';
 import { useAuth } from '../state/AuthContext';
 import { supabase } from '../services/supabaseClient';
 import ScreenHeader from '../components/common/ScreenHeader';
@@ -38,6 +38,9 @@ type GroupMember = {
   username: string;
   avatar_url: string | null;
   xp: number;
+  meals_completed: number;
+  focus_minutes: number;
+  calories_logged: number;
 };
 
 type StatsPayload = {
@@ -80,15 +83,14 @@ function generateJoinCode() {
 export default function LeaderboardScreen() {
   const { theme } = useTheme();
   const { user } = useAuth();
-  const { sessions } = useAppState();
   const navigation = useNavigation<any>();
 
   const [groups, setGroups] = useState<Group[]>([]);
   const [selectedGroup, setSelectedGroup] = useState<Group | null>(null);
   const [members, setMembers] = useState<GroupMember[]>([]);
 
-  const [showCreate, setShowCreate] = useState(false);
-  const [showJoin, setShowJoin] = useState(false);
+  const [showGroupModal, setShowGroupModal] = useState(false);
+  const [groupModalTab, setGroupModalTab] = useState<'create' | 'join'>('create');
   const [newGroupName, setNewGroupName] = useState('');
   const [joinCode, setJoinCode] = useState('');
 
@@ -101,24 +103,6 @@ export default function LeaderboardScreen() {
     code: '',
   });
   const lightHaptic = () => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-
-  const yourXp = useMemo(() => {
-    const now = new Date();
-    const weekStart = new Date(now);
-    weekStart.setDate(now.getDate() - now.getDay());
-    weekStart.setHours(0, 0, 0, 0);
-
-    const weekSessions = sessions.filter((item) => new Date(item.startedAt) >= weekStart);
-    const meals = weekSessions.filter((item) => item.status === 'VERIFIED' || item.status === 'PARTIAL').length;
-    const focusMinutes = weekSessions.reduce((acc, item) => {
-      if (!(item.status === 'VERIFIED' || item.status === 'PARTIAL')) return acc;
-      if (!item.endedAt) return acc;
-      return acc + Math.max(0, Math.round((new Date(item.endedAt).getTime() - new Date(item.startedAt).getTime()) / 60000));
-    }, 0);
-    const calories = weekSessions.reduce((acc, item) => acc + Math.max(0, Math.round(item.preNutrition?.estimated_calories || 0)), 0);
-
-    return meals * 10 + Math.round(focusMinutes * 0.5) + Math.round(calories / 100);
-  }, [sessions]);
 
   const loadGroups = useCallback(async () => {
     if (!user?.id) {
@@ -185,8 +169,12 @@ export default function LeaderboardScreen() {
             p_group_id: group.id,
             p_user_id: member.user_id,
           });
-          const xp = toXp((statsData || {}) as StatsPayload);
-          return { ...member, xp } as GroupMember;
+          const stats = (statsData || {}) as StatsPayload;
+          const meals_completed = Number(stats.meals_completed || 0);
+          const focus_minutes = Math.round(Number(stats.focus_minutes || 0));
+          const calories_logged = Number(stats.calories_logged || 0);
+          const xp = toXp(stats);
+          return { ...member, xp, meals_completed, focus_minutes, calories_logged } as GroupMember;
         }),
       );
 
@@ -245,14 +233,21 @@ export default function LeaderboardScreen() {
         throw insertError || new Error('Could not create group.');
       }
 
-      await supabase.from('group_members').insert({
+      const { error: memberInsertError } = await supabase.from('group_members').insert({
         group_id: created.id,
         user_id: user.id,
         role: 'admin',
       });
 
-      setShowCreate(false);
+      if (memberInsertError) {
+        await supabase.from('groups').delete().eq('id', created.id).eq('owner_id', user.id);
+        throw memberInsertError;
+      }
+
+      setShowGroupModal(false);
+      setGroupModalTab('create');
       setNewGroupName('');
+      setJoinCode('');
       setSnackbar({
         visible: true,
         message: 'Group created',
@@ -261,7 +256,11 @@ export default function LeaderboardScreen() {
 
       await loadGroups();
     } catch {
-      Alert.alert('Could not create group', 'Please try again.');
+      setSnackbar({
+        visible: true,
+        message: 'Could not create group',
+        code: '',
+      });
     } finally {
       setBusy(false);
     }
@@ -281,7 +280,8 @@ export default function LeaderboardScreen() {
     }
 
     setJoinCode('');
-    setShowJoin(false);
+    setShowGroupModal(false);
+    setGroupModalTab('create');
     await loadGroups();
     setBusy(false);
   }, [busy, joinCode, loadGroups]);
@@ -363,8 +363,36 @@ export default function LeaderboardScreen() {
   const styles = makeStyles(theme);
 
   if (selectedGroup) {
-    const rank = getRank(yourXp);
     const isAdmin = selectedGroup.owner_id === user?.id || selectedGroup.role === 'admin';
+    const yourMember = members.find((member) => member.user_id === user?.id) || null;
+    const yourXp = yourMember?.xp ?? 0;
+    const rank = getRank(yourXp);
+    const totalMeals = members.reduce((sum, member) => sum + member.meals_completed, 0);
+    const totalFocusMinutes = members.reduce((sum, member) => sum + member.focus_minutes, 0);
+    const totalCalories = members.reduce((sum, member) => sum + member.calories_logged, 0);
+    const hasAnyActivity = members.some(
+      (member) => member.xp > 0 || member.meals_completed > 0 || member.focus_minutes > 0 || member.calories_logged > 0,
+    );
+    const objectives = [
+      {
+        label: 'Group meals',
+        value: totalMeals,
+        target: 21,
+        suffix: '',
+      },
+      {
+        label: 'Focus minutes',
+        value: totalFocusMinutes,
+        target: 300,
+        suffix: 'm',
+      },
+      {
+        label: 'Calories logged',
+        value: totalCalories,
+        target: 7000,
+        suffix: '',
+      },
+    ];
 
     return (
       <View style={styles.container}>
@@ -427,6 +455,10 @@ export default function LeaderboardScreen() {
               <View style={styles.loaderWrap}>
                 <ActivityIndicator size="small" color={theme.primary} />
               </View>
+            ) : !hasAnyActivity ? (
+              <View style={styles.emptyInline}>
+                <Text style={styles.emptyInlineText}>No activity yet</Text>
+              </View>
             ) : (
               members.map((member, index) => {
                 const memberRank = getRank(member.xp);
@@ -461,6 +493,27 @@ export default function LeaderboardScreen() {
               })
             )}
           </View>
+
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Weekly objectives</Text>
+            {objectives.map((objective) => {
+              const ratio = Math.min(objective.value / objective.target, 1);
+              return (
+                <View key={objective.label} style={styles.objectiveRow}>
+                  <View style={styles.objectiveHeader}>
+                    <Text style={styles.objectiveLabel}>{objective.label}</Text>
+                    <Text style={styles.objectiveValue}>
+                      {objective.value}
+                      {objective.suffix}/{objective.target}
+                    </Text>
+                  </View>
+                  <View style={styles.objectiveTrack}>
+                    <View style={[styles.objectiveFill, { width: `${ratio * 100}%`, backgroundColor: theme.primary }]} />
+                  </View>
+                </View>
+              );
+            })}
+          </View>
         </ScrollView>
       </View>
     );
@@ -469,85 +522,24 @@ export default function LeaderboardScreen() {
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor={theme.background} />
-      <ScreenHeader title="Leaderboard" />
+      <ScreenHeader
+        title="Leaderboard"
+        rightActions={[
+          <TouchableOpacity
+            key="add-group"
+            style={styles.headerIconBtn}
+            onPress={() => {
+              lightHaptic();
+              setGroupModalTab('create');
+              setShowGroupModal(true);
+            }}
+          >
+            <MaterialIcons name="add" size={20} color={theme.textSecondary} />
+          </TouchableOpacity>,
+        ]}
+      />
 
       <ScrollView contentContainerStyle={styles.content}>
-        <View style={[styles.xpCard, { backgroundColor: theme.primaryDim }]}> 
-          <MaterialIcons name={getRank(yourXp).icon} size={24} color={getRank(yourXp).color} />
-          <View style={{ flex: 1, marginLeft: 10 }}>
-            <Text style={styles.xpCardTitle}>{yourXp} XP this week</Text>
-            <Text style={styles.xpCardSub}>Rank: {getRank(yourXp).label}</Text>
-          </View>
-        </View>
-
-        <View style={styles.actionRow}>
-          <TouchableOpacity
-            style={[styles.actionBtn, { backgroundColor: theme.primary }]}
-            onPress={() => {
-              lightHaptic();
-              setShowCreate(true);
-              setShowJoin(false);
-            }}
-          >
-            <MaterialIcons name="add" size={18} color={theme.background} />
-            <Text style={[styles.actionBtnText, { color: theme.background }]}>Create group</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.actionBtn, { backgroundColor: theme.surface }]}
-            onPress={() => {
-              lightHaptic();
-              setShowJoin(true);
-              setShowCreate(false);
-            }}
-          >
-            <MaterialIcons name="login" size={18} color={theme.text} />
-            <Text style={[styles.actionBtnText, { color: theme.text }]}>Join with code</Text>
-          </TouchableOpacity>
-        </View>
-
-        {showCreate && (
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>New group</Text>
-            <TextInput
-              style={[styles.input, { color: theme.text, borderColor: theme.border }]}
-              value={newGroupName}
-              onChangeText={setNewGroupName}
-              placeholder="Group name"
-              placeholderTextColor={theme.textMuted}
-              maxLength={24}
-            />
-            <TouchableOpacity style={[styles.submitBtn, { backgroundColor: theme.primary }]} onPress={() => {
-              lightHaptic();
-              handleCreateGroup();
-            }}>
-              <Text style={[styles.submitBtnText, { color: theme.background }]}>{busy ? 'Creating...' : 'Create'}</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {showJoin && (
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Join a group</Text>
-            <TextInput
-              style={[styles.input, { color: theme.text, borderColor: theme.border }]}
-              value={joinCode}
-              onChangeText={setJoinCode}
-              placeholder="6-character join code"
-              placeholderTextColor={theme.textMuted}
-              autoCapitalize="characters"
-              maxLength={6}
-            />
-            <TouchableOpacity style={[styles.submitBtn, { backgroundColor: theme.primary }]} onPress={() => {
-              lightHaptic();
-              handleJoinGroup();
-            }}>
-              <Text style={[styles.submitBtnText, { color: theme.background }]}>{busy ? 'Joining...' : 'Join'}</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        <Text style={styles.sectionLabel}>Your groups</Text>
         {loadingGroups ? (
           <View style={styles.loaderWrap}>
             <ActivityIndicator size="small" color={theme.primary} />
@@ -556,12 +548,7 @@ export default function LeaderboardScreen() {
           <View style={styles.emptyCard}>
             <MaterialIcons name="groups" size={36} color={theme.textMuted} />
             <Text style={styles.emptyTitle}>No groups yet</Text>
-            <TouchableOpacity style={[styles.submitBtn, { backgroundColor: theme.primary }]} onPress={() => {
-              lightHaptic();
-              setShowCreate(true);
-            }}>
-              <Text style={[styles.submitBtnText, { color: theme.background }]}>Create group</Text>
-            </TouchableOpacity>
+            <Text style={styles.emptySubtitle}>Tap + to create or join a group.</Text>
           </View>
         ) : (
           groups.map((group) => (
@@ -586,22 +573,90 @@ export default function LeaderboardScreen() {
         )}
       </ScrollView>
 
+      <Modal
+        visible={showGroupModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowGroupModal(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <TouchableOpacity style={StyleSheet.absoluteFillObject} activeOpacity={1} onPress={() => setShowGroupModal(false)} />
+          <View style={[styles.modalCard, { backgroundColor: theme.card, borderColor: theme.border }]}> 
+            <View style={styles.modalTabs}>
+              <TouchableOpacity
+                style={[styles.modalTab, groupModalTab === 'create' && { backgroundColor: theme.primaryDim }]}
+                onPress={() => setGroupModalTab('create')}
+              >
+                <Text style={[styles.modalTabText, { color: groupModalTab === 'create' ? theme.primary : theme.textSecondary }]}>Create</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalTab, groupModalTab === 'join' && { backgroundColor: theme.primaryDim }]}
+                onPress={() => setGroupModalTab('join')}
+              >
+                <Text style={[styles.modalTabText, { color: groupModalTab === 'join' ? theme.primary : theme.textSecondary }]}>Join</Text>
+              </TouchableOpacity>
+            </View>
+
+            {groupModalTab === 'create' ? (
+              <>
+                <Text style={styles.cardTitle}>New group</Text>
+                <TextInput
+                  style={[styles.input, { color: theme.text, borderColor: theme.border }]}
+                  value={newGroupName}
+                  onChangeText={setNewGroupName}
+                  placeholder="Group name"
+                  placeholderTextColor={theme.textMuted}
+                  maxLength={24}
+                />
+                <TouchableOpacity style={[styles.submitBtn, { backgroundColor: theme.primary }]} onPress={() => {
+                  lightHaptic();
+                  handleCreateGroup();
+                }}>
+                  <Text style={[styles.submitBtnText, { color: theme.background }]}>{busy ? 'Creating...' : 'Create group'}</Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <>
+                <Text style={styles.cardTitle}>Join a group</Text>
+                <TextInput
+                  style={[styles.input, { color: theme.text, borderColor: theme.border }]}
+                  value={joinCode}
+                  onChangeText={setJoinCode}
+                  placeholder="6-character join code"
+                  placeholderTextColor={theme.textMuted}
+                  autoCapitalize="characters"
+                  maxLength={6}
+                />
+                <TouchableOpacity style={[styles.submitBtn, { backgroundColor: theme.primary }]} onPress={() => {
+                  lightHaptic();
+                  handleJoinGroup();
+                }}>
+                  <Text style={[styles.submitBtnText, { color: theme.background }]}>{busy ? 'Joining...' : 'Join group'}</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
+
       {snackbar.visible && (
         <View style={[styles.snackbar, { backgroundColor: theme.card, borderColor: theme.border }]}>
           <View style={{ flex: 1 }}>
             <Text style={styles.snackbarTitle}>{snackbar.message}</Text>
-            <Text style={styles.snackbarCode}>Code: {snackbar.code}</Text>
+            {snackbar.code ? <Text style={styles.snackbarCode}>Code: {snackbar.code}</Text> : null}
           </View>
-          <TouchableOpacity
-            style={[styles.copyBtn, { backgroundColor: theme.primaryDim }]}
-            onPress={() => {
-              lightHaptic();
-              Clipboard.setStringAsync(snackbar.code);
-            }}
-          >
-            <MaterialIcons name="content-copy" size={16} color={theme.primary} />
-            <Text style={[styles.copyBtnText, { color: theme.primary }]}>Copy</Text>
-          </TouchableOpacity>
+          {snackbar.code ? (
+            <TouchableOpacity
+              style={[styles.copyBtn, { backgroundColor: theme.primaryDim }]}
+              onPress={() => {
+                lightHaptic();
+                Clipboard.setStringAsync(snackbar.code);
+              }}
+            >
+              <MaterialIcons name="content-copy" size={16} color={theme.primary} />
+              <Text style={[styles.copyBtnText, { color: theme.primary }]}>Copy</Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
       )}
     </View>
@@ -631,19 +686,6 @@ const makeStyles = (theme: any) =>
     },
     xpCardTitle: { color: theme.text, fontWeight: '800', fontSize: 16 },
     xpCardSub: { color: theme.textSecondary, marginTop: 2, fontSize: 12 },
-    actionRow: { flexDirection: 'row', gap: 10, marginTop: 12 },
-    actionBtn: {
-      flex: 1,
-      borderRadius: 12,
-      paddingVertical: 12,
-      alignItems: 'center',
-      justifyContent: 'center',
-      flexDirection: 'row',
-      gap: 6,
-      borderWidth: 1,
-      borderColor: theme.border,
-    },
-    actionBtnText: { fontWeight: '700', fontSize: 13 },
     card: {
       marginTop: 12,
       borderRadius: 16,
@@ -678,8 +720,10 @@ const makeStyles = (theme: any) =>
       borderWidth: 1,
       borderColor: theme.border,
       gap: 8,
+      marginTop: 12,
     },
-    emptyTitle: { color: theme.text, fontWeight: '700', fontSize: 16, marginBottom: 8 },
+    emptyTitle: { color: theme.text, fontWeight: '700', fontSize: 16 },
+    emptySubtitle: { color: theme.textSecondary, fontSize: 13 },
     groupRow: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -689,7 +733,7 @@ const makeStyles = (theme: any) =>
       backgroundColor: theme.card,
       borderWidth: 1,
       borderColor: theme.border,
-      marginBottom: 8,
+      marginTop: 12,
     },
     groupRowAvatar: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
     groupRowTitle: { color: theme.text, fontWeight: '700', fontSize: 15 },
@@ -735,6 +779,54 @@ const makeStyles = (theme: any) =>
     rankBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
     rankLabel: { fontSize: 11, fontWeight: '700' },
     xpText: { color: theme.primary, fontWeight: '800', fontSize: 13 },
+    emptyInline: {
+      paddingVertical: 18,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    emptyInlineText: {
+      color: theme.textMuted,
+      fontSize: 13,
+      fontWeight: '600',
+    },
+    objectiveRow: { marginBottom: 12 },
+    objectiveHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
+    objectiveLabel: { color: theme.text, fontWeight: '600', fontSize: 13 },
+    objectiveValue: { color: theme.textSecondary, fontWeight: '700', fontSize: 12 },
+    objectiveTrack: {
+      height: 8,
+      borderRadius: 8,
+      backgroundColor: theme.surface,
+      overflow: 'hidden',
+    },
+    objectiveFill: { height: 8, borderRadius: 8 },
+    modalBackdrop: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.45)',
+      justifyContent: 'center',
+      paddingHorizontal: 20,
+    },
+    modalCard: {
+      borderRadius: 16,
+      borderWidth: 1,
+      padding: 14,
+    },
+    modalTabs: {
+      flexDirection: 'row',
+      gap: 8,
+      marginBottom: 12,
+    },
+    modalTab: {
+      flex: 1,
+      borderRadius: 10,
+      paddingVertical: 8,
+      alignItems: 'center',
+      backgroundColor: theme.surface,
+    },
+    modalTabText: {
+      fontSize: 13,
+      fontWeight: '700',
+    },
     snackbar: {
       position: 'absolute',
       left: 16,
