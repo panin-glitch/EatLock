@@ -90,10 +90,10 @@ export default function SettingsScreen() {
         <Text style={styles.sectionLabel}>ACCOUNT</Text>
         <TouchableOpacity
           style={styles.row}
-          onPress={() => navigation.navigate('Planner')}
+          onPress={() => navigation.navigate('Profile')}
         >
-          <MaterialIcons name="calendar-today" size={22} color={theme.text} />
-          <Text style={styles.rowText}>Meal Planner</Text>
+          <MaterialIcons name="person" size={22} color={theme.text} />
+          <Text style={styles.rowText}>Profile</Text>
           <MaterialIcons name="chevron-right" size={22} color={theme.textSecondary} />
         </TouchableOpacity>
         {isAuthenticated && user?.email ? (
