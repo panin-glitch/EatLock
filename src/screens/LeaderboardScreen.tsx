@@ -12,6 +12,7 @@ import {
   View,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
+import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
@@ -99,6 +100,7 @@ export default function LeaderboardScreen() {
     message: '',
     code: '',
   });
+  const lightHaptic = () => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
 
   const yourXp = useMemo(() => {
     const now = new Date();
@@ -392,7 +394,10 @@ export default function LeaderboardScreen() {
               </View>
             </View>
             <View style={styles.groupTopActions}>
-              <TouchableOpacity style={styles.smallAction} onPress={() => Clipboard.setStringAsync(selectedGroup.join_code)}>
+              <TouchableOpacity style={styles.smallAction} onPress={() => {
+                lightHaptic();
+                Clipboard.setStringAsync(selectedGroup.join_code);
+              }}>
                 <MaterialIcons name="content-copy" size={16} color={theme.text} />
               </TouchableOpacity>
               {isAdmin && (
@@ -430,7 +435,10 @@ export default function LeaderboardScreen() {
                   <TouchableOpacity
                     key={member.user_id}
                     style={[styles.memberRow, isYou && { backgroundColor: theme.primaryDim }]}
-                    onPress={() => navigation.navigate('MemberStats', { userId: member.user_id, groupId: selectedGroup.id })}
+                    onPress={() => {
+                      lightHaptic();
+                      navigation.navigate('MemberStats', { userId: member.user_id, groupId: selectedGroup.id });
+                    }}
                   >
                     <Text style={styles.rankNum}>#{index + 1}</Text>
                     {member.avatar_url ? (
@@ -476,6 +484,7 @@ export default function LeaderboardScreen() {
           <TouchableOpacity
             style={[styles.actionBtn, { backgroundColor: theme.primary }]}
             onPress={() => {
+              lightHaptic();
               setShowCreate(true);
               setShowJoin(false);
             }}
@@ -487,6 +496,7 @@ export default function LeaderboardScreen() {
           <TouchableOpacity
             style={[styles.actionBtn, { backgroundColor: theme.surface }]}
             onPress={() => {
+              lightHaptic();
               setShowJoin(true);
               setShowCreate(false);
             }}
@@ -507,7 +517,10 @@ export default function LeaderboardScreen() {
               placeholderTextColor={theme.textMuted}
               maxLength={24}
             />
-            <TouchableOpacity style={[styles.submitBtn, { backgroundColor: theme.primary }]} onPress={handleCreateGroup}>
+            <TouchableOpacity style={[styles.submitBtn, { backgroundColor: theme.primary }]} onPress={() => {
+              lightHaptic();
+              handleCreateGroup();
+            }}>
               <Text style={[styles.submitBtnText, { color: theme.background }]}>{busy ? 'Creating...' : 'Create'}</Text>
             </TouchableOpacity>
           </View>
@@ -525,7 +538,10 @@ export default function LeaderboardScreen() {
               autoCapitalize="characters"
               maxLength={6}
             />
-            <TouchableOpacity style={[styles.submitBtn, { backgroundColor: theme.primary }]} onPress={handleJoinGroup}>
+            <TouchableOpacity style={[styles.submitBtn, { backgroundColor: theme.primary }]} onPress={() => {
+              lightHaptic();
+              handleJoinGroup();
+            }}>
               <Text style={[styles.submitBtnText, { color: theme.background }]}>{busy ? 'Joining...' : 'Join'}</Text>
             </TouchableOpacity>
           </View>
@@ -540,13 +556,19 @@ export default function LeaderboardScreen() {
           <View style={styles.emptyCard}>
             <MaterialIcons name="groups" size={36} color={theme.textMuted} />
             <Text style={styles.emptyTitle}>No groups yet</Text>
-            <TouchableOpacity style={[styles.submitBtn, { backgroundColor: theme.primary }]} onPress={() => setShowCreate(true)}>
+            <TouchableOpacity style={[styles.submitBtn, { backgroundColor: theme.primary }]} onPress={() => {
+              lightHaptic();
+              setShowCreate(true);
+            }}>
               <Text style={[styles.submitBtnText, { color: theme.background }]}>Create group</Text>
             </TouchableOpacity>
           </View>
         ) : (
           groups.map((group) => (
-            <TouchableOpacity key={group.id} style={styles.groupRow} onPress={() => openGroup(group)}>
+            <TouchableOpacity key={group.id} style={styles.groupRow} onPress={() => {
+              lightHaptic();
+              openGroup(group);
+            }}>
               {group.avatar_url ? (
                 <Image source={{ uri: group.avatar_url }} style={styles.groupRowAvatar} />
               ) : (
@@ -572,7 +594,10 @@ export default function LeaderboardScreen() {
           </View>
           <TouchableOpacity
             style={[styles.copyBtn, { backgroundColor: theme.primaryDim }]}
-            onPress={() => Clipboard.setStringAsync(snackbar.code)}
+            onPress={() => {
+              lightHaptic();
+              Clipboard.setStringAsync(snackbar.code);
+            }}
           >
             <MaterialIcons name="content-copy" size={16} color={theme.primary} />
             <Text style={[styles.copyBtnText, { color: theme.primary }]}>Copy</Text>

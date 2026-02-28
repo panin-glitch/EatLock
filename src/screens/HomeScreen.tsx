@@ -1,6 +1,7 @@
 import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, StatusBar, TouchableOpacity, Image } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import Svg, { Circle } from 'react-native-svg';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -70,6 +71,7 @@ export default function HomeScreen() {
   const quips = ['Small bites, big wins 🐸', 'You got this 💪', 'Stay steady, Tadlock style 🐸'];
   const showQuips = settings.homeWidgets.showTruthBomb ?? true;
   const quip = quips[now.getDay() % quips.length];
+  const lightHaptic = () => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
 
   const loadProfileAvatar = useCallback(async () => {
     if (!user?.id) {
@@ -112,7 +114,20 @@ export default function HomeScreen() {
           },
         ]}
       >
-        <View style={styles.leftSpacer} />
+        <TouchableOpacity
+          style={[styles.avatar, { backgroundColor: theme.surface }]}
+          onPress={() => {
+            lightHaptic();
+            navigation.navigate('Settings');
+          }}
+          activeOpacity={0.8}
+        >
+          {avatarUrl ? (
+            <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
+          ) : (
+            <MaterialIcons name="person" size={20} color={theme.textSecondary} />
+          )}
+        </TouchableOpacity>
 
         <View style={{ flex: 1 }}>
           <Text style={[styles.greeting, { color: theme.textSecondary }]}>{greeting}</Text>
@@ -127,24 +142,16 @@ export default function HomeScreen() {
           </View>
           <TouchableOpacity
             style={[styles.iconBtn, { backgroundColor: theme.surface }]}
-            onPress={() => navigation.navigate('Planner')}
+            onPress={() => {
+              lightHaptic();
+              navigation.navigate('Planner');
+            }}
           > 
             <MaterialIcons name="calendar-today" size={18} color={theme.textSecondary} />
           </TouchableOpacity>
           <TouchableOpacity style={[styles.iconBtn, { backgroundColor: theme.surface }]}> 
             <MaterialIcons name="notifications-none" size={19} color={theme.textSecondary} />
             {unreadNotifications ? <View style={styles.redDot} /> : null}
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.avatar, { backgroundColor: theme.surface }]}
-            onPress={() => navigation.navigate('Profile')}
-            activeOpacity={0.8}
-          >
-            {avatarUrl ? (
-              <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
-            ) : (
-              <MaterialIcons name="person" size={20} color={theme.textSecondary} />
-            )}
           </TouchableOpacity>
         </View>
       </View>
@@ -246,7 +253,6 @@ const styles = StyleSheet.create({
     gap: 10,
     alignItems: 'center',
   },
-  leftSpacer: { width: 36, height: 36 },
   avatar: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   avatarImage: { width: '100%', height: '100%' },
   greeting: { fontSize: 12, fontWeight: '600' },

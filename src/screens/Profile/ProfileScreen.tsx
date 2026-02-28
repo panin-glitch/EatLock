@@ -12,8 +12,6 @@ import {
   ScrollView,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import * as ImagePicker from 'expo-image-picker';
-import * as ImageManipulator from 'expo-image-manipulator';
 import { useNavigation } from '@react-navigation/native';
 import { useTheme } from '../../theme/ThemeProvider';
 import { useAuth } from '../../state/AuthContext';
@@ -28,7 +26,6 @@ export default function ProfileScreen() {
   const [username, setUsername] = useState('');
   const [initialUsername, setInitialUsername] = useState('');
   const [isSaving, setIsSaving] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
 
   const fallbackName = useMemo(() => user?.email?.split('@')[0] ?? 'User', [user?.email]);
 
@@ -49,64 +46,6 @@ export default function ProfileScreen() {
   useEffect(() => {
     loadProfile();
   }, [loadProfile]);
-
-  const uploadAvatar = useCallback(async () => {
-    if (!user?.id) return;
-
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert('Permission needed', 'Please allow photo access to upload your avatar.');
-      return;
-    }
-
-    const picker = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.9,
-    });
-
-    if (picker.canceled || !picker.assets?.length) return;
-
-    setIsUploading(true);
-    try {
-      const source = picker.assets[0];
-      const manipulated = await ImageManipulator.manipulateAsync(
-        source.uri,
-        [{ resize: { width: 600, height: 600 } }],
-        { compress: 0.72, format: ImageManipulator.SaveFormat.JPEG },
-      );
-
-      const response = await fetch(manipulated.uri);
-      const blob = await response.blob();
-      const objectPath = `${user.id}/avatar-${Date.now()}.jpg`;
-
-      const { error: uploadError } = await supabase.storage
-        .from('avatars')
-        .upload(objectPath, blob, {
-          cacheControl: '3600',
-          upsert: true,
-          contentType: 'image/jpeg',
-        });
-
-      if (uploadError) throw uploadError;
-
-      const { data: publicData } = supabase.storage.from('avatars').getPublicUrl(objectPath);
-      const nextUrl = publicData.publicUrl;
-
-      const { error: updateError } = await supabase
-        .from('profiles')
-        .upsert({ user_id: user.id, avatar_url: nextUrl, username: username.trim() || fallbackName });
-
-      if (updateError) throw updateError;
-
-      setAvatarUrl(nextUrl);
-    } catch (error: any) {
-      Alert.alert('Upload failed', error?.message ?? 'Could not upload avatar right now.');
-    } finally {
-      setIsUploading(false);
-    }
-  }, [user?.id, username, fallbackName]);
 
   const saveProfile = useCallback(async () => {
     if (!user?.id) return;
@@ -150,21 +89,6 @@ export default function ProfileScreen() {
               <MaterialIcons name="person" size={46} color={theme.textMuted} />
             )}
           </View>
-
-          <TouchableOpacity
-            style={[styles.changeBtn, { backgroundColor: theme.primary }]}
-            onPress={uploadAvatar}
-            disabled={isUploading}
-          >
-            {isUploading ? (
-              <ActivityIndicator size="small" color={theme.background} />
-            ) : (
-              <>
-                <MaterialIcons name="photo-camera" size={16} color={theme.background} />
-                <Text style={[styles.changeBtnText, { color: theme.background }]}>Change photo</Text>
-              </>
-            )}
-          </TouchableOpacity>
         </View>
 
         <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }]}> 
@@ -224,16 +148,6 @@ const makeStyles = (theme: any) =>
       overflow: 'hidden',
     },
     avatarImage: { width: '100%', height: '100%' },
-    changeBtn: {
-      marginTop: 14,
-      borderRadius: 14,
-      paddingHorizontal: 14,
-      paddingVertical: 10,
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 6,
-    },
-    changeBtnText: { fontSize: 13, fontWeight: '700' },
     card: {
       borderWidth: 1,
       borderRadius: 16,
