@@ -1,12 +1,13 @@
-import React, { useMemo, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, StatusBar, TouchableOpacity } from 'react-native';
+import React, { useMemo, useState, useEffect, useCallback } from 'react';
+import { View, Text, StyleSheet, ScrollView, StatusBar, TouchableOpacity, Image } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import Svg, { Circle } from 'react-native-svg';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../theme/ThemeProvider';
 import { useAppState } from '../state/AppStateContext';
 import { useAuth } from '../state/AuthContext';
+import { supabase } from '../services/supabaseClient';
 import { computeStreak, getSessionDuration, getSessionsForDate, getWeekDates } from '../utils/helpers';
 import TodaysMealsList from '../components/home/TodaysMealsList';
 import { HEADER_BOTTOM_PADDING, HEADER_HORIZONTAL_PADDING } from '../components/common/ScreenHeader';
@@ -17,6 +18,7 @@ export default function HomeScreen() {
   const { settings, activeSession, sessions } = useAppState();
   const { user } = useAuth();
   const navigation = useNavigation<any>();
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
 
   const [selectedDate, setSelectedDate] = useState(new Date());
   const weekDates = useMemo(() => getWeekDates(new Date()), []);
@@ -69,6 +71,29 @@ export default function HomeScreen() {
   const showQuips = settings.homeWidgets.showTruthBomb ?? true;
   const quip = quips[now.getDay() % quips.length];
 
+  const loadProfileAvatar = useCallback(async () => {
+    if (!user?.id) {
+      setAvatarUrl(null);
+      return;
+    }
+    const { data } = await supabase
+      .from('profiles')
+      .select('avatar_url')
+      .eq('user_id', user.id)
+      .maybeSingle();
+    setAvatarUrl(data?.avatar_url ?? null);
+  }, [user?.id]);
+
+  useEffect(() => {
+    loadProfileAvatar();
+  }, [loadProfileAvatar]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadProfileAvatar();
+    }, [loadProfileAvatar]),
+  );
+
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       <StatusBar
@@ -87,9 +112,7 @@ export default function HomeScreen() {
           },
         ]}
       >
-        <TouchableOpacity style={[styles.avatar, { backgroundColor: theme.surface }]} onPress={() => navigation.navigate('Settings')}>
-          <MaterialIcons name="person" size={20} color={theme.textSecondary} />
-        </TouchableOpacity>
+        <View style={styles.leftSpacer} />
 
         <View style={{ flex: 1 }}>
           <Text style={[styles.greeting, { color: theme.textSecondary }]}>{greeting}</Text>
@@ -102,12 +125,26 @@ export default function HomeScreen() {
             <MaterialIcons name="local-fire-department" size={14} color={theme.warning} />
             <Text style={[styles.streakText, { color: theme.text }]}>Streak {streak}</Text>
           </View>
-          <TouchableOpacity style={[styles.iconBtn, { backgroundColor: theme.surface }]}> 
+          <TouchableOpacity
+            style={[styles.iconBtn, { backgroundColor: theme.surface }]}
+            onPress={() => navigation.navigate('Planner')}
+          > 
             <MaterialIcons name="calendar-today" size={18} color={theme.textSecondary} />
           </TouchableOpacity>
           <TouchableOpacity style={[styles.iconBtn, { backgroundColor: theme.surface }]}> 
             <MaterialIcons name="notifications-none" size={19} color={theme.textSecondary} />
             {unreadNotifications ? <View style={styles.redDot} /> : null}
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.avatar, { backgroundColor: theme.surface }]}
+            onPress={() => navigation.navigate('Profile')}
+            activeOpacity={0.8}
+          >
+            {avatarUrl ? (
+              <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
+            ) : (
+              <MaterialIcons name="person" size={20} color={theme.textSecondary} />
+            )}
           </TouchableOpacity>
         </View>
       </View>
@@ -209,7 +246,9 @@ const styles = StyleSheet.create({
     gap: 10,
     alignItems: 'center',
   },
-  avatar: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+  leftSpacer: { width: 36, height: 36 },
+  avatar: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  avatarImage: { width: '100%', height: '100%' },
   greeting: { fontSize: 12, fontWeight: '600' },
   username: { fontSize: 19, fontWeight: '800' },
   quip: { fontSize: 12, marginTop: 2 },

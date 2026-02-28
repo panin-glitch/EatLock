@@ -1,24 +1,50 @@
-﻿import React, { useMemo, useState, useCallback } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
+  ActivityIndicator,
+  Alert,
+  Image,
   ScrollView,
   StatusBar,
+  StyleSheet,
+  Text,
   TextInput,
-  Alert,
+  TouchableOpacity,
+  View,
 } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
+import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../theme/ThemeProvider';
 import { useAppState } from '../state/AppStateContext';
+import { useAuth } from '../state/AuthContext';
+import { supabase } from '../services/supabaseClient';
 import ScreenHeader from '../components/common/ScreenHeader';
 
-//  Types 
-type GroupMember = { name: string; xp: number; isYou?: boolean };
-type Group = { id: string; name: string; code: string; members: GroupMember[] };
+type Group = {
+  id: string;
+  name: string;
+  join_code: string;
+  avatar_url: string | null;
+  owner_id: string;
+  role: 'member' | 'admin';
+};
 
-//  XP ranks (Duolingo-style) 
+type GroupMember = {
+  user_id: string;
+  role: 'member' | 'admin';
+  username: string;
+  avatar_url: string | null;
+  xp: number;
+};
+
+type StatsPayload = {
+  meals_completed?: number;
+  focus_minutes?: number;
+  calories_logged?: number;
+};
+
 const XP_RANKS = [
   { min: 0, label: 'Bronze', color: '#CD7F32', icon: 'military-tech' as const },
   { min: 100, label: 'Silver', color: '#C0C0C0', icon: 'military-tech' as const },
@@ -28,343 +54,531 @@ const XP_RANKS = [
 ];
 
 function getRank(xp: number) {
-  for (let i = XP_RANKS.length - 1; i >= 0; i--) {
+  for (let i = XP_RANKS.length - 1; i >= 0; i -= 1) {
     if (xp >= XP_RANKS[i].min) return XP_RANKS[i];
   }
   return XP_RANKS[0];
 }
 
-//  Weekly objectives 
-type Objective = { id: string; title: string; goal: number; progress: number };
+function toXp(stats: StatsPayload) {
+  const meals = Number(stats.meals_completed || 0);
+  const focus = Number(stats.focus_minutes || 0);
+  const calories = Number(stats.calories_logged || 0);
+  return meals * 10 + Math.round(focus * 0.5) + Math.round(calories / 100);
+}
 
-const OBJECTIVE_CATALOG = [
-  { id: 'obj-1', title: 'Complete 10 meals this week', goal: 10 },
-  { id: 'obj-2', title: 'Log 5 meals with calories', goal: 5 },
-  { id: 'obj-3', title: '3 low-distraction meals (1-2)', goal: 3 },
-  { id: 'obj-4', title: 'Finish 6 meals on first try', goal: 6 },
-  { id: 'obj-5', title: 'Track 7 meal sessions', goal: 7 },
-];
-
-function generateCode(): string {
+function generateJoinCode() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   let code = '';
-  for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
+  for (let i = 0; i < 6; i += 1) {
+    code += chars[Math.floor(Math.random() * chars.length)];
+  }
   return code;
 }
 
-//  Component 
 export default function LeaderboardScreen() {
   const { theme } = useTheme();
+  const { user } = useAuth();
   const { sessions } = useAppState();
-  const [groups, setGroups] = useState<Group[]>([
-    {
-      id: '1',
-      name: 'Tad Squad',
-      code: 'TAD42X',
-      members: [
-        { name: 'Ava', xp: 340 },
-        { name: 'Leo', xp: 210 },
-        { name: 'Mina', xp: 120 },
-      ],
-    },
-  ]);
-  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
+  const navigation = useNavigation<any>();
+
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [selectedGroup, setSelectedGroup] = useState<Group | null>(null);
+  const [members, setMembers] = useState<GroupMember[]>([]);
+
   const [showCreate, setShowCreate] = useState(false);
   const [showJoin, setShowJoin] = useState(false);
   const [newGroupName, setNewGroupName] = useState('');
   const [joinCode, setJoinCode] = useState('');
 
-  const thisWeekSessions = useMemo(() => {
-    const now = new Date();
-    const start = new Date(now);
-    start.setDate(now.getDate() - now.getDay());
-    start.setHours(0, 0, 0, 0);
-    return sessions.filter((s) => new Date(s.startedAt) >= start);
-  }, [sessions]);
+  const [loadingGroups, setLoadingGroups] = useState(true);
+  const [loadingMembers, setLoadingMembers] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [snackbar, setSnackbar] = useState<{ visible: boolean; message: string; code: string }>({
+    visible: false,
+    message: '',
+    code: '',
+  });
 
   const yourXp = useMemo(() => {
-    const completedMeals = thisWeekSessions.filter(
-      (s) => s.status === 'VERIFIED' || s.status === 'PARTIAL',
-    ).length;
-    const lowDistraction = thisWeekSessions.filter((s) => (s.distractionRating ?? 5) <= 2).length;
-    const caloriesLogged = thisWeekSessions.filter(
-      (s) => (s.preNutrition?.estimated_calories ?? 0) > 0,
-    ).length;
-    return completedMeals * 10 + lowDistraction * 5 + caloriesLogged * 3;
-  }, [thisWeekSessions]);
-
-  const weeklyObjectives: Objective[] = useMemo(() => {
     const now = new Date();
-    const start = new Date(now.getFullYear(), 0, 1);
-    const dayOfYear = Math.floor((now.getTime() - start.getTime()) / (24 * 60 * 60 * 1000));
-    const weekKey = Math.floor(dayOfYear / 7);
-    const offset = weekKey % OBJECTIVE_CATALOG.length;
-    const picked = [
-      OBJECTIVE_CATALOG[offset % OBJECTIVE_CATALOG.length],
-      OBJECTIVE_CATALOG[(offset + 1) % OBJECTIVE_CATALOG.length],
-      OBJECTIVE_CATALOG[(offset + 2) % OBJECTIVE_CATALOG.length],
-    ];
-    const completedMeals = thisWeekSessions.filter(
-      (s) => s.status === 'VERIFIED' || s.status === 'PARTIAL',
-    ).length;
-    const withCalories = thisWeekSessions.filter(
-      (s) => (s.preNutrition?.estimated_calories ?? 0) > 0,
-    ).length;
-    const lowDistraction = thisWeekSessions.filter((s) => (s.distractionRating ?? 5) <= 2).length;
-    const firstTry = thisWeekSessions.filter((s) => s.status === 'VERIFIED').length;
-    return picked.map((item) => {
-      let progress = completedMeals;
-      if (item.id === 'obj-2') progress = withCalories;
-      if (item.id === 'obj-3') progress = lowDistraction;
-      if (item.id === 'obj-4') progress = firstTry;
-      return { ...item, progress: Math.min(progress, item.goal) };
+    const weekStart = new Date(now);
+    weekStart.setDate(now.getDate() - now.getDay());
+    weekStart.setHours(0, 0, 0, 0);
+
+    const weekSessions = sessions.filter((item) => new Date(item.startedAt) >= weekStart);
+    const meals = weekSessions.filter((item) => item.status === 'VERIFIED' || item.status === 'PARTIAL').length;
+    const focusMinutes = weekSessions.reduce((acc, item) => {
+      if (!(item.status === 'VERIFIED' || item.status === 'PARTIAL')) return acc;
+      if (!item.endedAt) return acc;
+      return acc + Math.max(0, Math.round((new Date(item.endedAt).getTime() - new Date(item.startedAt).getTime()) / 60000));
+    }, 0);
+    const calories = weekSessions.reduce((acc, item) => acc + Math.max(0, Math.round(item.preNutrition?.estimated_calories || 0)), 0);
+
+    return meals * 10 + Math.round(focusMinutes * 0.5) + Math.round(calories / 100);
+  }, [sessions]);
+
+  const loadGroups = useCallback(async () => {
+    if (!user?.id) {
+      setGroups([]);
+      setLoadingGroups(false);
+      return;
+    }
+
+    setLoadingGroups(true);
+    const { data, error } = await supabase
+      .from('group_members')
+      .select('group_id, role, groups(id, name, join_code, avatar_url, owner_id)')
+      .eq('user_id', user.id);
+
+    if (error) {
+      setLoadingGroups(false);
+      return;
+    }
+
+    const parsed = ((data || []) as any[])
+      .map((row) => {
+        const groupData = Array.isArray(row.groups) ? row.groups[0] : row.groups;
+        if (!groupData?.id) return null;
+        return {
+          id: groupData.id,
+          name: groupData.name,
+          join_code: groupData.join_code,
+          avatar_url: groupData.avatar_url,
+          owner_id: groupData.owner_id,
+          role: row.role === 'admin' ? 'admin' : 'member',
+        } as Group;
+      })
+      .filter(Boolean) as Group[];
+
+    setGroups(parsed);
+    setLoadingGroups(false);
+  }, [user?.id]);
+
+  const loadMembers = useCallback(
+    async (group: Group) => {
+      setLoadingMembers(true);
+
+      const { data, error } = await supabase
+        .from('group_members')
+        .select('user_id, role, profiles(username, avatar_url)')
+        .eq('group_id', group.id);
+
+      if (error) {
+        setMembers([]);
+        setLoadingMembers(false);
+        return;
+      }
+
+      const baseMembers = ((data || []) as any[]).map((row) => ({
+        user_id: row.user_id,
+        role: row.role === 'admin' ? 'admin' : 'member',
+        username: row.profiles?.username || 'User',
+        avatar_url: row.profiles?.avatar_url || null,
+      }));
+
+      const resolved = await Promise.all(
+        baseMembers.map(async (member) => {
+          const { data: statsData } = await supabase.rpc('get_group_member_stats', {
+            p_group_id: group.id,
+            p_user_id: member.user_id,
+          });
+          const xp = toXp((statsData || {}) as StatsPayload);
+          return { ...member, xp } as GroupMember;
+        }),
+      );
+
+      resolved.sort((a, b) => b.xp - a.xp);
+      setMembers(resolved);
+      setLoadingMembers(false);
+    },
+    [],
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      loadGroups();
+      setSnackbar((prev) => ({ ...prev, visible: false }));
+    }, [loadGroups]),
+  );
+
+  const openGroup = useCallback(
+    async (group: Group) => {
+      setSelectedGroup(group);
+      await loadMembers(group);
+    },
+    [loadMembers],
+  );
+
+  const handleCreateGroup = useCallback(async () => {
+    if (!user?.id || !newGroupName.trim() || busy) return;
+    setBusy(true);
+
+    try {
+      let created: any = null;
+      let insertError: any = null;
+      let code = '';
+
+      for (let i = 0; i < 5; i += 1) {
+        code = generateJoinCode();
+        const result = await supabase
+          .from('groups')
+          .insert({
+            owner_id: user.id,
+            name: newGroupName.trim(),
+            join_code: code,
+          })
+          .select('id, name, join_code, avatar_url, owner_id')
+          .single();
+
+        if (!result.error) {
+          created = result.data;
+          insertError = null;
+          break;
+        }
+        insertError = result.error;
+      }
+
+      if (insertError || !created) {
+        throw insertError || new Error('Could not create group.');
+      }
+
+      await supabase.from('group_members').insert({
+        group_id: created.id,
+        user_id: user.id,
+        role: 'admin',
+      });
+
+      setShowCreate(false);
+      setNewGroupName('');
+      setSnackbar({
+        visible: true,
+        message: 'Group created',
+        code: created.join_code,
+      });
+
+      await loadGroups();
+    } catch {
+      Alert.alert('Could not create group', 'Please try again.');
+    } finally {
+      setBusy(false);
+    }
+  }, [busy, loadGroups, newGroupName, user?.id]);
+
+  const handleJoinGroup = useCallback(async () => {
+    if (!joinCode.trim() || busy) return;
+    setBusy(true);
+    const { error } = await supabase.rpc('join_group_by_code', {
+      p_join_code: joinCode.trim().toUpperCase(),
     });
-  }, [thisWeekSessions]);
 
-  const selectedGroup = groups.find((g) => g.id === selectedGroupId) || null;
-
-  const handleCreateGroup = useCallback(() => {
-    if (!newGroupName.trim()) return;
-    const code = generateCode();
-    const newGroup: Group = {
-      id: String(Date.now()),
-      name: newGroupName.trim(),
-      code,
-      members: [],
-    };
-    setGroups((prev) => [...prev, newGroup]);
-    Alert.alert('Group created!', `Share code: ${code}`);
-    setNewGroupName('');
-    setShowCreate(false);
-  }, [newGroupName]);
-
-  const handleJoinGroup = useCallback(() => {
-    const upper = joinCode.trim().toUpperCase();
-    if (upper.length !== 6) {
-      Alert.alert('Invalid code', 'Enter a 6-character group code.');
+    if (error) {
+      Alert.alert('Could not join', error.message || 'Please check the code and try again.');
+      setBusy(false);
       return;
     }
-    const match = groups.find((g) => g.code === upper);
-    if (!match) {
-      Alert.alert('Not found', 'No group matches that code.');
-      return;
-    }
-    Alert.alert('Already in group', `You are already a member of ${match.name}`);
+
     setJoinCode('');
     setShowJoin(false);
-  }, [joinCode, groups]);
+    await loadGroups();
+    setBusy(false);
+  }, [busy, joinCode, loadGroups]);
 
-  const s = makeStyles(theme);
+  const handleDeleteGroup = useCallback(async () => {
+    if (!selectedGroup) return;
 
-  // Inside a group view
+    Alert.alert('Delete group?', `This will permanently delete ${selectedGroup.name}.`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          const { error } = await supabase.from('groups').delete().eq('id', selectedGroup.id);
+          if (!error) {
+            setSelectedGroup(null);
+            setMembers([]);
+            await loadGroups();
+          }
+        },
+      },
+    ]);
+  }, [loadGroups, selectedGroup]);
+
+  const handleGroupImage = useCallback(async () => {
+    if (!selectedGroup || busy) return;
+
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert('Permission needed', 'Please allow photo access to upload group image.');
+      return;
+    }
+
+    const picked = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.9,
+    });
+
+    if (picked.canceled || !picked.assets?.length) return;
+
+    setBusy(true);
+    try {
+      const manipulated = await ImageManipulator.manipulateAsync(
+        picked.assets[0].uri,
+        [{ resize: { width: 600, height: 600 } }],
+        { compress: 0.72, format: ImageManipulator.SaveFormat.JPEG },
+      );
+
+      const response = await fetch(manipulated.uri);
+      const blob = await response.blob();
+      const objectPath = `${selectedGroup.id}/avatar-${Date.now()}.jpg`;
+
+      const { error: uploadError } = await supabase.storage.from('group-avatars').upload(objectPath, blob, {
+        cacheControl: '3600',
+        upsert: true,
+        contentType: 'image/jpeg',
+      });
+
+      if (uploadError) throw uploadError;
+
+      const { data: publicData } = supabase.storage.from('group-avatars').getPublicUrl(objectPath);
+      const avatarUrl = publicData.publicUrl;
+
+      const { error: updateError } = await supabase.from('groups').update({ avatar_url: avatarUrl }).eq('id', selectedGroup.id);
+      if (updateError) throw updateError;
+
+      const updated = { ...selectedGroup, avatar_url: avatarUrl };
+      setSelectedGroup(updated);
+      setGroups((prev) => prev.map((group) => (group.id === updated.id ? updated : group)));
+    } catch {
+      Alert.alert('Upload failed', 'Could not update group image right now.');
+    } finally {
+      setBusy(false);
+    }
+  }, [busy, selectedGroup]);
+
+  const styles = makeStyles(theme);
+
   if (selectedGroup) {
-    const allMembers: GroupMember[] = [
-      { name: 'You', xp: yourXp, isYou: true },
-      ...selectedGroup.members,
-    ].sort((a, b) => b.xp - a.xp);
+    const rank = getRank(yourXp);
+    const isAdmin = selectedGroup.owner_id === user?.id || selectedGroup.role === 'admin';
 
     return (
-      <View style={s.container}>
+      <View style={styles.container}>
         <StatusBar barStyle="light-content" backgroundColor={theme.background} />
         <ScreenHeader
           title={selectedGroup.name}
           rightActions={[
-            <TouchableOpacity key="back" style={s.headerIconBtn} onPress={() => setSelectedGroupId(null)}>
+            <TouchableOpacity key="back" style={styles.headerIconBtn} onPress={() => setSelectedGroup(null)}>
               <MaterialIcons name="arrow-back" size={18} color={theme.textSecondary} />
             </TouchableOpacity>,
           ]}
         />
-        <ScrollView contentContainerStyle={s.content}>
-          <View style={[s.codePill, { backgroundColor: theme.surface }]}>
-            <MaterialIcons name="vpn-key" size={16} color={theme.primary} />
-            <Text style={[s.codeText, { color: theme.text }]}>
-              Invite code: {selectedGroup.code}
-            </Text>
+
+        <ScrollView contentContainerStyle={styles.content}>
+          <View style={styles.groupTopCard}>
+            <View style={styles.groupTopLeft}>
+              {selectedGroup.avatar_url ? (
+                <Image source={{ uri: selectedGroup.avatar_url }} style={styles.groupAvatar} />
+              ) : (
+                <View style={[styles.groupAvatar, { backgroundColor: theme.surface }]}> 
+                  <MaterialIcons name="groups" size={24} color={theme.textMuted} />
+                </View>
+              )}
+              <View>
+                <Text style={styles.groupName}>{selectedGroup.name}</Text>
+                <Text style={styles.groupCode}>Join code: {selectedGroup.join_code}</Text>
+              </View>
+            </View>
+            <View style={styles.groupTopActions}>
+              <TouchableOpacity style={styles.smallAction} onPress={() => Clipboard.setStringAsync(selectedGroup.join_code)}>
+                <MaterialIcons name="content-copy" size={16} color={theme.text} />
+              </TouchableOpacity>
+              {isAdmin && (
+                <TouchableOpacity style={styles.smallAction} onPress={handleGroupImage}>
+                  <MaterialIcons name="photo-camera" size={16} color={theme.text} />
+                </TouchableOpacity>
+              )}
+              {isAdmin && (
+                <TouchableOpacity style={styles.smallAction} onPress={handleDeleteGroup}>
+                  <MaterialIcons name="delete-outline" size={16} color={theme.danger} />
+                </TouchableOpacity>
+              )}
+            </View>
           </View>
 
-          <View style={s.card}>
-            <Text style={s.cardTitle}>Rankings</Text>
-            {allMembers.map((m, i) => {
-              const rank = getRank(m.xp);
-              return (
-                <View
-                  key={m.name + i}
-                  style={[s.memberRow, m.isYou && { backgroundColor: 'rgba(52,199,89,0.08)' }]}
-                >
-                  <Text style={[s.rankNum, { color: i < 3 ? theme.primary : theme.textSecondary }]}>
-                    #{i + 1}
-                  </Text>
-                  <View style={s.memberInfo}>
-                    <Text style={[s.memberName, { color: theme.text }]}>
-                      {m.name} {m.isYou ? '(You)' : ''}
-                    </Text>
-                    <View style={s.rankBadge}>
-                      <MaterialIcons name={rank.icon} size={13} color={rank.color} />
-                      <Text style={[s.rankLabel, { color: rank.color }]}>{rank.label}</Text>
+          <View style={[styles.xpCard, { backgroundColor: theme.primaryDim }]}> 
+            <MaterialIcons name={rank.icon} size={24} color={rank.color} />
+            <View style={{ flex: 1, marginLeft: 10 }}>
+              <Text style={styles.xpCardTitle}>{yourXp} XP this week</Text>
+              <Text style={styles.xpCardSub}>Rank: {rank.label}</Text>
+            </View>
+          </View>
+
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Leaderboard</Text>
+            {loadingMembers ? (
+              <View style={styles.loaderWrap}>
+                <ActivityIndicator size="small" color={theme.primary} />
+              </View>
+            ) : (
+              members.map((member, index) => {
+                const memberRank = getRank(member.xp);
+                const isYou = member.user_id === user?.id;
+                return (
+                  <TouchableOpacity
+                    key={member.user_id}
+                    style={[styles.memberRow, isYou && { backgroundColor: theme.primaryDim }]}
+                    onPress={() => navigation.navigate('MemberStats', { userId: member.user_id, groupId: selectedGroup.id })}
+                  >
+                    <Text style={styles.rankNum}>#{index + 1}</Text>
+                    {member.avatar_url ? (
+                      <Image source={{ uri: member.avatar_url }} style={styles.memberAvatar} />
+                    ) : (
+                      <View style={[styles.memberAvatar, { backgroundColor: theme.surface }]}> 
+                        <MaterialIcons name="person" size={14} color={theme.textMuted} />
+                      </View>
+                    )}
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.memberName}>{member.username}{isYou ? ' (You)' : ''}</Text>
+                      <View style={styles.rankBadge}>
+                        <MaterialIcons name={memberRank.icon} size={12} color={memberRank.color} />
+                        <Text style={[styles.rankLabel, { color: memberRank.color }]}>{memberRank.label}</Text>
+                      </View>
                     </View>
-                  </View>
-                  <Text style={[s.xpText, { color: theme.primary }]}>{m.xp} XP</Text>
-                </View>
-              );
-            })}
-          </View>
-
-          <View style={s.card}>
-            <Text style={s.cardTitle}>Weekly objectives</Text>
-            {weeklyObjectives.map((obj) => {
-              const ratio = Math.min(obj.progress / obj.goal, 1);
-              return (
-                <View key={obj.id} style={s.objectiveItem}>
-                  <View style={s.objectiveHeader}>
-                    <Text style={s.objectiveTitle}>{obj.title}</Text>
-                    <Text style={s.objectiveCount}>
-                      {obj.progress}/{obj.goal}
-                    </Text>
-                  </View>
-                  <View style={s.progressTrack}>
-                    <View
-                      style={[s.progressFill, { width: `${ratio * 100}%`, backgroundColor: theme.primary }]}
-                    />
-                  </View>
-                </View>
-              );
-            })}
+                    <Text style={styles.xpText}>{member.xp} XP</Text>
+                  </TouchableOpacity>
+                );
+              })
+            )}
           </View>
         </ScrollView>
       </View>
     );
   }
 
-  // Group list view
   return (
-    <View style={s.container}>
+    <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor={theme.background} />
       <ScreenHeader title="Leaderboard" />
 
-      <ScrollView contentContainerStyle={s.content}>
-        <View style={[s.xpCard, { backgroundColor: theme.primaryDim }]}>
-          <MaterialIcons name={getRank(yourXp).icon} size={28} color={getRank(yourXp).color} />
-          <View style={{ flex: 1, marginLeft: 12 }}>
-            <Text style={[s.xpCardTitle, { color: theme.text }]}>
-              {yourXp} XP this week
-            </Text>
-            <Text style={[s.xpCardSub, { color: theme.textSecondary }]}>
-              Rank: {getRank(yourXp).label}
-            </Text>
+      <ScrollView contentContainerStyle={styles.content}>
+        <View style={[styles.xpCard, { backgroundColor: theme.primaryDim }]}> 
+          <MaterialIcons name={getRank(yourXp).icon} size={24} color={getRank(yourXp).color} />
+          <View style={{ flex: 1, marginLeft: 10 }}>
+            <Text style={styles.xpCardTitle}>{yourXp} XP this week</Text>
+            <Text style={styles.xpCardSub}>Rank: {getRank(yourXp).label}</Text>
           </View>
         </View>
 
-        <View style={s.actionRow}>
+        <View style={styles.actionRow}>
           <TouchableOpacity
-            style={[s.actionBtn, { backgroundColor: theme.primary }]}
-            onPress={() => { setShowCreate(true); setShowJoin(false); }}
+            style={[styles.actionBtn, { backgroundColor: theme.primary }]}
+            onPress={() => {
+              setShowCreate(true);
+              setShowJoin(false);
+            }}
           >
             <MaterialIcons name="add" size={18} color={theme.background} />
-            <Text style={[s.actionBtnText, { color: theme.background }]}>Create group</Text>
+            <Text style={[styles.actionBtnText, { color: theme.background }]}>Create group</Text>
           </TouchableOpacity>
+
           <TouchableOpacity
-            style={[s.actionBtn, { backgroundColor: theme.surface }]}
-            onPress={() => { setShowJoin(true); setShowCreate(false); }}
+            style={[styles.actionBtn, { backgroundColor: theme.surface }]}
+            onPress={() => {
+              setShowJoin(true);
+              setShowCreate(false);
+            }}
           >
             <MaterialIcons name="login" size={18} color={theme.text} />
-            <Text style={[s.actionBtnText, { color: theme.text }]}>Join with code</Text>
+            <Text style={[styles.actionBtnText, { color: theme.text }]}>Join with code</Text>
           </TouchableOpacity>
         </View>
 
         {showCreate && (
-          <View style={s.card}>
-            <Text style={s.cardTitle}>New group</Text>
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>New group</Text>
             <TextInput
-              style={[s.input, { color: theme.text, borderColor: theme.border }]}
-              placeholder="Group name"
-              placeholderTextColor={theme.textMuted}
+              style={[styles.input, { color: theme.text, borderColor: theme.border }]}
               value={newGroupName}
               onChangeText={setNewGroupName}
+              placeholder="Group name"
+              placeholderTextColor={theme.textMuted}
               maxLength={24}
             />
-            <TouchableOpacity
-              style={[s.submitBtn, { backgroundColor: theme.primary }]}
-              onPress={handleCreateGroup}
-            >
-              <Text style={[s.submitBtnText, { color: theme.background }]}>Create</Text>
+            <TouchableOpacity style={[styles.submitBtn, { backgroundColor: theme.primary }]} onPress={handleCreateGroup}>
+              <Text style={[styles.submitBtnText, { color: theme.background }]}>{busy ? 'Creating...' : 'Create'}</Text>
             </TouchableOpacity>
           </View>
         )}
 
         {showJoin && (
-          <View style={s.card}>
-            <Text style={s.cardTitle}>Join a group</Text>
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Join a group</Text>
             <TextInput
-              style={[s.input, { color: theme.text, borderColor: theme.border }]}
-              placeholder="6-character code"
-              placeholderTextColor={theme.textMuted}
+              style={[styles.input, { color: theme.text, borderColor: theme.border }]}
               value={joinCode}
               onChangeText={setJoinCode}
-              maxLength={6}
+              placeholder="6-character join code"
+              placeholderTextColor={theme.textMuted}
               autoCapitalize="characters"
+              maxLength={6}
             />
-            <TouchableOpacity
-              style={[s.submitBtn, { backgroundColor: theme.primary }]}
-              onPress={handleJoinGroup}
-            >
-              <Text style={[s.submitBtnText, { color: theme.background }]}>Join</Text>
+            <TouchableOpacity style={[styles.submitBtn, { backgroundColor: theme.primary }]} onPress={handleJoinGroup}>
+              <Text style={[styles.submitBtnText, { color: theme.background }]}>{busy ? 'Joining...' : 'Join'}</Text>
             </TouchableOpacity>
           </View>
         )}
 
-        <Text style={[s.sectionLabel, { color: theme.textSecondary }]}>Your groups</Text>
-        {groups.length === 0 ? (
-          <View style={s.emptyCard}>
+        <Text style={styles.sectionLabel}>Your groups</Text>
+        {loadingGroups ? (
+          <View style={styles.loaderWrap}>
+            <ActivityIndicator size="small" color={theme.primary} />
+          </View>
+        ) : groups.length === 0 ? (
+          <View style={styles.emptyCard}>
             <MaterialIcons name="groups" size={36} color={theme.textMuted} />
-            <Text style={[s.emptyText, { color: theme.textMuted }]}>
-              Create or join a group to compete with friends
-            </Text>
+            <Text style={styles.emptyTitle}>No groups yet</Text>
+            <TouchableOpacity style={[styles.submitBtn, { backgroundColor: theme.primary }]} onPress={() => setShowCreate(true)}>
+              <Text style={[styles.submitBtnText, { color: theme.background }]}>Create group</Text>
+            </TouchableOpacity>
           </View>
         ) : (
-          groups.map((g) => (
-            <TouchableOpacity
-              key={g.id}
-              style={[s.groupRow, { backgroundColor: theme.surface }]}
-              onPress={() => setSelectedGroupId(g.id)}
-            >
-              <View style={[s.groupAvatar, { backgroundColor: theme.primaryDim }]}>
-                <Text style={[s.groupAvatarText, { color: theme.primary }]}>
-                  {g.name.charAt(0).toUpperCase()}
-                </Text>
-              </View>
+          groups.map((group) => (
+            <TouchableOpacity key={group.id} style={styles.groupRow} onPress={() => openGroup(group)}>
+              {group.avatar_url ? (
+                <Image source={{ uri: group.avatar_url }} style={styles.groupRowAvatar} />
+              ) : (
+                <View style={[styles.groupRowAvatar, { backgroundColor: theme.surface }]}> 
+                  <MaterialIcons name="groups" size={18} color={theme.textMuted} />
+                </View>
+              )}
               <View style={{ flex: 1 }}>
-                <Text style={[s.groupName, { color: theme.text }]}>{g.name}</Text>
-                <Text style={[s.groupMeta, { color: theme.textSecondary }]}>
-                  {g.members.length + 1} members
-                </Text>
+                <Text style={styles.groupRowTitle}>{group.name}</Text>
+                <Text style={styles.groupRowSub}>Code: {group.join_code}</Text>
               </View>
-              <MaterialIcons name="chevron-right" size={22} color={theme.textMuted} />
+              <MaterialIcons name="chevron-right" size={20} color={theme.textSecondary} />
             </TouchableOpacity>
           ))
         )}
-
-        <View style={[s.card, { marginTop: 16 }]}>
-          <Text style={s.cardTitle}>Weekly objectives</Text>
-          {weeklyObjectives.map((obj) => {
-            const ratio = Math.min(obj.progress / obj.goal, 1);
-            return (
-              <View key={obj.id} style={s.objectiveItem}>
-                <View style={s.objectiveHeader}>
-                  <Text style={s.objectiveTitle}>{obj.title}</Text>
-                  <Text style={s.objectiveCount}>
-                    {obj.progress}/{obj.goal}
-                  </Text>
-                </View>
-                <View style={s.progressTrack}>
-                  <View
-                    style={[s.progressFill, { width: `${ratio * 100}%`, backgroundColor: theme.primary }]}
-                  />
-                </View>
-              </View>
-            );
-          })}
-        </View>
       </ScrollView>
+
+      {snackbar.visible && (
+        <View style={[styles.snackbar, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.snackbarTitle}>{snackbar.message}</Text>
+            <Text style={styles.snackbarCode}>Code: {snackbar.code}</Text>
+          </View>
+          <TouchableOpacity
+            style={[styles.copyBtn, { backgroundColor: theme.primaryDim }]}
+            onPress={() => Clipboard.setStringAsync(snackbar.code)}
+          >
+            <MaterialIcons name="content-copy" size={16} color={theme.primary} />
+            <Text style={[styles.copyBtnText, { color: theme.primary }]}>Copy</Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </View>
   );
 }
@@ -372,71 +586,152 @@ export default function LeaderboardScreen() {
 const makeStyles = (theme: any) =>
   StyleSheet.create({
     container: { flex: 1, backgroundColor: theme.background },
-    content: { padding: 16, paddingBottom: 32, gap: 12 },
+    content: { paddingHorizontal: 16, paddingBottom: 120 },
     headerIconBtn: {
-      width: 32, height: 32, borderRadius: 16,
-      justifyContent: 'center', alignItems: 'center',
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      alignItems: 'center',
+      justifyContent: 'center',
       backgroundColor: theme.surface,
     },
     xpCard: {
-      flexDirection: 'row', alignItems: 'center',
-      borderRadius: 16, padding: 16, borderWidth: 1,
-      borderColor: 'rgba(52,199,89,0.2)',
+      borderRadius: 16,
+      padding: 14,
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginTop: 12,
+      borderWidth: 1,
+      borderColor: theme.border,
     },
-    xpCardTitle: { fontSize: 18, fontWeight: '800' },
-    xpCardSub: { fontSize: 13, marginTop: 2 },
-    actionRow: { flexDirection: 'row', gap: 10 },
+    xpCardTitle: { color: theme.text, fontWeight: '800', fontSize: 16 },
+    xpCardSub: { color: theme.textSecondary, marginTop: 2, fontSize: 12 },
+    actionRow: { flexDirection: 'row', gap: 10, marginTop: 12 },
     actionBtn: {
-      flex: 1, flexDirection: 'row', alignItems: 'center',
-      justifyContent: 'center', gap: 6, borderRadius: 14, paddingVertical: 12,
+      flex: 1,
+      borderRadius: 12,
+      paddingVertical: 12,
+      alignItems: 'center',
+      justifyContent: 'center',
+      flexDirection: 'row',
+      gap: 6,
+      borderWidth: 1,
+      borderColor: theme.border,
     },
-    actionBtnText: { fontWeight: '700', fontSize: 14 },
-    card: { backgroundColor: theme.surface, borderRadius: 16, padding: 14 },
-    cardTitle: { color: theme.text, fontSize: 15, fontWeight: '800', marginBottom: 10 },
+    actionBtnText: { fontWeight: '700', fontSize: 13 },
+    card: {
+      marginTop: 12,
+      borderRadius: 16,
+      padding: 14,
+      backgroundColor: theme.card,
+      borderWidth: 1,
+      borderColor: theme.border,
+    },
+    cardTitle: { color: theme.text, fontWeight: '700', fontSize: 15, marginBottom: 8 },
     input: {
-      borderWidth: 1, borderRadius: 12,
-      paddingHorizontal: 14, paddingVertical: 10,
-      fontSize: 15, marginBottom: 10,
+      borderWidth: 1,
+      borderRadius: 12,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      marginBottom: 10,
+      backgroundColor: theme.background,
     },
-    submitBtn: { borderRadius: 12, paddingVertical: 12, alignItems: 'center' },
-    submitBtnText: { fontWeight: '700', fontSize: 15 },
-    sectionLabel: {
-      fontSize: 12, fontWeight: '700', marginTop: 4,
-      textTransform: 'uppercase', letterSpacing: 1,
+    submitBtn: {
+      borderRadius: 12,
+      paddingVertical: 12,
+      alignItems: 'center',
+      justifyContent: 'center',
     },
+    submitBtnText: { fontWeight: '700', fontSize: 14 },
+    sectionLabel: { color: theme.textSecondary, fontWeight: '600', fontSize: 12, marginTop: 14, marginBottom: 8 },
+    loaderWrap: { paddingVertical: 16, alignItems: 'center' },
+    emptyCard: {
+      borderRadius: 16,
+      padding: 18,
+      alignItems: 'center',
+      backgroundColor: theme.card,
+      borderWidth: 1,
+      borderColor: theme.border,
+      gap: 8,
+    },
+    emptyTitle: { color: theme.text, fontWeight: '700', fontSize: 16, marginBottom: 8 },
     groupRow: {
-      flexDirection: 'row', alignItems: 'center',
-      borderRadius: 16, padding: 14, gap: 12,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      borderRadius: 14,
+      padding: 12,
+      backgroundColor: theme.card,
+      borderWidth: 1,
+      borderColor: theme.border,
+      marginBottom: 8,
     },
-    groupAvatar: {
-      width: 42, height: 42, borderRadius: 21,
-      alignItems: 'center', justifyContent: 'center',
+    groupRowAvatar: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
+    groupRowTitle: { color: theme.text, fontWeight: '700', fontSize: 15 },
+    groupRowSub: { color: theme.textSecondary, fontSize: 12, marginTop: 2 },
+    groupTopCard: {
+      marginTop: 12,
+      borderRadius: 16,
+      padding: 14,
+      backgroundColor: theme.card,
+      borderWidth: 1,
+      borderColor: theme.border,
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      gap: 10,
     },
-    groupAvatarText: { fontSize: 18, fontWeight: '800' },
-    groupName: { fontSize: 15, fontWeight: '700' },
-    groupMeta: { fontSize: 12, marginTop: 2 },
-    emptyCard: { alignItems: 'center', paddingVertical: 30 },
-    emptyText: { fontSize: 14, marginTop: 8, textAlign: 'center', maxWidth: 220 },
-    codePill: {
-      flexDirection: 'row', alignItems: 'center', gap: 8,
-      borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10,
+    groupTopLeft: { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 },
+    groupAvatar: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
+    groupName: { color: theme.text, fontWeight: '800', fontSize: 16 },
+    groupCode: { color: theme.textSecondary, marginTop: 2, fontSize: 12 },
+    groupTopActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    smallAction: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: theme.surface,
     },
-    codeText: { fontSize: 13, fontWeight: '600' },
     memberRow: {
-      flexDirection: 'row', alignItems: 'center',
-      paddingVertical: 10, paddingHorizontal: 8,
-      borderRadius: 10, marginBottom: 4,
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: 10,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: theme.border,
+      gap: 10,
+      borderRadius: 8,
+      paddingHorizontal: 6,
     },
-    rankNum: { width: 32, fontWeight: '800', fontSize: 15 },
-    memberInfo: { flex: 1 },
-    memberName: { fontWeight: '700', fontSize: 14 },
+    rankNum: { color: theme.textSecondary, fontSize: 13, width: 32, fontWeight: '700' },
+    memberAvatar: { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
+    memberName: { color: theme.text, fontWeight: '700', fontSize: 14 },
     rankBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
     rankLabel: { fontSize: 11, fontWeight: '700' },
-    xpText: { fontWeight: '800', fontSize: 15 },
-    objectiveItem: { marginBottom: 12 },
-    objectiveHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
-    objectiveTitle: { color: theme.text, fontSize: 13, flex: 1, marginRight: 8 },
-    objectiveCount: { color: theme.textSecondary, fontWeight: '700' },
-    progressTrack: { height: 8, borderRadius: 8, backgroundColor: theme.card, overflow: 'hidden' },
-    progressFill: { height: 8, borderRadius: 8 },
+    xpText: { color: theme.primary, fontWeight: '800', fontSize: 13 },
+    snackbar: {
+      position: 'absolute',
+      left: 16,
+      right: 16,
+      bottom: 90,
+      borderRadius: 14,
+      borderWidth: 1,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+    },
+    snackbarTitle: { color: theme.text, fontWeight: '800', fontSize: 13 },
+    snackbarCode: { color: theme.textSecondary, fontSize: 12, marginTop: 2 },
+    copyBtn: {
+      borderRadius: 10,
+      paddingHorizontal: 10,
+      paddingVertical: 8,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+    },
+    copyBtnText: { fontSize: 12, fontWeight: '700' },
   });

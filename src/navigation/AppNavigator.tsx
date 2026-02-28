@@ -19,6 +19,8 @@ import LockSetupConfirmScreen from '../screens/LockSetupConfirmScreen';
 import MealSessionActiveScreen from '../screens/MealSessionActiveScreen';
 import AuthScreen from '../screens/auth/AuthScreen';
 import PlannerScreen from '../screens/PlannerScreen';
+import ProfileScreen from '../screens/Profile/ProfileScreen';
+import MemberStatsScreen from '../screens/Leaderboard/MemberStatsScreen';
 
 const HomeScreen = require('../screens/HomeScreen').default;
 const LeaderboardScreen = require('../screens/LeaderboardScreen').default;
@@ -181,6 +183,16 @@ export default function AppNavigator() {
             <RootStack.Screen
               name="Planner"
               component={PlannerScreen}
+              options={{ animation: 'slide_from_right' }}
+            />
+            <RootStack.Screen
+              name="Profile"
+              component={ProfileScreen}
+              options={{ animation: 'slide_from_right' }}
+            />
+            <RootStack.Screen
+              name="MemberStats"
+              component={MemberStatsScreen}
               options={{ animation: 'slide_from_right' }}
             />
             <RootStack.Screen
