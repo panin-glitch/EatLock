@@ -11,6 +11,7 @@ import {
   ScrollView,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import { useTheme } from '../theme/ThemeProvider';
 import { useNavigation } from '@react-navigation/native';
 import { MealType } from '../types/models';
@@ -30,6 +31,7 @@ export default function MealInfoScreen() {
   const [foodName, setFoodName] = useState('');
 
   const handleContinue = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     navigation.navigate('PreScanCamera');
   };
 

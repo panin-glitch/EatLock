@@ -1,6 +1,7 @@
-import React from 'react';
-import { View, Text, StyleSheet, type ViewStyle, type TextStyle } from 'react-native';
+import React, { useRef } from 'react';
+import { View, Text, StyleSheet, Animated, type ViewStyle, type TextStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import { useTheme } from '../../theme/ThemeProvider';
 
 interface ScreenHeaderProps {
@@ -14,6 +15,19 @@ export const HEADER_BOTTOM_PADDING = 12;
 export default function ScreenHeader({ title, rightActions = [] }: ScreenHeaderProps) {
   const { theme } = useTheme();
   const insets = useSafeAreaInsets();
+  const titleOpacity = useRef(new Animated.Value(0)).current;
+
+  useFocusEffect(
+    React.useCallback(() => {
+      titleOpacity.setValue(0);
+      Animated.timing(titleOpacity, {
+        toValue: 1,
+        duration: 150,
+        useNativeDriver: true,
+      }).start();
+      return () => {};
+    }, [titleOpacity]),
+  );
 
   return (
     <View
@@ -27,7 +41,9 @@ export default function ScreenHeader({ title, rightActions = [] }: ScreenHeaderP
         } as ViewStyle,
       ]}
     >
-      <Text style={[styles.title, { color: theme.text } as TextStyle]}>{title}</Text>
+      <Animated.Text style={[styles.title, { color: theme.text, opacity: titleOpacity } as TextStyle]}>
+        {title}
+      </Animated.Text>
       <View style={styles.actionsRow}>
         {rightActions.map((action, index) => (
           <View key={`header-action-${index}`}>{action}</View>

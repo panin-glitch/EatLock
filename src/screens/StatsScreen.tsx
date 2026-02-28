@@ -188,16 +188,12 @@ export default function StatsScreen() {
   const streaks = computeStreak(sessions);
 
   // ── Calories ──
-  const todayStr = new Date().toISOString().slice(0, 10);
   const localCaloriesByDate: Record<string, number> = {};
   for (const s of filtered) {
     if (!s.endedAt || !s.preNutrition?.estimated_calories) continue;
     const day = new Date(s.startedAt).toISOString().slice(0, 10);
     localCaloriesByDate[day] = (localCaloriesByDate[day] || 0) + Math.round(s.preNutrition.estimated_calories);
   }
-  const dbTodayCalories = caloriesFromDb.find((c) => c.log_date === todayStr)?.total_calories || 0;
-  const localTodayCalories = localCaloriesByDate[todayStr] || 0;
-  const todayCalories = Math.max(dbTodayCalories, localTodayCalories);
 
   const totalCaloriesInRange = Math.max(
     caloriesFromDb.reduce((sum, c) => sum + c.total_calories, 0),
@@ -213,6 +209,11 @@ export default function StatsScreen() {
     () => getCaloriesPerDayData(filtered, caloriesFromDb, filter),
     [filtered, caloriesFromDb, filter],
   );
+  const weeklyCalories = useMemo(() => {
+    const weeklySessions = filterSessions(sessions, 'Weekly');
+    const weeklyData = getCaloriesPerDayData(weeklySessions, caloriesFromDb, 'Weekly');
+    return weeklyData.data.reduce((sum, v) => sum + v, 0);
+  }, [sessions, caloriesFromDb]);
   const mealsMax = Math.max(1, ...mealsChart.data);
   const mealsSegments = getSafeSegments(mealsMax);
   const caloriesMax = Math.max(1, ...caloriesChart.data);
@@ -309,9 +310,9 @@ export default function StatsScreen() {
           ))}
         </View>
 
-        {/* ── Meals per day chart ── */}
+        {/* ── Meals per week chart ── */}
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Meals per day</Text>
+          <Text style={styles.cardTitle}>Meals per week</Text>
           {mealsChart.data.some((d) => d > 0) ? (
             <InteractiveLineChart
               data={{ labels: mealsChart.labels, datasets: [{ data: mealsChart.data }] }}
@@ -348,9 +349,9 @@ export default function StatsScreen() {
           </View>
           <View style={styles.tile}>
             <Text style={[styles.tileValue, { color: '#FF9F0A' }]}>
-              {todayCalories > 0 ? todayCalories : '—'}
+              {weeklyCalories > 0 ? Math.round(weeklyCalories) : '—'}
             </Text>
-            <Text style={styles.tileLabel}>Calories today</Text>
+            <Text style={styles.tileLabel}>Calories per week</Text>
           </View>
         </View>
         <View style={styles.tilesRow}>
@@ -375,9 +376,9 @@ export default function StatsScreen() {
           </View>
         </View>
 
-        {/* ── Calories over time chart ── */}
+        {/* ── Calories per week chart ── */}
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Calories over time</Text>
+          <Text style={styles.cardTitle}>Calories per week</Text>
           {caloriesChart.data.some((d) => d > 0) ? (
             <InteractiveLineChart
               data={{ labels: caloriesChart.labels, datasets: [{ data: caloriesChart.data }] }}

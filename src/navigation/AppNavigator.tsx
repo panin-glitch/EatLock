@@ -4,6 +4,7 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { MaterialIcons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import { useTheme } from '../theme/ThemeProvider';
 
 import StatsScreen from '../screens/StatsScreen';
@@ -32,11 +33,15 @@ const RootStack = createNativeStackNavigator();
 
 function TabNavigator({ navigation }: any) {
   const { theme } = useTheme();
+  const lightHaptic = () => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
 
   return (
     <Tab.Navigator
+      detachInactiveScreens={false}
       screenOptions={{
         headerShown: false,
+        animation: 'fade',
+        sceneStyle: { backgroundColor: theme.background },
         tabBarStyle: {
           backgroundColor: theme.tabBarBg,
           borderTopColor: theme.border,
@@ -56,6 +61,9 @@ function TabNavigator({ navigation }: any) {
       <Tab.Screen
         name="HomeTab"
         component={HomeScreen}
+        listeners={{
+          tabPress: () => lightHaptic(),
+        }}
         options={{
           tabBarLabel: 'Home',
           tabBarIcon: ({ color, size }) => (
@@ -66,6 +74,9 @@ function TabNavigator({ navigation }: any) {
       <Tab.Screen
         name="StatsTab"
         component={StatsScreen}
+        listeners={{
+          tabPress: () => lightHaptic(),
+        }}
         options={{
           tabBarLabel: 'Progress',
           tabBarIcon: ({ color, size }) => (
@@ -114,6 +125,9 @@ function TabNavigator({ navigation }: any) {
       <Tab.Screen
         name="LeaderboardTab"
         component={LeaderboardScreen}
+        listeners={{
+          tabPress: () => lightHaptic(),
+        }}
         options={{
           tabBarLabel: 'Leaderboard',
           tabBarIcon: ({ color, size }) => (
@@ -124,6 +138,9 @@ function TabNavigator({ navigation }: any) {
       <Tab.Screen
         name="BlockTab"
         component={BlockScreen}
+        listeners={{
+          tabPress: () => lightHaptic(),
+        }}
         options={{
           tabBarLabel: 'Blocks',
           tabBarIcon: ({ color, size }) => (
@@ -172,38 +189,39 @@ export default function AppNavigator() {
           headerShown: false,
           contentStyle: { backgroundColor: theme.background },
           animation: 'fade',
+          animationDuration: 160,
         }}
       >
             <RootStack.Screen name="Main" component={TabNavigator} />
             <RootStack.Screen
               name="Settings"
               component={SettingsScreen}
-              options={{ animation: 'slide_from_bottom' }}
+              options={{ animation: 'fade', contentStyle: { backgroundColor: theme.background } }}
             />
             <RootStack.Screen
               name="Planner"
               component={PlannerScreen}
-              options={{ animation: 'slide_from_right' }}
+              options={{ animation: 'slide_from_right', contentStyle: { backgroundColor: theme.background } }}
             />
             <RootStack.Screen
               name="Profile"
               component={ProfileScreen}
-              options={{ animation: 'slide_from_right' }}
+              options={{ animation: 'fade', contentStyle: { backgroundColor: theme.background } }}
             />
             <RootStack.Screen
               name="MemberStats"
               component={MemberStatsScreen}
-              options={{ animation: 'slide_from_right' }}
+              options={{ animation: 'fade', contentStyle: { backgroundColor: theme.background } }}
             />
             <RootStack.Screen
               name="EditSchedule"
               component={EditScheduleScreen}
-              options={{ animation: 'slide_from_bottom' }}
+              options={{ animation: 'slide_from_bottom', contentStyle: { backgroundColor: theme.background } }}
             />
             <RootStack.Screen
               name="MealInfo"
               component={MealInfoScreen}
-              options={{ animation: 'slide_from_right' }}
+              options={{ animation: 'fade', contentStyle: { backgroundColor: theme.background } }}
             />
               <RootStack.Group
                 screenOptions={{

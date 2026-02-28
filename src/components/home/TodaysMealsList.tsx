@@ -7,6 +7,7 @@
 import React, { useRef, useState } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, Modal, Pressable, Animated, Easing, Image } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import { useTheme } from '../../theme/ThemeProvider';
 import type { MealSession } from '../../types/models';
 
@@ -47,8 +48,10 @@ export default function TodaysMealsList({ sessions }: Props) {
   const [detailVisible, setDetailVisible] = useState(false);
   const backdropOpacity = useRef(new Animated.Value(0)).current;
   const sheetTranslateY = useRef(new Animated.Value(36)).current;
+  const lightHaptic = () => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
 
   const openDetail = (session: MealSession) => {
+    lightHaptic();
     setSelected(session);
     setDetailVisible(true);
     backdropOpacity.setValue(0);
@@ -244,7 +247,10 @@ export default function TodaysMealsList({ sessions }: Props) {
             {/* Close */}
             <TouchableOpacity
               style={[styles.closeBtn, { backgroundColor: theme.text }]}
-              onPress={closeDetail}
+              onPress={() => {
+                lightHaptic();
+                closeDetail();
+              }}
             >
               <Text style={[styles.closeBtnText, { color: theme.background }]}>Close</Text>
             </TouchableOpacity>
