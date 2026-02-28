@@ -43,15 +43,17 @@ export default function HomeScreen() {
   const gaugeProgress = Math.min(timeSpentMinutes / 90, 1);
 
   const macroStats = useMemo(() => {
+    const caloriesEntries = selectedSessions.filter((s) => (s.preNutrition?.estimated_calories ?? 0) > 0).length;
+    const caloriesTotal = Math.round(
+      selectedSessions.reduce((sum, s) => sum + (s.preNutrition?.estimated_calories ?? 0), 0),
+    );
     const withNutrition = selectedSessions.filter((s) => s.preNutrition);
     const knownCounts = {
-      carbs: withNutrition.filter((s) => s.preNutrition?.carbs_g != null).length,
       protein: withNutrition.filter((s) => s.preNutrition?.protein_g != null).length,
       fat: withNutrition.filter((s) => s.preNutrition?.fat_g != null).length,
     };
 
     const totals = {
-      carbs: Math.round(selectedSessions.reduce((sum, s) => sum + (s.preNutrition?.carbs_g ?? 0), 0)),
       protein: Math.round(selectedSessions.reduce((sum, s) => sum + (s.preNutrition?.protein_g ?? 0), 0)),
       fat: Math.round(selectedSessions.reduce((sum, s) => sum + (s.preNutrition?.fat_g ?? 0), 0)),
     };
@@ -59,7 +61,7 @@ export default function HomeScreen() {
     const hasEnoughData = (known: number) => withNutrition.length > 0 && known / withNutrition.length >= 0.5;
 
     return {
-      carbs: hasEnoughData(knownCounts.carbs) ? `${totals.carbs}g` : '—',
+      calories: caloriesEntries > 0 && caloriesTotal > 0 ? `${caloriesTotal}` : '—',
       protein: hasEnoughData(knownCounts.protein) ? `${totals.protein}g` : '—',
       fat: hasEnoughData(knownCounts.fat) ? `${totals.fat}g` : '—',
     };
@@ -177,18 +179,18 @@ export default function HomeScreen() {
         <View style={[styles.gaugeCard, { backgroundColor: theme.surface }]}> 
           <Text style={[styles.gaugeLabel, { color: theme.textSecondary }]}>Time spent eating today</Text>
           <View style={styles.gaugeInnerRow}>
-            <Gauge progress={gaugeProgress} color={gaugeColor} />
+            <Gauge progress={gaugeProgress} color={gaugeColor} trackColor={theme.border} />
             <View>
               <Text style={[styles.gaugeValue, { color: theme.text }]}>{timeSpentMinutes} min</Text>
-              <Text style={[styles.gaugeHint, { color: theme.textMuted }]}>Blue 0–30 · Purple 31–60 · Red 61+</Text>
+              <Text style={[styles.gaugeHint, { color: theme.textMuted }]}>Stay steady, Tadlock style</Text>
             </View>
           </View>
         </View>
 
         <View style={styles.macrosRow}>
-          <MacroRing label="Carbs today" value={macroStats.carbs} color="#3B82F6" />
-          <MacroRing label="Protein today" value={macroStats.protein} color="#8B5CF6" />
-          <MacroRing label="Fat today" value={macroStats.fat} color="#FF453A" />
+          <MacroRing label="Calories today" value={macroStats.calories} color="#FF9F0A" trackColor={theme.border} textColor={theme.text} labelColor={theme.textSecondary} />
+          <MacroRing label="Protein today" value={macroStats.protein} color="#8B5CF6" trackColor={theme.border} textColor={theme.text} labelColor={theme.textSecondary} />
+          <MacroRing label="Fat today" value={macroStats.fat} color="#FF453A" trackColor={theme.border} textColor={theme.text} labelColor={theme.textSecondary} />
         </View>
 
         <TodaysMealsList sessions={selectedSessions} />
@@ -197,7 +199,7 @@ export default function HomeScreen() {
   );
 }
 
-function Gauge({ progress, color }: { progress: number; color: string }) {
+function Gauge({ progress, color, trackColor }: { progress: number; color: string; trackColor: string }) {
   const size = 108;
   const stroke = 10;
   const radius = (size - stroke) / 2;
@@ -205,7 +207,7 @@ function Gauge({ progress, color }: { progress: number; color: string }) {
   const strokeDashoffset = circumference * (1 - Math.min(Math.max(progress, 0), 1));
   return (
     <Svg width={size} height={size}>
-      <Circle cx={size / 2} cy={size / 2} r={radius} stroke="rgba(255,255,255,0.14)" strokeWidth={stroke} fill="none" />
+      <Circle cx={size / 2} cy={size / 2} r={radius} stroke={trackColor} strokeWidth={stroke} fill="none" />
       <Circle
         cx={size / 2}
         cy={size / 2}
@@ -223,24 +225,36 @@ function Gauge({ progress, color }: { progress: number; color: string }) {
   );
 }
 
-function MacroRing({ label, value, color }: { label: string; value: string; color: string }) {
+function MacroRing({
+  label,
+  value,
+  color,
+  trackColor,
+  textColor,
+  labelColor,
+}: {
+  label: string;
+  value: string;
+  color: string;
+  trackColor: string;
+  textColor: string;
+  labelColor: string;
+}) {
   const size = 74;
   const stroke = 8;
   const radius = (size - stroke) / 2;
   const hasData = value !== '—';
-  const ringColor = hasData ? color : 'rgba(255,255,255,0.14)';
+  const ringColor = hasData ? color : '#9CA3AF';
   return (
     <View style={styles.macroItem}>
       <Svg width={size} height={size}>
-        <Circle cx={size / 2} cy={size / 2} r={radius} stroke="rgba(255,255,255,0.14)" strokeWidth={stroke} fill="none" />
-        {hasData && (
-          <Circle cx={size / 2} cy={size / 2} r={radius} stroke={ringColor} strokeWidth={stroke} fill="none" strokeDasharray="160 220" rotation="-90" origin={`${size / 2}, ${size / 2}`} />
-        )}
+        <Circle cx={size / 2} cy={size / 2} r={radius} stroke={trackColor} strokeWidth={stroke} fill="none" />
+        <Circle cx={size / 2} cy={size / 2} r={radius} stroke={ringColor} strokeWidth={stroke} fill="none" strokeDasharray={hasData ? '160 220' : `${2 * Math.PI * radius} ${2 * Math.PI * radius}`} rotation="-90" origin={`${size / 2}, ${size / 2}`} />
       </Svg>
       <View style={styles.macroCenterText}>
-        <Text style={[styles.macroValue, !hasData && { color: '#666' }]}>{value}</Text>
+        <Text style={[styles.macroValue, { color: hasData ? textColor : '#9CA3AF' }]}>{value}</Text>
       </View>
-      <Text style={styles.macroLabel}>{label}</Text>
+      <Text style={[styles.macroLabel, { color: labelColor }]}>{label}</Text>
     </View>
   );
 }
@@ -294,10 +308,9 @@ const styles = StyleSheet.create({
   },
   macroItem: { alignItems: 'center', width: '31%' },
   macroCenterText: { position: 'absolute', top: 25 },
-  macroValue: { color: '#FFF', fontWeight: '800', fontSize: 14 },
+  macroValue: { fontWeight: '800', fontSize: 14 },
   macroLabel: {
     marginTop: 6,
-    color: '#B0B0B0',
     fontSize: 12,
     textAlign: 'center',
   },
