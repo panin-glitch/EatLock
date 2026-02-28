@@ -100,8 +100,7 @@ export default function HomeScreen() {
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       <StatusBar
         barStyle={theme.background === '#F2F2F7' ? 'dark-content' : 'light-content'}
-        backgroundColor="transparent"
-        translucent
+        backgroundColor={theme.background}
       />
 
       <View
