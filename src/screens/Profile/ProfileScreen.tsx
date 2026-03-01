@@ -16,6 +16,7 @@ import { useNavigation } from '@react-navigation/native';
 import { useTheme } from '../../theme/ThemeProvider';
 import { useAuth } from '../../state/AuthContext';
 import { supabase } from '../../services/supabaseClient';
+import { saveUsername, isValidUsername } from '../../services/profileService';
 
 export default function ProfileScreen() {
   const { theme } = useTheme();
@@ -51,22 +52,24 @@ export default function ProfileScreen() {
     if (!user?.id) return;
     setIsSaving(true);
     try {
-      const safeName = (username || '').trim() || fallbackName;
-      const { error } = await supabase
-        .from('profiles')
-        .upsert({ user_id: user.id, username: safeName, avatar_url: avatarUrl });
-      if (error) throw error;
-      setInitialUsername(safeName);
-      setUsername(safeName);
+      const result = await saveUsername(user.id, username);
+      if (!result.ok) {
+        Alert.alert('Save failed', result.message);
+        return;
+      }
+
+      setInitialUsername(result.username);
+      setUsername(result.username);
       Alert.alert('Saved', 'Profile updated.');
     } catch (error: any) {
       Alert.alert('Save failed', error?.message ?? 'Could not save profile changes.');
     } finally {
       setIsSaving(false);
     }
-  }, [user?.id, username, fallbackName, avatarUrl]);
+  }, [user?.id, username]);
 
   const hasChanges = username.trim() !== initialUsername.trim();
+  const showUsernameHint = username.trim().length > 0 && !isValidUsername(username);
   const styles = makeStyles(theme);
 
   return (
@@ -97,11 +100,17 @@ export default function ProfileScreen() {
             style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.card }]}
             value={username}
             onChangeText={setUsername}
-            maxLength={24}
-            placeholder="Your name"
+            maxLength={20}
+            placeholder="Username"
             placeholderTextColor={theme.textMuted}
-            autoCapitalize="words"
+            autoCapitalize="none"
+            autoCorrect={false}
           />
+          {showUsernameHint ? (
+            <Text style={[styles.helperText, { color: theme.warning }]}>
+              3–20 chars, letters/numbers/underscore only
+            </Text>
+          ) : null}
 
           <Text style={styles.emailLabel}>{user?.email ?? 'Anonymous account'}</Text>
 
@@ -111,12 +120,12 @@ export default function ProfileScreen() {
               { backgroundColor: hasChanges ? theme.primary : theme.inputBg },
             ]}
             onPress={saveProfile}
-            disabled={!hasChanges || isSaving}
+            disabled={!hasChanges || isSaving || !isValidUsername(username)}
           >
             {isSaving ? (
               <ActivityIndicator size="small" color={theme.background} />
             ) : (
-              <Text style={[styles.saveBtnText, { color: hasChanges ? theme.background : theme.textMuted }]}>Save changes</Text>
+              <Text style={[styles.saveBtnText, { color: hasChanges && isValidUsername(username) ? theme.background : theme.textMuted }]}>Save changes</Text>
             )}
           </TouchableOpacity>
         </View>
@@ -163,6 +172,7 @@ const makeStyles = (theme: any) =>
       marginBottom: 10,
     },
     emailLabel: { fontSize: 12, color: theme.textMuted, marginBottom: 14 },
+    helperText: { fontSize: 12, marginBottom: 10 },
     saveBtn: {
       borderRadius: 12,
       paddingVertical: 12,
