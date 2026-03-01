@@ -101,7 +101,7 @@ export default function HomeScreen() {
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       <StatusBar
-        barStyle={theme.background === '#F2F2F7' ? 'dark-content' : 'light-content'}
+        barStyle={'light-content'}
         backgroundColor={theme.background}
       />
 
@@ -149,7 +149,13 @@ export default function HomeScreen() {
           > 
             <MaterialIcons name="calendar-today" size={18} color={theme.textSecondary} />
           </TouchableOpacity>
-          <TouchableOpacity style={[styles.iconBtn, { backgroundColor: theme.surface }]}> 
+          <TouchableOpacity
+            style={[styles.iconBtn, { backgroundColor: theme.surface }]}
+            onPress={() => {
+              lightHaptic();
+              navigation.navigate('NotificationHelp');
+            }}
+          > 
             <MaterialIcons name="notifications-none" size={19} color={theme.textSecondary} />
             {unreadNotifications ? <View style={styles.redDot} /> : null}
           </TouchableOpacity>
@@ -187,9 +193,9 @@ export default function HomeScreen() {
         </View>
 
         <View style={styles.macrosRow}>
-          <MacroRing label="Calories today" value={macroStats.calories} color="#FF9F0A" trackColor={theme.border} textColor={theme.text} labelColor={theme.textSecondary} />
-          <MacroRing label="Protein today" value={macroStats.protein} color="#8B5CF6" trackColor={theme.border} textColor={theme.text} labelColor={theme.textSecondary} />
-          <MacroRing label="Fat today" value={macroStats.fat} color="#FF453A" trackColor={theme.border} textColor={theme.text} labelColor={theme.textSecondary} />
+          <MacroRing label="Calories today" value={macroStats.calories} color="#FF9F0A" trackColor={theme.surfaceElevated} textColor={theme.text} labelColor={theme.textSecondary} />
+          <MacroRing label="Protein today" value={macroStats.protein} color="#8B5CF6" trackColor={theme.surfaceElevated} textColor={theme.text} labelColor={theme.textSecondary} />
+          <MacroRing label="Fat today" value={macroStats.fat} color="#FF453A" trackColor={theme.surfaceElevated} textColor={theme.text} labelColor={theme.textSecondary} />
         </View>
 
         <TodaysMealsList sessions={selectedSessions} />
@@ -242,16 +248,31 @@ function MacroRing({
   const size = 74;
   const stroke = 8;
   const radius = (size - stroke) / 2;
+  const circumference = 2 * Math.PI * radius;
   const hasData = value !== '—';
-  const ringColor = hasData ? color : '#9CA3AF';
+  const ringColor = hasData ? color : labelColor;
+  const ringArc = hasData
+    ? `${Math.round(circumference * 0.72)} ${Math.round(circumference)}`
+    : `${Math.round(circumference)} ${Math.round(circumference)}`;
   return (
     <View style={styles.macroItem}>
       <Svg width={size} height={size}>
         <Circle cx={size / 2} cy={size / 2} r={radius} stroke={trackColor} strokeWidth={stroke} fill="none" />
-        <Circle cx={size / 2} cy={size / 2} r={radius} stroke={ringColor} strokeWidth={stroke} fill="none" strokeDasharray={hasData ? '160 220' : `${2 * Math.PI * radius} ${2 * Math.PI * radius}`} rotation="-90" origin={`${size / 2}, ${size / 2}`} />
+        <Circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          stroke={ringColor}
+          strokeWidth={stroke}
+          fill="none"
+          strokeLinecap="round"
+          strokeDasharray={ringArc}
+          rotation="-90"
+          origin={`${size / 2}, ${size / 2}`}
+        />
       </Svg>
       <View style={styles.macroCenterText}>
-        <Text style={[styles.macroValue, { color: hasData ? textColor : '#9CA3AF' }]}>{value}</Text>
+        <Text style={[styles.macroValue, { color: hasData ? textColor : labelColor }]}>{value}</Text>
       </View>
       <Text style={[styles.macroLabel, { color: labelColor }]}>{label}</Text>
     </View>
