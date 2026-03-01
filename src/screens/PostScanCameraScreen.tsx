@@ -12,7 +12,7 @@ import {
   Easing,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { CameraView, useCameraPermissions, type BarcodeScanningResult } from 'expo-camera';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useTheme } from '../theme/ThemeProvider';
 import { useAppState } from '../state/AppStateContext';
 import { getVisionService } from '../services/vision';
@@ -32,28 +32,25 @@ function isVisionSoftError(value: unknown): value is VisionSoftError {
 export default function PostScanCameraScreen({ navigation, route }: Props) {
   const { theme } = useTheme();
   const { activeSession, updateActiveSession, endSession } = useAppState();
-  const { preImageUri, preBarcodeData } =
-    (route.params as { preImageUri?: string; preBarcodeData?: { type: string; data: string } }) || {};
+  const { preImageUri } =
+    (route.params as { preImageUri?: string }) || {};
 
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef<CameraView>(null);
-  const barcodeLockRef = useRef(false);
   const [ready, setReady] = useState(false);
   const [torch, setTorch] = useState(false);
   const [helpVisible, setHelpVisible] = useState(false);
-  const [barcodeMode, setBarcodeMode] = useState(false);
 
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
   const [result, setResult] = useState<CompareResult | null>(null);
   const [softError, setSoftError] = useState<VisionSoftError | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [feedbackRoast, setFeedbackRoast] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!preImageUri && preBarcodeData?.data) {
-      setBarcodeMode(true);
-    }
-  }, [preImageUri, preBarcodeData?.data]);
+    setFeedbackRoast(null);
+  }, [photoUri]);
 
   const freezeOpacity = useRef(new Animated.Value(0)).current;
   const shutterOpacity = useRef(new Animated.Value(0)).current;
@@ -129,6 +126,7 @@ export default function PostScanCameraScreen({ navigation, route }: Props) {
     setChecking(true);
     setErrorMsg(null);
     setSoftError(null);
+    setFeedbackRoast(null);
     showAnalyzing();
 
     try {
@@ -136,6 +134,21 @@ export default function PostScanCameraScreen({ navigation, route }: Props) {
         throw new Error('Missing before photo for comparison. Please retake your before scan.');
       }
       const vision = getVisionService();
+
+      const afterCheck = await vision.verifyFood(uri);
+      if (isVisionSoftError(afterCheck)) {
+        setSoftError(afterCheck);
+        return;
+      }
+
+      const invalidAfter = !afterCheck.isFood || afterCheck.reasonCode !== 'OK';
+      if (invalidAfter) {
+        setResult(null);
+        setFeedbackRoast(afterCheck.roastLine || null);
+        setErrorMsg(afterCheck.retakeHint || 'Capture a clear AFTER photo of your meal to continue.');
+        return;
+      }
+
       const comparison = await vision.compareMeal(preImageUri, uri);
       if (isVisionSoftError(comparison)) {
         setSoftError(comparison);
@@ -147,6 +160,7 @@ export default function PostScanCameraScreen({ navigation, route }: Props) {
         postImageUri: uri,
         verification: {
           ...activeSession?.verification,
+          postCheck: afterCheck,
           compareResult: comparison,
         },
         roastMessage: comparison.roastLine,
@@ -161,7 +175,6 @@ export default function PostScanCameraScreen({ navigation, route }: Props) {
       setResult(null);
       setErrorMsg(e?.message || 'Could not verify this photo.');
     } finally {
-      barcodeLockRef.current = false;
       setChecking(false);
       hideAnalyzing();
       showCard();
@@ -178,83 +191,30 @@ export default function PostScanCameraScreen({ navigation, route }: Props) {
       const pic = await cameraRef.current.takePictureAsync({ quality: 0.82, skipProcessing: false });
       if (!pic?.uri) {
         hideFreeze();
-        barcodeLockRef.current = false;
         return;
       }
       setPhotoUri(pic.uri);
       setResult(null);
       setSoftError(null);
       setErrorMsg(null);
+      setFeedbackRoast(null);
       await processPhoto(pic.uri);
     } catch {
-      barcodeLockRef.current = false;
       hideFreeze();
     }
   }, [ready, checking]);
 
   const handleShutter = async () => {
-    barcodeLockRef.current = false;
-    await captureAndProcess();
-  };
-
-  const handleBarcodeScanned = async (_scan: BarcodeScanningResult) => {
-    if (!barcodeMode || barcodeLockRef.current || checking || photoUri) return;
-    barcodeLockRef.current = true;
-
-    if (preBarcodeData?.data) {
-      const normalize = (v: string) => v.replace(/\s+/g, '').trim();
-      const scanned = normalize(_scan.data || '');
-      const expected = normalize(preBarcodeData.data);
-      const isMatch = scanned.length > 0 && scanned === expected;
-
-      setChecking(true);
-      setErrorMsg(null);
-      showAnalyzing();
-
-      try {
-        const barcodeResult: CompareResult = {
-          isSameScene: isMatch,
-          duplicateScore: isMatch ? 1 : 0,
-          foodChangeScore: isMatch ? 1 : 0,
-          verdict: isMatch ? 'EATEN' : 'UNVERIFIABLE',
-          confidence: isMatch ? 0.95 : 0.3,
-          reasonCode: isMatch ? 'OK' : 'CANT_TELL',
-          roastLine: isMatch
-            ? 'Barcode verified. Meal complete — great consistency.'
-            : 'That barcode does not match your pre-scan item. Try scanning again.',
-          retakeHint: isMatch
-            ? 'Tap See Summary to finish.'
-            : 'Scan the same product barcode you used at the start.',
-        };
-        setResult(barcodeResult);
-        await updateActiveSession({
-          verification: {
-            ...activeSession?.verification,
-            compareResult: barcodeResult,
-          },
-          roastMessage: barcodeResult.roastLine,
-        });
-      } catch (e: any) {
-        setResult(null);
-        setErrorMsg(e?.message || 'Could not verify this barcode.');
-      } finally {
-        setChecking(false);
-        hideAnalyzing();
-        showCard();
-      }
-
-      return;
-    }
-
     await captureAndProcess();
   };
 
   const handleRetake = () => {
     hideCard(() => {
-      barcodeLockRef.current = false;
       setPhotoUri(null);
       setResult(null);
       setErrorMsg(null);
+      setSoftError(null);
+      setFeedbackRoast(null);
       hideFreeze();
     });
   };
@@ -262,14 +222,13 @@ export default function PostScanCameraScreen({ navigation, route }: Props) {
   const handleContinue = async () => {
     if (!result) return;
 
-    const verdictToStatus: Record<string, 'VERIFIED' | 'PARTIAL' | 'FAILED' | 'INCOMPLETE'> = {
-      EATEN: 'VERIFIED',
-      PARTIAL: 'PARTIAL',
-      UNCHANGED: 'FAILED',
-      UNVERIFIABLE: 'INCOMPLETE',
-    };
+    const verdict = String(result.verdict || '').toUpperCase();
+    const isFinished = verdict === 'FINISHED' || verdict === 'EATEN';
+    if (!isFinished) {
+      return;
+    }
 
-    await endSession(verdictToStatus[result.verdict] || 'INCOMPLETE', result.roastLine);
+    await endSession('VERIFIED', result.roastLine);
     navigation.reset({
       index: 0,
       routes: [{ name: 'Main' }, { name: 'SessionSummary' }],
@@ -293,14 +252,12 @@ export default function PostScanCameraScreen({ navigation, route }: Props) {
     );
   }
 
+  const resultVerdict = String(result?.verdict || '').toUpperCase();
+  const isFinishedResult = resultVerdict === 'FINISHED' || resultVerdict === 'EATEN';
   const verdictColor = result
-    ? result.verdict === 'EATEN'
+    ? isFinishedResult
       ? theme.success
-      : result.verdict === 'PARTIAL'
-        ? theme.warning
-        : result.verdict === 'UNCHANGED'
-          ? theme.danger
-          : theme.textSecondary
+      : theme.warning
     : theme.textSecondary;
 
   return (
@@ -313,12 +270,6 @@ export default function PostScanCameraScreen({ navigation, route }: Props) {
         facing="back"
         enableTorch={torch}
         onCameraReady={() => setReady(true)}
-        onBarcodeScanned={barcodeMode ? handleBarcodeScanned : undefined}
-        barcodeScannerSettings={
-          barcodeMode
-            ? { barcodeTypes: ['qr', 'ean13', 'ean8', 'upc_a', 'upc_e', 'code128'] }
-            : undefined
-        }
       />
 
       {photoUri ? <Image source={{ uri: photoUri }} style={StyleSheet.absoluteFill} resizeMode="cover" /> : null}
@@ -326,7 +277,7 @@ export default function PostScanCameraScreen({ navigation, route }: Props) {
       <Animated.View pointerEvents="none" style={[styles.freezeOverlay, { opacity: freezeOpacity }]} />
       <Animated.View pointerEvents="none" style={[styles.shutterOverlay, { opacity: shutterOpacity }]} />
 
-      {!photoUri ? <ScanFrameOverlay hintText={barcodeMode ? 'Scan barcode' : 'Keep plate in frame'} /> : null}
+      {!photoUri ? <ScanFrameOverlay hintText={'Keep plate in frame'} /> : null}
 
       <View style={styles.topBar}>
         <TouchableOpacity style={styles.topBtn} onPress={() => navigation.goBack()}>
@@ -345,56 +296,18 @@ export default function PostScanCameraScreen({ navigation, route }: Props) {
         </View>
       )}
 
-      {!preImageUri && preBarcodeData?.data && !photoUri && (
-        <View style={styles.preThumbWrap}>
-          <View style={[styles.preThumb, styles.barcodeBadge]}>
-            <MaterialIcons name="qr-code-scanner" size={26} color="#FFF" />
-          </View>
-          <Text style={styles.preThumbLabel}>Before barcode</Text>
-        </View>
-      )}
-
       {!photoUri && (
         <View style={styles.controlsArea}>
-          <View style={styles.modeRow}>
-            <TouchableOpacity
-              style={[styles.modeChip, !barcodeMode && styles.modeChipActive]}
-              onPress={() => {
-                barcodeLockRef.current = false;
-                setBarcodeMode(false);
-              }}
-            >
-              <Text style={[styles.modeChipText, !barcodeMode && styles.modeChipTextActive]}>Scan meal</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.modeChip, barcodeMode && styles.modeChipActive]}
-              onPress={() => {
-                barcodeLockRef.current = false;
-                setBarcodeMode(true);
-              }}
-            >
-              <Text style={[styles.modeChipText, barcodeMode && styles.modeChipTextActive]}>Barcode</Text>
-            </TouchableOpacity>
-          </View>
-
-          {barcodeMode ? <Text style={styles.barcodeHint}>Scan barcode</Text> : null}
-
           <View style={styles.bottomControlsRow}>
             <View style={styles.bottomLeftSpacer} />
 
-            {barcodeMode ? (
-              <View style={styles.shutterPlaceholder}>
-                <Text style={styles.shutterPlaceholderText}>Scanning…</Text>
-              </View>
-            ) : (
-              <TouchableOpacity
-                style={[styles.shutterOuter, !ready && { opacity: 0.45 }]}
-                disabled={!ready}
-                onPress={handleShutter}
-              >
-                <View style={styles.shutterInner} />
-              </TouchableOpacity>
-            )}
+            <TouchableOpacity
+              style={[styles.shutterOuter, !ready && { opacity: 0.45 }]}
+              disabled={!ready}
+              onPress={handleShutter}
+            >
+              <View style={styles.shutterInner} />
+            </TouchableOpacity>
 
             <TouchableOpacity style={styles.bottomIconBtn} onPress={() => setTorch((prev) => !prev)}>
               <MaterialIcons name={torch ? 'flash-on' : 'flash-off'} size={20} color="#FFF" />
@@ -421,36 +334,30 @@ export default function PostScanCameraScreen({ navigation, route }: Props) {
               : errorMsg
                 ? errorMsg.toLowerCase().includes('daily limit')
                 ? 'Daily limit reached'
-                : 'AI unavailable'
-                : result?.verdict === 'EATEN'
-                ? 'Meal finished'
-                : result?.verdict === 'PARTIAL'
-                  ? 'Partially eaten'
-                  : result?.verdict === 'UNCHANGED'
-                    ? 'Not eaten'
-                    : 'Uncertain'}
+                : 'Retake after photo'
+                : isFinishedResult
+                  ? 'Meal finished'
+                  : 'Not finished yet'}
             accentColor={(errorMsg || softError) ? theme.warning : verdictColor}
-            roast={errorMsg ? undefined : (result ? result.roastLine || getPostScanRoast(result.verdict) : undefined)}
+            roast={
+              feedbackRoast
+                ? feedbackRoast
+                : errorMsg
+                  ? undefined
+                  : (result ? result.roastLine || getPostScanRoast(result.verdict as any) : undefined)
+            }
             subtext={softError?.subtitle || errorMsg || undefined}
             buttons={[
               ...(softError?.code === 'SESSION_EXPIRED'
                 ? [{ label: 'Sign in again', onPress: () => navigation.navigate('Auth') }]
                 : []),
-              ...(softError?.code === 'RATE_LIMIT'
-                ? [{ label: 'OK', onPress: handleRetake }]
+              ...(result && isFinishedResult ? [{ label: 'See Summary', onPress: handleContinue }] : []),
+              ...(softError?.code === 'SESSION_EXPIRED'
+                ? [{ label: 'Cancel', onPress: handleRetake, secondary: true }]
                 : []),
-              ...(result ? [{ label: 'See Summary', onPress: handleContinue }] : []),
-              {
-                label: softError?.code === 'SESSION_EXPIRED'
-                  ? 'Cancel'
-                  : softError?.code === 'RATE_LIMIT'
-                    ? 'Retake'
-                    : errorMsg
-                      ? 'Retry'
-                      : 'Retake',
-                onPress: handleRetake,
-                secondary: !!result || !!softError,
-              },
+              ...(!(result && isFinishedResult)
+                ? [{ label: 'Retake', onPress: handleRetake }]
+                : []),
             ]}
           />
         </Animated.View>
@@ -519,35 +426,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     zIndex: 12,
   },
-  modeRow: {
-    flexDirection: 'row',
-    backgroundColor: 'rgba(0,0,0,0.45)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
-    borderRadius: 18,
-    padding: 3,
-    gap: 6,
-    marginBottom: 8,
-  },
-  modeChip: {
-    minWidth: 100,
-    height: 32,
-    borderRadius: 14,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-  },
-  modeChipActive: {
-    backgroundColor: 'rgba(255,255,255,0.2)',
-  },
-  modeChipText: {
-    color: 'rgba(255,255,255,0.75)',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  modeChipTextActive: {
-    color: '#FFF',
-  },
   shutterOuter: {
     width: 74,
     height: 74,
@@ -584,28 +462,6 @@ const styles = StyleSheet.create({
     width: 42,
     height: 42,
   },
-  shutterPlaceholder: {
-    width: 74,
-    height: 74,
-    borderRadius: 37,
-    borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.35)',
-    backgroundColor: 'rgba(0,0,0,0.35)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  shutterPlaceholderText: {
-    color: 'rgba(255,255,255,0.82)',
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  barcodeHint: {
-    color: 'rgba(255,255,255,0.7)',
-    fontSize: 12,
-    fontWeight: '500',
-    marginBottom: 8,
-  },
-
   freezeOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: '#000',

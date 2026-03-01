@@ -21,10 +21,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     AsyncStorage.getItem('eatlock_theme').then((val) => {
-      if (val && val in themes) {
+      if (val === 'Dark') {
         setThemeNameState(val as ThemeName);
-      } else if (val === 'Dark Green' || val === 'Dark Blue') {
-        // Migrate legacy theme names
+      } else {
         setThemeNameState('Dark');
         AsyncStorage.setItem('eatlock_theme', 'Dark');
       }

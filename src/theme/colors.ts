@@ -88,7 +88,6 @@ export const LightTheme: ThemeColors = {
 
 export const themes = {
   'Dark': DarkGreenTheme,
-  'Light': LightTheme,
 } as const;
 
 export type ThemeName = keyof typeof themes;

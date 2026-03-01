@@ -5,11 +5,13 @@
  * Empty-state when no sessions exist.
  */
 import React, { useRef, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Modal, Pressable, Animated, Easing, Image } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Modal, Pressable, Animated, Easing, Image, Alert } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '../../theme/ThemeProvider';
+import { useAppState } from '../../state/AppStateContext';
 import type { MealSession } from '../../types/models';
+import { SwipeableRow } from '../SwipeableRow';
 
 interface Props {
   sessions: MealSession[];
@@ -20,7 +22,7 @@ const statusConfig: Record<string, { color: string; label: string }> = {
   VERIFIED:   { color: '#34C759', label: 'Verified' },
   PARTIAL:    { color: '#FFCC00', label: 'Partial' },
   FAILED:     { color: '#FF3B30', label: 'Failed' },
-  INCOMPLETE: { color: '#8E8E93', label: 'Missed' },
+  INCOMPLETE: { color: '#FF9500', label: 'Active' },
 };
 
 function formatSessionTime(iso: string): string {
@@ -44,6 +46,7 @@ function mealIcon(type: string): keyof typeof MaterialIcons.glyphMap {
 
 export default function TodaysMealsList({ sessions }: Props) {
   const { theme } = useTheme();
+  const { deleteSession } = useAppState();
   const [selected, setSelected] = useState<MealSession | null>(null);
   const [detailVisible, setDetailVisible] = useState(false);
   const backdropOpacity = useRef(new Animated.Value(0)).current;
@@ -269,33 +272,54 @@ export default function TodaysMealsList({ sessions }: Props) {
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => {
           const sc = statusConfig[item.status] ?? statusConfig.INCOMPLETE;
+          const onDelete = () => {
+            Alert.alert('Delete meal', 'Remove this tracked meal from today?', [
+              { text: 'Cancel', style: 'cancel' },
+              {
+                text: 'Delete',
+                style: 'destructive',
+                onPress: () => {
+                  deleteSession(item.id);
+                  if (selected?.id === item.id) {
+                    setDetailVisible(false);
+                    setSelected(null);
+                  }
+                },
+              },
+            ]);
+          };
           return (
-            <TouchableOpacity
-              activeOpacity={0.7}
-              onPress={() => openDetail(item)}
-              style={[styles.row, { backgroundColor: theme.surface }]}
+            <SwipeableRow
+              onDelete={onDelete}
+              deleteColor={theme.danger}
+              rowBackgroundColor={theme.surface}
             >
-              <View style={[styles.iconWrap, { backgroundColor: theme.primary + '18' }]}>
-                <MaterialIcons name={mealIcon(item.mealType)} size={18} color={theme.primary} />
-              </View>
-              <View style={styles.info}>
-                <Text style={[styles.food, { color: theme.text }]} numberOfLines={1}>
-                  {item.foodName || item.mealType}
-                </Text>
-                <Text style={[styles.time, { color: theme.textSecondary }]}>
-                  {formatSessionTime(item.startedAt)}
-                  {item.preNutrition
-                    ? ` · ${item.preNutrition.estimated_calories} cal`
-                    : ''}
-                </Text>
-              </View>
-              <View style={[styles.pill, { backgroundColor: sc.color + '22' }]}>
-                <Text style={[styles.pillText, { color: sc.color }]}>{sc.label}</Text>
-              </View>
-            </TouchableOpacity>
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={() => openDetail(item)}
+                style={[styles.row, { backgroundColor: theme.surface }]}
+              >
+                <View style={[styles.iconWrap, { backgroundColor: theme.primary + '18' }]}>
+                  <MaterialIcons name={mealIcon(item.mealType)} size={18} color={theme.primary} />
+                </View>
+                <View style={styles.info}>
+                  <Text style={[styles.food, { color: theme.text }]} numberOfLines={1}>
+                    {item.foodName || item.mealType}
+                  </Text>
+                  <Text style={[styles.time, { color: theme.textSecondary }]}>
+                    {formatSessionTime(item.startedAt)}
+                    {item.preNutrition
+                      ? ` · ${item.preNutrition.estimated_calories} cal`
+                      : ''}
+                  </Text>
+                </View>
+                <View style={[styles.pill, { backgroundColor: sc.color + '22' }]}>
+                  <Text style={[styles.pillText, { color: sc.color }]}>{sc.label}</Text>
+                </View>
+              </TouchableOpacity>
+            </SwipeableRow>
           );
         }}
-        ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
       />
       {renderDetail()}
     </View>

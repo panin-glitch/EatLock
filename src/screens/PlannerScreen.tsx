@@ -54,7 +54,7 @@ export default function PlannerScreen() {
 
   const completedByType = new Map<string, number>();
   daySessions
-    .filter((s) => s.status === 'VERIFIED' || s.status === 'PARTIAL')
+    .filter((s) => s.status === 'VERIFIED' && !!s.endedAt)
     .forEach((s) => {
       completedByType.set(s.mealType, (completedByType.get(s.mealType) || 0) + 1);
     });

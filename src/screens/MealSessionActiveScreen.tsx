@@ -29,7 +29,7 @@ type Props = NativeStackScreenProps<any, 'MealSessionActive'>;
 
 export default function MealSessionActiveScreen({ navigation, route }: Props) {
   const { theme } = useTheme();
-  const { activeSession, endSession, blockConfig, updateActiveSession } = useAppState();
+  const { activeSession, blockConfig } = useAppState();
 
   const [elapsed, setElapsed] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -55,46 +55,26 @@ export default function MealSessionActiveScreen({ navigation, route }: Props) {
   const handleDone = () => {
     if (!activeSession || !canFinish) return;
 
-    const resolvedPreBarcodeData =
-      activeSession.preBarcodeData ||
-      (activeSession.barcode ? { type: 'barcode', data: activeSession.barcode } : undefined);
-
-    // If we have a preImageUri or barcode data, go to PostScanCamera for after-photo + comparison
-    if (activeSession.preImageUri || resolvedPreBarcodeData) {
-      navigation.navigate('PostScanCamera', {
-        preImageUri: activeSession.preImageUri,
-        preBarcodeData: resolvedPreBarcodeData,
-      });
-    } else {
-      // No before photo (override was used) — end session as INCOMPLETE
-      endSession('INCOMPLETE').then(() => {
-        navigation.reset({
-          index: 0,
-          routes: [
-            { name: 'Main' },
-            { name: 'SessionSummary' },
-          ],
-        });
-      });
+    if (!activeSession.preImageUri) {
+      Alert.alert('Before photo required', 'This session can only finish after comparing BEFORE and AFTER photos.');
+      return;
     }
+
+    navigation.navigate('PostScanCamera', {
+      preImageUri: activeSession.preImageUri,
+    });
   };
 
   const handleLeave = () => {
     Alert.alert(
-      'End Session?',
-      'Are you sure? Your meal session will be marked as incomplete.',
+      'Keep session active',
+      'You can leave this screen, but apps stay locked until AFTER photo comparison is finished.',
       [
         { text: 'Stay', style: 'cancel' },
         {
-          text: 'Leave',
-          style: 'destructive',
+          text: 'Go back',
           onPress: () => {
-            endSession('INCOMPLETE').then(() => {
-              navigation.reset({
-                index: 0,
-                routes: [{ name: 'Main' }],
-              });
-            });
+            navigation.navigate('Main');
           },
         },
       ]
@@ -104,11 +84,6 @@ export default function MealSessionActiveScreen({ navigation, route }: Props) {
   const s = makeStyles(theme);
   const blockedApps = activeSession?.blockedAppsAtTime ?? blockConfig.blockedApps.map((a) => a.name);
   const mealType = activeSession?.mealType ?? route.params?.mealType ?? '';
-  const preBarcodeData =
-    activeSession?.preBarcodeData ||
-    (activeSession?.barcode ? { type: 'barcode', data: activeSession.barcode } : undefined) ||
-    (route.params?.preBarcodeData as { type: string; data: string } | undefined);
-
   // Remaining time
   const remainingSec = Math.ceil(remainingMs / 1000);
   const remainMin = Math.floor(remainingSec / 60);

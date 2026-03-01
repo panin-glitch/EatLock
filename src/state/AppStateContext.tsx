@@ -48,6 +48,7 @@ interface AppState {
     distractionRating: number,
     estimatedDistractionMinutes: number,
   ) => Promise<void>;
+  deleteSession: (sessionId: string) => Promise<void>;
   clearAll: () => Promise<void>;
 }
 
@@ -217,6 +218,16 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     );
   };
 
+  const deleteSession = async (sessionId: string) => {
+    await Storage.deleteMealSession(sessionId);
+    if (activeSession?.id === sessionId) {
+      await Storage.setActiveSession(null);
+      setActiveSession(null);
+    }
+    const updated = await Storage.getMealSessions();
+    setSessions(updated);
+  };
+
   const clearAll = async () => {
     await Storage.clearAllData();
     await loadAll();
@@ -242,6 +253,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         updateBlockConfig,
         updateSettings,
         updateCompletedSessionFeedback,
+        deleteSession,
         clearAll,
       }}
     >

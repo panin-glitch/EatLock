@@ -77,6 +77,14 @@ export async function saveMealSession(session: MealSession): Promise<void> {
   await AsyncStorage.setItem(KEYS.MEAL_SESSIONS, JSON.stringify(sessions));
 }
 
+export async function deleteMealSession(id: string): Promise<void> {
+  const sessions = await getMealSessions();
+  await AsyncStorage.setItem(
+    KEYS.MEAL_SESSIONS,
+    JSON.stringify(sessions.filter((session) => session.id !== id)),
+  );
+}
+
 export async function getActiveSession(): Promise<MealSession | null> {
   const data = await AsyncStorage.getItem(KEYS.ACTIVE_SESSION);
   return data ? JSON.parse(data) : null;
