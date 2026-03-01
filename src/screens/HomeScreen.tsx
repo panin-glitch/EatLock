@@ -13,6 +13,8 @@ import { computeStreak, getSessionDuration, getSessionsForDate, getWeekDates } f
 import TodaysMealsList from '../components/home/TodaysMealsList';
 import { HEADER_BOTTOM_PADDING, HEADER_HORIZONTAL_PADDING } from '../components/common/ScreenHeader';
 
+const tadlockImg = require('../../assets/tadlock.png');
+
 export default function HomeScreen() {
   const { theme } = useTheme();
   const insets = useSafeAreaInsets();
@@ -184,9 +186,15 @@ export default function HomeScreen() {
         <View style={[styles.gaugeCard, { backgroundColor: theme.surface }]}> 
           <Text style={[styles.gaugeLabel, { color: theme.textSecondary }]}>Time spent eating today</Text>
           <View style={styles.gaugeInnerRow}>
-            <Gauge progress={gaugeProgress} color={gaugeColor} trackColor={theme.border} />
+            <Gauge
+              progress={gaugeProgress}
+              color={gaugeColor}
+              trackColor={theme.border}
+              minutes={timeSpentMinutes}
+              textColor={theme.text}
+              overlayColor={theme.background === '#F2F2F7' ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.25)'}
+            />
             <View>
-              <Text style={[styles.gaugeValue, { color: theme.text }]}>{timeSpentMinutes} min</Text>
               {showQuips ? <Text style={[styles.gaugeHint, { color: theme.textMuted }]}>{quip}</Text> : null}
             </View>
           </View>
@@ -204,29 +212,64 @@ export default function HomeScreen() {
   );
 }
 
-function Gauge({ progress, color, trackColor }: { progress: number; color: string; trackColor: string }) {
+function Gauge({
+  progress,
+  color,
+  trackColor,
+  minutes,
+  textColor,
+  overlayColor,
+}: {
+  progress: number;
+  color: string;
+  trackColor: string;
+  minutes: number;
+  textColor: string;
+  overlayColor: string;
+}) {
   const size = 108;
   const stroke = 10;
   const radius = (size - stroke) / 2;
   const circumference = 2 * Math.PI * radius;
   const strokeDashoffset = circumference * (1 - Math.min(Math.max(progress, 0), 1));
+  const innerSize = Math.round(size * 0.66);
   return (
-    <Svg width={size} height={size}>
-      <Circle cx={size / 2} cy={size / 2} r={radius} stroke={trackColor} strokeWidth={stroke} fill="none" />
-      <Circle
-        cx={size / 2}
-        cy={size / 2}
-        r={radius}
-        stroke={color}
-        strokeWidth={stroke}
-        fill="none"
-        strokeLinecap="round"
-        strokeDasharray={`${circumference}`}
-        strokeDashoffset={strokeDashoffset}
-        rotation="-90"
-        origin={`${size / 2}, ${size / 2}`}
-      />
-    </Svg>
+    <View style={styles.gaugeWrap}>
+      <View
+        style={[
+          styles.gaugeInnerArtwork,
+          {
+            width: innerSize,
+            height: innerSize,
+            borderRadius: innerSize / 2,
+          },
+        ]}
+      >
+        <Image source={tadlockImg} style={styles.gaugeArtworkImage} resizeMode="cover" />
+        <View style={[styles.gaugeArtworkOverlay, { backgroundColor: overlayColor }]} />
+      </View>
+
+      <Svg width={size} height={size} style={styles.gaugeSvgLayer}>
+        <Circle cx={size / 2} cy={size / 2} r={radius} stroke={trackColor} strokeWidth={stroke} fill="none" />
+        <Circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          stroke={color}
+          strokeWidth={stroke}
+          fill="none"
+          strokeLinecap="round"
+          strokeDasharray={`${circumference}`}
+          strokeDashoffset={strokeDashoffset}
+          rotation="-90"
+          origin={`${size / 2}, ${size / 2}`}
+        />
+      </Svg>
+
+      <View style={styles.gaugeCenterTextWrap} pointerEvents="none">
+        <Text style={[styles.gaugeCenterValue, { color: textColor }]}>{minutes} min</Text>
+      </View>
+    </View>
   );
 }
 
@@ -317,8 +360,37 @@ const styles = StyleSheet.create({
   gaugeCard: { borderRadius: 20, padding: 14, marginTop: 10 },
   gaugeLabel: { fontSize: 14, fontWeight: '700' },
   gaugeInnerRow: { flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 8 },
-  gaugeValue: { fontSize: 32, fontWeight: '800' },
   gaugeHint: { fontSize: 12, marginTop: 2, maxWidth: 180 },
+  gaugeWrap: {
+    width: 108,
+    height: 108,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  gaugeSvgLayer: {
+    position: 'absolute',
+    zIndex: 2,
+  },
+  gaugeInnerArtwork: {
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1,
+  },
+  gaugeArtworkImage: {
+    width: '100%',
+    height: '100%',
+  },
+  gaugeArtworkOverlay: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  gaugeCenterTextWrap: {
+    position: 'absolute',
+    zIndex: 3,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  gaugeCenterValue: { fontSize: 18, fontWeight: '800' },
   macrosRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
