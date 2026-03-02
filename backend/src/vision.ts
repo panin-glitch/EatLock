@@ -13,6 +13,7 @@
  */
 
 import type { Env } from './index';
+import { ownsR2Key } from './utils/ownership';
 
 // ── Supabase RPC quota helper ────────────────
 
@@ -410,7 +411,7 @@ export async function handleVerifyFood(
   }
 
   // Validate key belongs to this user
-  if (!body.r2Key.includes(auth.user_id)) {
+  if (!ownsR2Key(auth.user_id, body.r2Key)) {
     return err('r2Key does not belong to user', 403);
   }
 
@@ -507,7 +508,7 @@ export async function handleCompareMeal(
   }
 
   // Ownership check
-  if (!body.preKey.includes(auth.user_id) || !body.postKey.includes(auth.user_id)) {
+  if (!ownsR2Key(auth.user_id, body.preKey) || !ownsR2Key(auth.user_id, body.postKey)) {
     return err('r2Key does not belong to user', 403);
   }
 

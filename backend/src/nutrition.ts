@@ -1,4 +1,5 @@
 import type { Env } from './index';
+import { ownsR2Key } from './utils/ownership';
 
 const MODEL = 'gpt-4o-mini';
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -264,7 +265,7 @@ export async function handleNutritionEstimate(
   if (Object.keys(body as Record<string, unknown>).length !== 1) {
     return err('nutrition estimate accepts exactly one image key', 400);
   }
-  if (!body.r2Key.includes(auth.user_id)) {
+  if (!ownsR2Key(auth.user_id, body.r2Key)) {
     return err('r2Key does not belong to user', 403);
   }
 

@@ -14,6 +14,8 @@ export interface BarcodeLookupResult {
   carbs_g: number | null;
   fat_g: number | null;
   serving_hint: string | null;
+  /** True when values are per 100 g (no serving data available). */
+  per_100g?: boolean;
   source: 'cache' | 'openfoodfacts' | 'not_found';
 }
 

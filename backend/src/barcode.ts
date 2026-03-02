@@ -78,22 +78,22 @@ async function getUser(
 
 // ── OpenFoodFacts fetch ──────────────────────
 
+interface OFFNutriments {
+  'energy-kcal_100g'?: number;
+  'energy-kcal_serving'?: number;
+  proteins_100g?: number;
+  proteins_serving?: number;
+  carbohydrates_100g?: number;
+  carbohydrates_serving?: number;
+  fat_100g?: number;
+  fat_serving?: number;
+}
+
 interface OFFProduct {
   product_name?: string;
-  nutriments?: {
-    'energy-kcal_100g'?: number;
-    proteins_100g?: number;
-    carbohydrates_100g?: number;
-    fat_100g?: number;
-  };
+  nutriments?: OFFNutriments;
   serving_size?: string;
   serving_quantity?: number;
-  nutriments_serving?: {
-    'energy-kcal_serving'?: number;
-    proteins_serving?: number;
-    carbohydrates_serving?: number;
-    fat_serving?: number;
-  };
 }
 
 interface BarcodeLookupResult {
@@ -103,9 +103,37 @@ interface BarcodeLookupResult {
   carbs_g: number | null;
   fat_g: number | null;
   serving_hint: string | null;
+  /** True when values are per 100 g (no serving data available). */
+  per_100g: boolean;
 }
 
-async function fetchOpenFoodFacts(barcode: string): Promise<BarcodeLookupResult | null> {
+/**
+ * Resolve a single nutrient value to per-serving.
+ * Priority: per-serving field → computed from per-100g + serving_quantity → per-100g fallback.
+ * Returns [value | null, usedPer100g].
+ */
+function resolveNutrient(
+  perServing: number | undefined,
+  per100g: number | undefined,
+  servingQty: number | undefined,
+): [number | null, boolean] {
+  if (perServing != null && Number.isFinite(perServing)) {
+    return [perServing, false];
+  }
+  if (per100g != null && Number.isFinite(per100g)) {
+    if (servingQty != null && Number.isFinite(servingQty) && servingQty > 0) {
+      return [per100g * servingQty / 100, false];
+    }
+    return [per100g, true];
+  }
+  return [null, false];
+}
+
+function round1(v: number | null): number | null {
+  return v != null ? Math.round(v * 10) / 10 : null;
+}
+
+export async function fetchOpenFoodFacts(barcode: string): Promise<BarcodeLookupResult | null> {
   try {
     const res = await fetch(
       `https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(barcode)}.json`,
@@ -118,18 +146,25 @@ async function fetchOpenFoodFacts(barcode: string): Promise<BarcodeLookupResult 
     if (data.status !== 1 || !data.product) return null;
 
     const p = data.product;
-    const n = p.nutriments;
+    const n: OFFNutriments = p.nutriments ?? {};
+    const sq = p.serving_quantity;
 
-    // Prefer per-serving if available, else per-100g
-    const servingKcal = n?.['energy-kcal_100g'] ?? null;
+    const [cal, calPer100g] = resolveNutrient(n['energy-kcal_serving'], n['energy-kcal_100g'], sq);
+    const [pro, proPer100g] = resolveNutrient(n.proteins_serving, n.proteins_100g, sq);
+    const [carb, carbPer100g] = resolveNutrient(n.carbohydrates_serving, n.carbohydrates_100g, sq);
+    const [fat, fatPer100g] = resolveNutrient(n.fat_serving, n.fat_100g, sq);
+
+    // per_100g is true when ALL resolved values fell back to the raw per-100g column
+    const per100g = calPer100g || proPer100g || carbPer100g || fatPer100g;
 
     return {
       name: p.product_name || 'Unknown item',
-      calories: servingKcal != null ? Math.round(servingKcal) : null,
-      protein_g: n?.proteins_100g != null ? Math.round(n.proteins_100g * 10) / 10 : null,
-      carbs_g: n?.carbohydrates_100g != null ? Math.round(n.carbohydrates_100g * 10) / 10 : null,
-      fat_g: n?.fat_100g != null ? Math.round(n.fat_100g * 10) / 10 : null,
+      calories: cal != null ? Math.round(cal) : null,
+      protein_g: round1(pro),
+      carbs_g: round1(carb),
+      fat_g: round1(fat),
       serving_hint: p.serving_size || null,
+      per_100g,
     };
   } catch (e) {
     console.error('[barcode] OpenFoodFacts fetch error:', e);
@@ -188,6 +223,7 @@ export async function handleBarcodeLookup(
       carbs_g: (raw.carbs_g as number) ?? null,
       fat_g: (raw.fat_g as number) ?? null,
       serving_hint: cached.serving_size || null,
+      per_100g: !!(raw.per_100g),
       source: 'cache',
     });
   }
@@ -203,6 +239,7 @@ export async function handleBarcodeLookup(
       carbs_g: null,
       fat_g: null,
       serving_hint: null,
+      per_100g: false,
       source: 'not_found',
     });
   }
@@ -222,6 +259,7 @@ export async function handleBarcodeLookup(
           protein_g: result.protein_g,
           carbs_g: result.carbs_g,
           fat_g: result.fat_g,
+          per_100g: result.per_100g,
         },
         updated_at: new Date().toISOString(),
       },

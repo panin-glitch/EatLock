@@ -12,7 +12,7 @@ import {
   Easing,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { CameraView, useCameraPermissions } from 'expo-camera';
+import { CameraView, useCameraPermissions, type BarcodeScanningResult } from 'expo-camera';
 import { useTheme } from '../theme/ThemeProvider';
 import { useAppState } from '../state/AppStateContext';
 import { getVisionService } from '../services/vision';
@@ -32,11 +32,15 @@ function isVisionSoftError(value: unknown): value is VisionSoftError {
 export default function PostScanCameraScreen({ navigation, route }: Props) {
   const { theme } = useTheme();
   const { activeSession, updateActiveSession, endSession } = useAppState();
-  const { preImageUri } =
-    (route.params as { preImageUri?: string }) || {};
+  const { preImageUri, isBarcodeSession: routeBarcodeSession, previousBarcode: routePreviousBarcode } =
+    (route.params as { preImageUri?: string; isBarcodeSession?: boolean; previousBarcode?: string }) || {};
+  const isBarcodeSession = !!(routeBarcodeSession || routePreviousBarcode || activeSession?.preBarcodeData || activeSession?.barcode);
+  /** Use barcode rescan only when there is no before photo (pure barcode session). */
+  const useBarcodeRescan = isBarcodeSession && !preImageUri;
 
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef<CameraView>(null);
+  const barcodeLockRef = useRef(false);
   const [ready, setReady] = useState(false);
   const [torch, setTorch] = useState(false);
   const [helpVisible, setHelpVisible] = useState(false);
@@ -47,6 +51,9 @@ export default function PostScanCameraScreen({ navigation, route }: Props) {
   const [softError, setSoftError] = useState<VisionSoftError | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [feedbackRoast, setFeedbackRoast] = useState<string | null>(null);
+  const [scannedAfterBarcode, setScannedAfterBarcode] = useState<string | null>(null);
+
+  const previousBarcode = routePreviousBarcode || activeSession?.barcode || activeSession?.preBarcodeData?.data || null;
 
   useEffect(() => {
     setFeedbackRoast(null);
@@ -130,37 +137,61 @@ export default function PostScanCameraScreen({ navigation, route }: Props) {
     showAnalyzing();
 
     try {
+      const vision = getVisionService();
+
+      // ── Barcode session without a before photo ──
+      if (!preImageUri && isBarcodeSession) {
+        const barcodeResult: CompareResult = {
+          isSameScene: true,
+          duplicateScore: 0,
+          foodChangeScore: 1,
+          verdict: 'EATEN',
+          confidence: 0.8,
+          reasonCode: 'OK',
+          roastLine: 'Meal complete. Nice work.',
+          retakeHint: '',
+        };
+
+        setResult(barcodeResult);
+
+        await updateActiveSession({
+          postImageUri: uri,
+          verification: {
+            ...activeSession?.verification,
+            compareResult: barcodeResult,
+          },
+          roastMessage: barcodeResult.roastLine,
+        });
+        return;
+      }
+
+      // ── Non-barcode: need the before photo ──
       if (!preImageUri) {
         throw new Error('Missing before photo for comparison. Please retake your before scan.');
       }
-      const vision = getVisionService();
 
-      const afterCheck = await vision.verifyFood(uri);
-      if (isVisionSoftError(afterCheck)) {
-        setSoftError(afterCheck);
-        return;
-      }
-
-      const invalidAfter = !afterCheck.isFood || afterCheck.reasonCode !== 'OK';
-      if (invalidAfter) {
-        setResult(null);
-        setFeedbackRoast(afterCheck.roastLine || null);
-        setErrorMsg(afterCheck.retakeHint || 'Capture a clear AFTER photo of your meal to continue.');
-        return;
-      }
-
+      // ── Compare before/after directly (no verifyFood gate) ──
+      // compareMeal uploads the after image as kind='after' — no double upload.
       const comparison = await vision.compareMeal(preImageUri, uri);
       if (isVisionSoftError(comparison)) {
         setSoftError(comparison);
         return;
       }
+
+      // If comparison is UNVERIFIABLE, surface retakeHint instead of blocking
+      if (comparison.verdict === 'UNVERIFIABLE' && comparison.retakeHint) {
+        setResult(null);
+        setFeedbackRoast(comparison.roastLine || null);
+        setErrorMsg(comparison.retakeHint);
+        return;
+      }
+
       setResult(comparison);
 
       await updateActiveSession({
         postImageUri: uri,
         verification: {
           ...activeSession?.verification,
-          postCheck: afterCheck,
           compareResult: comparison,
         },
         roastMessage: comparison.roastLine,
@@ -182,7 +213,7 @@ export default function PostScanCameraScreen({ navigation, route }: Props) {
   };
 
   const captureAndProcess = useCallback(async () => {
-    if (!cameraRef.current || !ready || checking) return;
+    if (useBarcodeRescan || !cameraRef.current || !ready || checking) return;
 
     animateShutter();
     showFreeze();
@@ -202,15 +233,73 @@ export default function PostScanCameraScreen({ navigation, route }: Props) {
     } catch {
       hideFreeze();
     }
-  }, [ready, checking]);
+  }, [ready, checking, useBarcodeRescan]);
 
   const handleShutter = async () => {
     await captureAndProcess();
   };
 
+  const normalizeBarcode = (value: string) => value.trim().replace(/\s+/g, '').replace(/^0+/, '');
+
+  const handleBarcodeScanned = async (scan: BarcodeScanningResult) => {
+    if (!useBarcodeRescan || checking || barcodeLockRef.current) return;
+    barcodeLockRef.current = true;
+
+    setChecking(true);
+    setResult(null);
+    setErrorMsg(null);
+    setSoftError(null);
+    setFeedbackRoast(null);
+    showAnalyzing();
+
+    try {
+      const afterCode = scan.data;
+      setScannedAfterBarcode(afterCode);
+
+      if (!previousBarcode) {
+        throw new Error('Missing before barcode. Please restart this meal session.');
+      }
+
+      const isMatch = normalizeBarcode(previousBarcode) === normalizeBarcode(afterCode);
+      const barcodeComparison: CompareResult = {
+        isSameScene: isMatch,
+        duplicateScore: isMatch ? 1 : 0,
+        foodChangeScore: isMatch ? 1 : 0,
+        verdict: isMatch ? 'EATEN' : 'UNCHANGED',
+        confidence: 0.95,
+        reasonCode: isMatch ? 'OK' : 'UNCHANGED',
+        roastLine: isMatch
+          ? 'Barcode confirmed. Meal finished ✅'
+          : 'That barcode does not match your before scan.',
+        retakeHint: isMatch
+          ? ''
+          : 'Rescan the same product barcode you used before eating.',
+      };
+
+      setResult(barcodeComparison);
+
+      await updateActiveSession({
+        verification: {
+          ...activeSession?.verification,
+          compareResult: barcodeComparison,
+        },
+        roastMessage: barcodeComparison.roastLine,
+      });
+    } catch (e: any) {
+      setResult(null);
+      setErrorMsg(e?.message || 'Could not compare barcode. Please try again.');
+    } finally {
+      setChecking(false);
+      hideAnalyzing();
+      showCard();
+    }
+  };
+
   const handleRetake = () => {
     hideCard(() => {
+      barcodeLockRef.current = false;
       setPhotoUri(null);
+      setScannedAfterBarcode(null);
       setResult(null);
       setErrorMsg(null);
       setSoftError(null);
@@ -270,6 +359,12 @@ export default function PostScanCameraScreen({ navigation, route }: Props) {
         facing="back"
         enableTorch={torch}
         onCameraReady={() => setReady(true)}
+        onBarcodeScanned={useBarcodeRescan ? handleBarcodeScanned : undefined}
+        barcodeScannerSettings={
+          useBarcodeRescan
+            ? { barcodeTypes: ['qr', 'ean13', 'ean8', 'upc_a', 'upc_e', 'code128'] }
+            : undefined
+        }
       />
 
       {photoUri ? <Image source={{ uri: photoUri }} style={StyleSheet.absoluteFill} resizeMode="cover" /> : null}
@@ -277,13 +372,13 @@ export default function PostScanCameraScreen({ navigation, route }: Props) {
       <Animated.View pointerEvents="none" style={[styles.freezeOverlay, { opacity: freezeOpacity }]} />
       <Animated.View pointerEvents="none" style={[styles.shutterOverlay, { opacity: shutterOpacity }]} />
 
-      {!photoUri ? <ScanFrameOverlay hintText={'Keep plate in frame'} /> : null}
+      {!photoUri ? <ScanFrameOverlay hintText={useBarcodeRescan ? 'Scan after barcode' : 'Take after photo'} /> : null}
 
       <View style={styles.topBar}>
         <TouchableOpacity style={styles.topBtn} onPress={() => navigation.goBack()}>
           <MaterialIcons name="close" size={22} color="#FFF" />
         </TouchableOpacity>
-        <Text style={styles.topTitle}>Scan meal</Text>
+        <Text style={styles.topTitle}>{useBarcodeRescan ? 'Scan barcode' : 'After photo'}</Text>
         <TouchableOpacity style={styles.topBtn} onPress={() => setHelpVisible(true)}>
           <Text style={styles.helpText}>?</Text>
         </TouchableOpacity>
@@ -301,13 +396,21 @@ export default function PostScanCameraScreen({ navigation, route }: Props) {
           <View style={styles.bottomControlsRow}>
             <View style={styles.bottomLeftSpacer} />
 
-            <TouchableOpacity
-              style={[styles.shutterOuter, !ready && { opacity: 0.45 }]}
-              disabled={!ready}
-              onPress={handleShutter}
-            >
-              <View style={styles.shutterInner} />
-            </TouchableOpacity>
+            {useBarcodeRescan ? (
+              <View style={styles.shutterPlaceholder}>
+                <Text style={styles.shutterPlaceholderText}>
+                  {scannedAfterBarcode ? 'Checking…' : 'Scanning…'}
+                </Text>
+              </View>
+            ) : (
+              <TouchableOpacity
+                style={[styles.shutterOuter, !ready && { opacity: 0.45 }]}
+                disabled={!ready}
+                onPress={handleShutter}
+              >
+                <View style={styles.shutterInner} />
+              </TouchableOpacity>
+            )}
 
             <TouchableOpacity style={styles.bottomIconBtn} onPress={() => setTorch((prev) => !prev)}>
               <MaterialIcons name={torch ? 'flash-on' : 'flash-off'} size={20} color="#FFF" />
@@ -320,7 +423,7 @@ export default function PostScanCameraScreen({ navigation, route }: Props) {
         <Animated.View style={[styles.analyzingWrap, { opacity: analyzingOpacity }]} pointerEvents="none">
           <View style={styles.analyzingPill}>
             <ActivityIndicator size="small" color="#FFF" />
-            <Text style={styles.analyzingText}>Analyzing food...</Text>
+            <Text style={styles.analyzingText}>{useBarcodeRescan ? 'Comparing barcode...' : 'Analyzing food...'}</Text>
           </View>
         </Animated.View>
       )}
@@ -346,7 +449,7 @@ export default function PostScanCameraScreen({ navigation, route }: Props) {
                   ? undefined
                   : (result ? result.roastLine || getPostScanRoast(result.verdict as any) : undefined)
             }
-            subtext={softError?.subtitle || errorMsg || undefined}
+            subtext={softError?.subtitle || errorMsg || result?.retakeHint || undefined}
             buttons={[
               ...(softError?.code === 'SESSION_EXPIRED'
                 ? [{ label: 'Sign in again', onPress: () => navigation.navigate('Auth') }]
@@ -461,6 +564,21 @@ const styles = StyleSheet.create({
   bottomLeftSpacer: {
     width: 42,
     height: 42,
+  },
+  shutterPlaceholder: {
+    width: 120,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.35)',
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  shutterPlaceholderText: {
+    color: '#FFF',
+    fontSize: 14,
+    fontWeight: '600',
   },
   freezeOverlay: {
     ...StyleSheet.absoluteFillObject,

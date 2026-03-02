@@ -8,7 +8,8 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "token": "node scripts/getToken.mjs",
-    "test:signed-upload": "node scripts/testSignedUpload.mjs"
+    "test:signed-upload": "node scripts/testSignedUpload.mjs",
+    "guardrails": "node scripts/guardrails.mjs"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",

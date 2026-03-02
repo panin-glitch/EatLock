@@ -58,6 +58,9 @@ export default function PreScanCameraScreen({ navigation }: Props) {
   const [barcodeResult, setBarcodeResult] = useState<BarcodeLookupResult | null>(null);
   const [barcodeLoading, setBarcodeLoading] = useState(false);
   const [scannedBarcode, setScannedBarcode] = useState<string | null>(null);
+  // Barcode + optional before photo: after barcode scanned, user can take a "before" photo
+  const [barcodeBeforePhotoMode, setBarcodeBeforePhotoMode] = useState(false);
+  const [barcodeBeforePhotoUri, setBarcodeBeforePhotoUri] = useState<string | null>(null);
 
   const freezeOpacity = useRef(new Animated.Value(0)).current;
   const shutterOpacity = useRef(new Animated.Value(0)).current;
@@ -256,9 +259,28 @@ export default function PreScanCameraScreen({ navigation }: Props) {
       setNutritionError(false);
       setBarcodeResult(null);
       setScannedBarcode(null);
+      setBarcodeBeforePhotoMode(false);
+      setBarcodeBeforePhotoUri(null);
       hideFreeze();
     });
   };
+
+  /** Capture a "before" photo for a barcode session (optional but recommended). */
+  const captureBarcodeBeforePhoto = useCallback(async () => {
+    if (!cameraRef.current || !ready || checking) return;
+    animateShutter();
+    showFreeze();
+    try {
+      const pic = await cameraRef.current.takePictureAsync({ quality: 0.82, skipProcessing: false });
+      if (!pic?.uri) {
+        hideFreeze();
+        return;
+      }
+      setBarcodeBeforePhotoUri(pic.uri);
+    } catch {
+      hideFreeze();
+    }
+  }, [ready, checking]);
 
   const handleContinue = () => {
     if (barcodeResult) {
@@ -269,18 +291,21 @@ export default function PreScanCameraScreen({ navigation }: Props) {
         min_calories: barcodeResult.calories ?? 0,
         max_calories: barcodeResult.calories ?? 0,
         confidence: barcodeResult.source === 'not_found' ? 0 : 0.8,
-        notes: barcodeResult.serving_hint || '',
+        notes: barcodeResult.per_100g
+          ? `Per 100 g${barcodeResult.serving_hint ? ' · ' + barcodeResult.serving_hint : ''}`
+          : (barcodeResult.serving_hint || ''),
         protein_g: barcodeResult.protein_g,
         carbs_g: barcodeResult.carbs_g,
         fat_g: barcodeResult.fat_g,
         source: 'barcode',
       };
       navigation.navigate('LockSetupConfirm', {
-        preImageUri: null,
+        preImageUri: barcodeBeforePhotoUri || null,
         preCheck: { isFood: true, confidence: 1, hasPlateOrBowl: false, quality: { brightness: 1, blur: 1, framing: 1 }, reasonCode: 'OK' as const, roastLine: barcodeResult.name, retakeHint: '' },
         preNutrition: barcodeNutrition,
         foodName: barcodeResult.name,
         barcode: scannedBarcode,
+        preBarcodeData: scannedBarcode ? { type: 'barcode', data: scannedBarcode } : undefined,
       });
       return;
     }
@@ -404,7 +429,7 @@ export default function PreScanCameraScreen({ navigation }: Props) {
       )}
 
       {/* Barcode result card */}
-      {barcodeResult && !barcodeLoading && (
+      {barcodeResult && !barcodeLoading && !barcodeBeforePhotoMode && (
         <Animated.View style={[styles.resultCardLayer, { transform: [{ translateY: cardTranslateY }] }]} pointerEvents="box-none">
           <ResultCard
             theme={theme}
@@ -418,7 +443,9 @@ export default function PreScanCameraScreen({ navigation }: Props) {
                 min_calories: barcodeResult.calories,
                 max_calories: barcodeResult.calories,
                 confidence: 0.8,
-                notes: barcodeResult.serving_hint || '',
+                notes: barcodeResult.per_100g
+                  ? `Per 100 g${barcodeResult.serving_hint ? ' \u00b7 ' + barcodeResult.serving_hint : ''}`
+                  : (barcodeResult.serving_hint || ''),
                 protein_g: barcodeResult.protein_g,
                 carbs_g: barcodeResult.carbs_g,
                 fat_g: barcodeResult.fat_g,
@@ -428,13 +455,57 @@ export default function PreScanCameraScreen({ navigation }: Props) {
               error: barcodeResult.source === 'not_found',
               onEdit: () => setEditCalVisible(true),
             }}
-            subtext={barcodeResult.serving_hint ? `Per 100g · ${barcodeResult.serving_hint}` : undefined}
+            subtext={
+              barcodeBeforePhotoUri
+                ? 'Before photo added \u2705'
+                : barcodeResult.per_100g
+                  ? `Per 100 g${barcodeResult.serving_hint ? ' \u00b7 ' + barcodeResult.serving_hint : ''}`
+                  : barcodeResult.serving_hint
+                    ? `Per serving \u00b7 ${barcodeResult.serving_hint}`
+                    : undefined
+            }
             buttons={[
               { label: 'Confirm & Start', onPress: handleContinue },
+              ...(!barcodeBeforePhotoUri
+                ? [{ label: '\ud83d\udcf7 Add before photo', onPress: () => setBarcodeBeforePhotoMode(true), secondary: true }]
+                : []),
               { label: 'Scan again', onPress: handleRetake, secondary: true },
             ]}
           />
         </Animated.View>
+      )}
+
+      {/* Barcode before-photo capture mode */}
+      {barcodeBeforePhotoMode && (
+        <View style={styles.barcodePhotoOverlay}>
+          <View style={styles.topBar}>
+            <TouchableOpacity style={styles.topBtn} onPress={() => setBarcodeBeforePhotoMode(false)}>
+              <MaterialIcons name="arrow-back" size={22} color="#FFF" />
+            </TouchableOpacity>
+            <Text style={styles.topTitle}>Take before photo</Text>
+            <View style={{ width: 44 }} />
+          </View>
+          <ScanFrameOverlay hintText="Photo of your food before eating" />
+          <View style={styles.controlsArea}>
+            <View style={styles.bottomControlsRow}>
+              <View style={styles.bottomLeftSpacer} />
+              <TouchableOpacity
+                style={[styles.shutterOuter, !ready && { opacity: 0.45 }]}
+                disabled={!ready}
+                onPress={async () => {
+                  await captureBarcodeBeforePhoto();
+                  setBarcodeBeforePhotoMode(false);
+                  showCard();
+                }}
+              >
+                <View style={styles.shutterInner} />
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.bottomIconBtn} onPress={() => setTorch((prev) => !prev)}>
+                <MaterialIcons name={torch ? 'flash-on' : 'flash-off'} size={20} color="#FFF" />
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
       )}
 
       {/* Photo scan result card */}
@@ -670,5 +741,10 @@ const styles = StyleSheet.create({
   resultCardLayer: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 30,
+  },
+  barcodePhotoOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 25,
+    backgroundColor: 'transparent',
   },
 });

@@ -1,3 +1,5 @@
+import { ownsR2Key } from './utils/ownership';
+
 /**
  * TadLock Cloudflare Worker — main entry point.
  *
@@ -179,7 +181,7 @@ async function handleDirectUpload(
   }
 
   // Verify the key belongs to this user
-  if (!r2Key.includes(auth.user_id)) {
+  if (!ownsR2Key(auth.user_id, r2Key)) {
     return error('Forbidden', 403);
   }
 
@@ -235,7 +237,7 @@ async function handleEnqueueVision(
 
   // Validate r2_keys belong to user
   for (const key of Object.values(body.r2_keys)) {
-    if (!key.includes(auth.user_id)) {
+    if (!ownsR2Key(auth.user_id, key as string)) {
       return error('r2_key does not belong to user', 403);
     }
   }
