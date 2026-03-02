@@ -17,6 +17,7 @@ import { useTheme } from '../../theme/ThemeProvider';
 import { useAuth } from '../../state/AuthContext';
 import { supabase } from '../../services/supabaseClient';
 import { saveUsername, isValidUsername } from '../../services/profileService';
+import { signOut, updateEmail } from '../../services/authService';
 
 export default function ProfileScreen() {
   const { theme } = useTheme();
@@ -27,6 +28,11 @@ export default function ProfileScreen() {
   const [username, setUsername] = useState('');
   const [initialUsername, setInitialUsername] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+
+  // Email change state
+  const [emailInput, setEmailInput] = useState('');
+  const [emailSaving, setEmailSaving] = useState(false);
+  const isAnonymous = !user?.email;
 
   const fallbackName = useMemo(() => user?.email?.split('@')[0] ?? 'User', [user?.email]);
 
@@ -67,6 +73,24 @@ export default function ProfileScreen() {
       setIsSaving(false);
     }
   }, [user?.id, username]);
+
+  const handleEmailChange = useCallback(async () => {
+    const trimmed = emailInput.trim();
+    if (!trimmed || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+      Alert.alert('Invalid email', 'Please enter a valid email address.');
+      return;
+    }
+    setEmailSaving(true);
+    try {
+      await updateEmail(trimmed);
+      Alert.alert('Check your inbox', 'A confirmation link has been sent to your new email address.');
+      setEmailInput('');
+    } catch (error: any) {
+      Alert.alert('Email update failed', error?.message ?? 'Could not update email.');
+    } finally {
+      setEmailSaving(false);
+    }
+  }, [emailInput]);
 
   const hasChanges = username.trim() !== initialUsername.trim();
   const showUsernameHint = username.trim().length > 0 && !isValidUsername(username);
@@ -113,6 +137,50 @@ export default function ProfileScreen() {
           ) : null}
 
           <Text style={styles.emailLabel}>{user?.email ?? 'Anonymous account'}</Text>
+
+          <Text style={[styles.label, { marginTop: 4 }]}>{isAnonymous ? 'Add email' : 'Change email'}</Text>
+          <TextInput
+            style={[styles.input, { color: theme.text, borderColor: theme.border, backgroundColor: theme.card }]}
+            value={emailInput}
+            onChangeText={setEmailInput}
+            placeholder={isAnonymous ? 'your@email.com' : 'New email address'}
+            placeholderTextColor={theme.textMuted}
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="email-address"
+          />
+          <TouchableOpacity
+            style={[
+              styles.emailBtn,
+              { backgroundColor: emailInput.trim() ? theme.primary : theme.inputBg },
+            ]}
+            onPress={handleEmailChange}
+            disabled={!emailInput.trim() || emailSaving}
+          >
+            {emailSaving ? (
+              <ActivityIndicator size="small" color={theme.background} />
+            ) : (
+              <Text style={[styles.emailBtnText, { color: emailInput.trim() ? theme.background : theme.textMuted }]}>
+                {isAnonymous ? 'Add email' : 'Change email'}
+              </Text>
+            )}
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.signOutBtn}
+            onPress={() => {
+              Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Sign Out',
+                  onPress: () => signOut(),
+                },
+              ]);
+            }}
+          >
+            <MaterialIcons name="logout" size={18} color={theme.textSecondary} />
+            <Text style={styles.signOutText}>Sign out</Text>
+          </TouchableOpacity>
 
           <TouchableOpacity
             style={[
@@ -173,6 +241,26 @@ const makeStyles = (theme: any) =>
     },
     emailLabel: { fontSize: 12, color: theme.textMuted, marginBottom: 14 },
     helperText: { fontSize: 12, marginBottom: 10 },
+    signOutBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+      borderRadius: 12,
+      paddingVertical: 11,
+      marginBottom: 10,
+      borderWidth: 1,
+      borderColor: theme.border,
+      backgroundColor: theme.card,
+    },
+    signOutText: { fontSize: 14, fontWeight: '600', color: theme.textSecondary },
+    emailBtn: {
+      borderRadius: 12,
+      paddingVertical: 11,
+      alignItems: 'center',
+      marginBottom: 10,
+    },
+    emailBtnText: { fontSize: 14, fontWeight: '700' },
     saveBtn: {
       borderRadius: 12,
       paddingVertical: 12,
