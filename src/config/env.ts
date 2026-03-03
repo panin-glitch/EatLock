@@ -1,17 +1,26 @@
 /**
  * Environment configuration for TadLock.
  *
- * Replace placeholder values with your actual keys before building.
- * In production, use expo-constants or EAS secrets.
+ * All secrets come from EXPO_PUBLIC_* environment variables.
+ * Create a .env file at project root (see .env.example).
  */
+
+function requireEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) {
+    console.warn(`[ENV] Missing environment variable: ${name}`);
+    return '';
+  }
+  return value;
+}
 
 export const ENV = {
   // Supabase
-  SUPABASE_URL: 'REDACTED_SUPABASE_URL',
-  SUPABASE_ANON_KEY: 'REDACTED_SUPABASE_PUBLISHABLE_KEY',
+  SUPABASE_URL: requireEnv('EXPO_PUBLIC_SUPABASE_URL'),
+  SUPABASE_ANON_KEY: requireEnv('EXPO_PUBLIC_SUPABASE_ANON_KEY'),
 
   // Cloudflare Worker API
-  WORKER_API_URL: 'https://eatlock-vision.crkmedia-us.workers.dev',
+  WORKER_API_URL: requireEnv('EXPO_PUBLIC_WORKER_API_URL'),
 
   // Deep link scheme (must match app.json)
   DEEP_LINK_SCHEME: 'tadlock',

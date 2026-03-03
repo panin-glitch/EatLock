@@ -47,6 +47,9 @@ backend/.env
 backend/.env.*
 backend/.wrangler/
 
+# supabase CLI temp (contains project ref, pooler URL, etc.)
+supabase/.temp/
+
 # typescript
 *.tsbuildinfo
 
