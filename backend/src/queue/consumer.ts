@@ -21,7 +21,7 @@ export interface QueueMessage {
 export interface Env {
   IMAGES: R2Bucket;
   SUPABASE_URL: string;
-  SUPABASE_SERVICE_KEY: string;
+  SUPABASE_SERVICE_ROLE_KEY: string;
   OPENAI_API_KEY: string;
 }
 
@@ -55,7 +55,7 @@ export async function handleVisionQueue(
   batch: MessageBatch<QueueMessage>,
   env: Env
 ): Promise<void> {
-  const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_KEY);
+  const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
 
   for (const message of batch.messages) {
     const body = message.body;

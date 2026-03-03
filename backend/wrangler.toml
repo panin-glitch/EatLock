@@ -15,7 +15,7 @@ DEV_BYPASS_TOKENS = ""
 ENFORCE_LIMITS = "false"
 
 # Set these secrets via `wrangler secret put <NAME>`
-# SUPABASE_SERVICE_KEY
+# SUPABASE_SERVICE_ROLE_KEY
 # OPENAI_API_KEY
 
 [[r2_buckets]]

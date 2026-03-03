@@ -43,7 +43,7 @@ async function getUser(
   const whoamiRes = await fetch(`${env.SUPABASE_URL}/auth/v1/user`, {
     method: 'GET',
     headers: {
-      apikey: env.SUPABASE_SERVICE_KEY,
+      apikey: env.SUPABASE_SERVICE_ROLE_KEY,
       Authorization: `Bearer ${jwt}`,
     },
   });
@@ -170,7 +170,7 @@ export async function handleEnrichMicros(
     return err('Invalid meal ID', 400);
   }
 
-  const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_KEY, {
+  const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
     auth: { persistSession: false },
   });
 

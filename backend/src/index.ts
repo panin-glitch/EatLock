@@ -23,7 +23,7 @@ export interface Env {
   IMAGES: R2Bucket;
   VISION_QUEUE: Queue<QueueMessage>;
   SUPABASE_URL: string;
-  SUPABASE_SERVICE_KEY: string;
+  SUPABASE_SERVICE_ROLE_KEY: string;
   OPENAI_API_KEY: string;
   DISABLE_DAILY_LIMITS?: string;
   VERIFY_DAILY_LIMIT?: string;
@@ -106,7 +106,7 @@ async function getUser(
   const whoamiRes = await fetch(`${env.SUPABASE_URL}/auth/v1/user`, {
     method: 'GET',
     headers: {
-      apikey: env.SUPABASE_SERVICE_KEY,
+      apikey: env.SUPABASE_SERVICE_ROLE_KEY,
       Authorization: `Bearer ${jwt}`,
     },
   });
@@ -335,7 +335,7 @@ export default {
       });
     }
 
-    const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_KEY, {
+    const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
       auth: { persistSession: false },
     });
     const requestId = crypto.randomUUID();

@@ -98,6 +98,18 @@ setUsername(result.username);
     }
   }, [emailInput]);
 
+  const handleSignOut = useCallback(() => {
+    Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Sign Out',
+        onPress: async () => {
+          await signOut();
+        },
+      },
+    ]);
+  }, [navigation]);
+
   const hasChanges = username.trim() !== initialUsername.trim();
   const showUsernameHint = username.trim().length > 0 && !isValidUsername(username);
   const styles = makeStyles(theme);
@@ -174,19 +186,21 @@ setUsername(result.username);
 
           <TouchableOpacity
             style={styles.signOutBtn}
-            onPress={() => {
-              Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                  text: 'Sign Out',
-                  onPress: () => signOut(),
-                },
-              ]);
-            }}
+            onPress={handleSignOut}
           >
             <MaterialIcons name="logout" size={18} color={theme.textSecondary} />
             <Text style={styles.signOutText}>Sign out</Text>
           </TouchableOpacity>
+
+          {isAnonymous ? (
+            <TouchableOpacity
+              style={styles.signInBtn}
+              onPress={() => navigation.navigate('Auth')}
+            >
+              <MaterialIcons name="login" size={18} color={theme.background} />
+              <Text style={styles.signInText}>Sign in / Create account</Text>
+            </TouchableOpacity>
+          ) : null}
 
           <TouchableOpacity
             style={[
@@ -264,6 +278,17 @@ const makeStyles = (theme: any) =>
       backgroundColor: theme.card,
     },
     signOutText: { fontSize: 14, fontWeight: '600', color: theme.textSecondary },
+    signInBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+      borderRadius: 12,
+      paddingVertical: 11,
+      marginBottom: 10,
+      backgroundColor: theme.primary,
+    },
+    signInText: { fontSize: 14, fontWeight: '700', color: theme.background },
     emailBtn: {
       borderRadius: 12,
       paddingVertical: 11,

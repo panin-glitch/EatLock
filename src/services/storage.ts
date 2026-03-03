@@ -18,26 +18,165 @@ const KEYS = {
   INITIALIZED: 'eatlock_initialized',
 };
 
+const META_KEYS = {
+  LAST_AUTH_NAMESPACE: 'eatlock_last_auth_namespace',
+};
+
+type StorageKey = keyof typeof KEYS;
+
+let storageNamespace = 'global';
+
+function normalizeNamespace(userId: string | null | undefined): string {
+  const safe = (userId || 'anonymous').trim();
+  return safe.length > 0 ? safe : 'anonymous';
+}
+
+function buildNamespacedKey(namespace: string, key: StorageKey): string {
+  return `${namespace}:${KEYS[key]}`;
+}
+
+function namespacedKey(key: StorageKey): string {
+  return `${storageNamespace}:${KEYS[key]}`;
+}
+
+function allNamespacedKeys(): string[] {
+  return (Object.keys(KEYS) as StorageKey[]).map((k) => namespacedKey(k));
+}
+
+export function setStorageNamespace(userId: string | null | undefined): void {
+  storageNamespace = normalizeNamespace(userId);
+}
+
+export async function setLastAuthNamespaceInfo(
+  namespace: string,
+  isAnonymous: boolean,
+): Promise<void> {
+  const payload = JSON.stringify({ namespace, isAnonymous, updatedAt: Date.now() });
+  await AsyncStorage.setItem(META_KEYS.LAST_AUTH_NAMESPACE, payload);
+}
+
+export async function getLastAuthNamespaceInfo(): Promise<{ namespace: string; isAnonymous: boolean } | null> {
+  const raw = await AsyncStorage.getItem(META_KEYS.LAST_AUTH_NAMESPACE);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as { namespace?: string; isAnonymous?: boolean };
+    if (!parsed?.namespace) return null;
+    return {
+      namespace: String(parsed.namespace),
+      isAnonymous: !!parsed.isAnonymous,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function hasLegacyData(): Promise<boolean> {
+  const [sessions, activeSession] = await Promise.all([
+    AsyncStorage.getItem(KEYS.MEAL_SESSIONS),
+    AsyncStorage.getItem(KEYS.ACTIVE_SESSION),
+  ]);
+  try {
+    const parsed = sessions ? JSON.parse(sessions) : [];
+    if (Array.isArray(parsed) && parsed.length > 0) return true;
+  } catch {
+    // ignore parse issues and continue fallback checks
+  }
+  return !!activeSession;
+}
+
+async function hasNamespaceData(namespace: string): Promise<boolean> {
+  const [sessions, activeSession] = await Promise.all([
+    AsyncStorage.getItem(buildNamespacedKey(namespace, 'MEAL_SESSIONS')),
+    AsyncStorage.getItem(buildNamespacedKey(namespace, 'ACTIVE_SESSION')),
+  ]);
+  try {
+    const parsed = sessions ? JSON.parse(sessions) : [];
+    if (Array.isArray(parsed) && parsed.length > 0) return true;
+  } catch {
+    // ignore parse issues and continue fallback checks
+  }
+  return !!activeSession;
+}
+
+export async function migrateLegacyToNamespace(userId: string | null | undefined): Promise<boolean> {
+  const namespace = normalizeNamespace(userId);
+  const targetHasData = await hasNamespaceData(namespace);
+  if (targetHasData) return false;
+
+  const legacyHasData = await hasLegacyData();
+  if (!legacyHasData) return false;
+
+  const entries = await Promise.all(
+    (Object.keys(KEYS) as StorageKey[]).map(async (key) => ({
+      key,
+      value: await AsyncStorage.getItem(KEYS[key]),
+    })),
+  );
+
+  const writes = entries
+    .filter((entry) => entry.value != null)
+    .map((entry) => AsyncStorage.setItem(buildNamespacedKey(namespace, entry.key), entry.value as string));
+
+  if (writes.length > 0) {
+    await Promise.all(writes);
+    return true;
+  }
+  return false;
+}
+
+export async function migrateNamespaceData(
+  fromUserId: string | null | undefined,
+  toUserId: string | null | undefined,
+): Promise<boolean> {
+  const fromNamespace = normalizeNamespace(fromUserId);
+  const toNamespace = normalizeNamespace(toUserId);
+  if (fromNamespace === toNamespace) return false;
+
+  const [fromHasData, toHasData] = await Promise.all([
+    hasNamespaceData(fromNamespace),
+    hasNamespaceData(toNamespace),
+  ]);
+
+  if (!fromHasData || toHasData) return false;
+
+  const entries = await Promise.all(
+    (Object.keys(KEYS) as StorageKey[]).map(async (key) => ({
+      key,
+      value: await AsyncStorage.getItem(buildNamespacedKey(fromNamespace, key)),
+    })),
+  );
+
+  const writes = entries
+    .filter((entry) => entry.value != null)
+    .map((entry) => AsyncStorage.setItem(buildNamespacedKey(toNamespace, entry.key), entry.value as string));
+
+  if (writes.length > 0) {
+    await Promise.all(writes);
+    return true;
+  }
+  return false;
+}
+
 // ===== INITIALIZATION =====
 export async function initializeStorage(): Promise<void> {
-  const initialized = await AsyncStorage.getItem(KEYS.INITIALIZED);
+  const initialized = await AsyncStorage.getItem(namespacedKey('INITIALIZED'));
   if (!initialized) {
-    await AsyncStorage.setItem(KEYS.MEAL_SCHEDULES, JSON.stringify(DEFAULT_MEAL_SCHEDULES));
-    await AsyncStorage.setItem(KEYS.BLOCK_CONFIG, JSON.stringify(DEFAULT_BLOCK_CONFIG));
-    await AsyncStorage.setItem(KEYS.USER_SETTINGS, JSON.stringify(DEFAULT_USER_SETTINGS));
-    await AsyncStorage.setItem(KEYS.MEAL_SESSIONS, JSON.stringify([]));
-    await AsyncStorage.setItem(KEYS.INITIALIZED, 'true');
+    await AsyncStorage.setItem(namespacedKey('MEAL_SCHEDULES'), JSON.stringify(DEFAULT_MEAL_SCHEDULES));
+    await AsyncStorage.setItem(namespacedKey('BLOCK_CONFIG'), JSON.stringify(DEFAULT_BLOCK_CONFIG));
+    await AsyncStorage.setItem(namespacedKey('USER_SETTINGS'), JSON.stringify(DEFAULT_USER_SETTINGS));
+    await AsyncStorage.setItem(namespacedKey('MEAL_SESSIONS'), JSON.stringify([]));
+    await AsyncStorage.setItem(namespacedKey('INITIALIZED'), 'true');
   }
 }
 
 // ===== MEAL SCHEDULES =====
 export async function getMealSchedules(): Promise<MealSchedule[]> {
-  const data = await AsyncStorage.getItem(KEYS.MEAL_SCHEDULES);
+  const data = await AsyncStorage.getItem(namespacedKey('MEAL_SCHEDULES'));
   return data ? JSON.parse(data) : DEFAULT_MEAL_SCHEDULES;
 }
 
 export async function saveMealSchedules(schedules: MealSchedule[]): Promise<void> {
-  await AsyncStorage.setItem(KEYS.MEAL_SCHEDULES, JSON.stringify(schedules));
+  await AsyncStorage.setItem(namespacedKey('MEAL_SCHEDULES'), JSON.stringify(schedules));
 }
 
 export async function addMealSchedule(schedule: MealSchedule): Promise<void> {
@@ -62,7 +201,7 @@ export async function deleteMealSchedule(id: string): Promise<void> {
 
 // ===== MEAL SESSIONS =====
 export async function getMealSessions(): Promise<MealSession[]> {
-  const data = await AsyncStorage.getItem(KEYS.MEAL_SESSIONS);
+  const data = await AsyncStorage.getItem(namespacedKey('MEAL_SESSIONS'));
   return data ? JSON.parse(data) : [];
 }
 
@@ -74,43 +213,43 @@ export async function saveMealSession(session: MealSession): Promise<void> {
   } else {
     sessions.push(session);
   }
-  await AsyncStorage.setItem(KEYS.MEAL_SESSIONS, JSON.stringify(sessions));
+  await AsyncStorage.setItem(namespacedKey('MEAL_SESSIONS'), JSON.stringify(sessions));
 }
 
 export async function deleteMealSession(id: string): Promise<void> {
   const sessions = await getMealSessions();
   await AsyncStorage.setItem(
-    KEYS.MEAL_SESSIONS,
+    namespacedKey('MEAL_SESSIONS'),
     JSON.stringify(sessions.filter((session) => session.id !== id)),
   );
 }
 
 export async function getActiveSession(): Promise<MealSession | null> {
-  const data = await AsyncStorage.getItem(KEYS.ACTIVE_SESSION);
+  const data = await AsyncStorage.getItem(namespacedKey('ACTIVE_SESSION'));
   return data ? JSON.parse(data) : null;
 }
 
 export async function setActiveSession(session: MealSession | null): Promise<void> {
   if (session) {
-    await AsyncStorage.setItem(KEYS.ACTIVE_SESSION, JSON.stringify(session));
+    await AsyncStorage.setItem(namespacedKey('ACTIVE_SESSION'), JSON.stringify(session));
   } else {
-    await AsyncStorage.removeItem(KEYS.ACTIVE_SESSION);
+    await AsyncStorage.removeItem(namespacedKey('ACTIVE_SESSION'));
   }
 }
 
 // ===== BLOCK CONFIG =====
 export async function getBlockConfig(): Promise<BlockConfig> {
-  const data = await AsyncStorage.getItem(KEYS.BLOCK_CONFIG);
+  const data = await AsyncStorage.getItem(namespacedKey('BLOCK_CONFIG'));
   return data ? JSON.parse(data) : DEFAULT_BLOCK_CONFIG;
 }
 
 export async function saveBlockConfig(config: BlockConfig): Promise<void> {
-  await AsyncStorage.setItem(KEYS.BLOCK_CONFIG, JSON.stringify(config));
+  await AsyncStorage.setItem(namespacedKey('BLOCK_CONFIG'), JSON.stringify(config));
 }
 
 // ===== USER SETTINGS =====
 export async function getUserSettings(): Promise<UserSettings> {
-  const data = await AsyncStorage.getItem(KEYS.USER_SETTINGS);
+  const data = await AsyncStorage.getItem(namespacedKey('USER_SETTINGS'));
   if (!data) return DEFAULT_USER_SETTINGS;
 
   const parsed = JSON.parse(data) as Partial<UserSettings>;
@@ -145,10 +284,10 @@ export async function getUserSettings(): Promise<UserSettings> {
 }
 
 export async function saveUserSettings(settings: UserSettings): Promise<void> {
-  await AsyncStorage.setItem(KEYS.USER_SETTINGS, JSON.stringify(settings));
+  await AsyncStorage.setItem(namespacedKey('USER_SETTINGS'), JSON.stringify(settings));
 }
 
 // ===== CLEAR ALL =====
 export async function clearAllData(): Promise<void> {
-  await AsyncStorage.multiRemove(Object.values(KEYS));
+  await AsyncStorage.multiRemove(allNamespacedKeys());
 }

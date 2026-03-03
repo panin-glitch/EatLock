@@ -59,7 +59,7 @@ async function getUser(
   const whoamiRes = await fetch(`${env.SUPABASE_URL}/auth/v1/user`, {
     method: 'GET',
     headers: {
-      apikey: env.SUPABASE_SERVICE_KEY,
+      apikey: env.SUPABASE_SERVICE_ROLE_KEY,
       Authorization: `Bearer ${jwt}`,
     },
   });
@@ -204,7 +204,7 @@ export async function handleBarcodeLookup(
   const barcode = body.barcode.trim();
 
   // 1. Check cache
-  const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_KEY, {
+  const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
     auth: { persistSession: false },
   });
 

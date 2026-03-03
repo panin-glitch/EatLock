@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode, useRef } from 'react';
 import {
   MealSchedule,
   MealSession,
@@ -13,7 +13,8 @@ import * as Storage from '../services/storage';
 import { blockingEngine } from '../services/blockingEngine';
 import { scheduleAllMealNotifications } from '../services/notifications';
 import { ensureAuth } from '../services/authService';
-import { logCompletedMeal, updateSessionDistraction } from '../services/mealLogger';
+import { fetchRemoteCompletedSessions, logCompletedMeal, updateSessionDistraction } from '../services/mealLogger';
+import { supabase } from '../services/supabaseClient';
 
 interface AppState {
   schedules: MealSchedule[];
@@ -62,13 +63,27 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const [settings, setSettings] = useState<UserSettings>(DEFAULT_USER_SETTINGS);
   const [activeSession, setActiveSession] = useState<MealSession | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const lastUserIdRef = useRef<string | null>(null);
+  const lastUserWasAnonymousRef = useRef<boolean>(true);
 
   const loadAll = useCallback(async () => {
     setIsLoading(true);
     try {
-      await Storage.initializeStorage();
       // Ensure user has a Supabase session (anonymous sign-in if needed)
       await ensureAuth();
+      const { data } = await supabase.auth.getSession();
+      const currentUser = data.session?.user ?? null;
+      const currentUserId = currentUser?.id ?? 'anonymous';
+      const isAnonymousUser = !currentUser?.email;
+      Storage.setStorageNamespace(currentUserId);
+      if (!isAnonymousUser) {
+        const lastInfo = await Storage.getLastAuthNamespaceInfo();
+        if (lastInfo?.isAnonymous && lastInfo.namespace && lastInfo.namespace !== currentUserId) {
+          await Storage.migrateNamespaceData(lastInfo.namespace, currentUserId);
+        }
+        await Storage.migrateLegacyToNamespace(currentUserId);
+      }
+      await Storage.initializeStorage();
       const [s, sess, bc, us, as_] = await Promise.all([
         Storage.getMealSchedules(),
         Storage.getMealSessions(),
@@ -76,11 +91,27 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         Storage.getUserSettings(),
         Storage.getActiveSession(),
       ]);
+
       setSchedules(s);
-      setSessions(sess);
       setBlockConfig(bc);
       setSettings(us);
-      setActiveSession(as_);
+
+      if (isAnonymousUser) {
+        setSessions([]);
+        setActiveSession(null);
+      } else {
+        const remoteSessions = await fetchRemoteCompletedSessions();
+        if (remoteSessions.length > 0) {
+          await Promise.all(remoteSessions.map((remote) => Storage.saveMealSession(remote)));
+        }
+        const mergedSessions = await Storage.getMealSessions();
+        setSessions(mergedSessions.length > 0 ? mergedSessions : sess);
+        setActiveSession(as_);
+      }
+
+      lastUserIdRef.current = currentUser?.id ?? null;
+      lastUserWasAnonymousRef.current = isAnonymousUser;
+      await Storage.setLastAuthNamespaceInfo(currentUserId, isAnonymousUser);
     } catch (e) {
       console.error('Failed to load data:', e);
     }
@@ -89,6 +120,47 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     loadAll();
+  }, [loadAll]);
+
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      const previousUserId = lastUserIdRef.current;
+      const previousWasAnonymous = lastUserWasAnonymousRef.current;
+      const nextUserId = session?.user?.id ?? null;
+      const nextIsAnonymous = !session?.user?.email;
+
+      let migrationSourceUserId = previousUserId;
+      let migrationSourceIsAnonymous = previousWasAnonymous;
+
+      if (!migrationSourceUserId) {
+        const lastInfo = await Storage.getLastAuthNamespaceInfo();
+        if (lastInfo?.namespace) {
+          migrationSourceUserId = lastInfo.namespace;
+          migrationSourceIsAnonymous = lastInfo.isAnonymous;
+        }
+      }
+
+      if (
+        event === 'SIGNED_IN' &&
+        migrationSourceIsAnonymous &&
+        migrationSourceUserId &&
+        nextUserId &&
+        migrationSourceUserId !== nextUserId
+      ) {
+        try {
+          await Storage.migrateNamespaceData(migrationSourceUserId, nextUserId);
+        } catch (error) {
+          console.warn('[AppState] Failed to migrate anonymous data to signed-in user:', error);
+        }
+      }
+
+      lastUserIdRef.current = nextUserId;
+      lastUserWasAnonymousRef.current = nextIsAnonymous;
+      await Storage.setLastAuthNamespaceInfo(nextUserId ?? 'anonymous', nextIsAnonymous);
+      loadAll();
+    });
+
+    return () => subscription.unsubscribe();
   }, [loadAll]);
 
   const addSchedule = async (schedule: MealSchedule) => {

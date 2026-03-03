@@ -9,8 +9,8 @@
 
 import { supabase } from './supabaseClient';
 import type { MealSession } from '../types/models';
-import type { NutritionEstimate } from './vision/types';
-import { mealTypeToDb } from '../types/models';
+import type { NutritionEstimate, SessionStatus } from './vision/types';
+import { mealTypeToDb, dbToMealType } from '../types/models';
 
 export async function logCompletedMeal(session: MealSession): Promise<void> {
   try {
@@ -176,5 +176,86 @@ export async function updateSessionDistraction(
     }
   } catch (e: any) {
     console.warn('[mealLogger] updateSessionDistraction failed:', e?.message);
+  }
+}
+
+function mapDbStatusToSessionStatus(dbStatus: string | null, endedAt?: string | null): SessionStatus {
+  const status = String(dbStatus || '').toLowerCase();
+  if (status === 'active' && !endedAt) return 'ACTIVE';
+  if (status === 'cancelled' || status === 'failed') return 'FAILED';
+  return 'VERIFIED';
+}
+
+export async function fetchRemoteCompletedSessions(limit = 300): Promise<MealSession[]> {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user?.id) return [];
+
+    const uid = session.user.id;
+    const { data: rows, error } = await supabase
+      .from('meal_sessions')
+      .select('id, meal_type, started_at, ended_at, status, notes, distraction_rating')
+      .eq('user_id', uid)
+      .order('started_at', { ascending: false })
+      .limit(limit);
+
+    if (error || !rows?.length) return [];
+
+    const ids = rows.map((r: any) => String(r.id)).filter(Boolean);
+    const { data: nutritionRows } = await supabase
+      .from('meal_nutrition')
+      .select('meal_session_id, food_label, estimated_calories, min_calories, max_calories, confidence, source, protein_g, carbs_g, fat_g, fiber_g, sugar_g, sodium_mg, saturated_fat_g, micronutrients')
+      .eq('user_id', uid)
+      .in('meal_session_id', ids);
+
+    const nutritionBySession = new Map<string, any>();
+    for (const row of nutritionRows || []) {
+      const sid = String((row as any).meal_session_id || '');
+      if (sid && !nutritionBySession.has(sid)) {
+        nutritionBySession.set(sid, row);
+      }
+    }
+
+    return rows.map((row: any) => {
+      const nutrition = nutritionBySession.get(String(row.id));
+      const preNutrition: NutritionEstimate | undefined = nutrition
+        ? {
+            food_label: nutrition.food_label || 'Meal',
+            estimated_calories: Number(nutrition.estimated_calories || 0),
+            min_calories: Number(nutrition.min_calories || 0),
+            max_calories: Number(nutrition.max_calories || 0),
+            confidence: Number(nutrition.confidence || 0),
+            notes: '',
+            protein_g: nutrition.protein_g,
+            carbs_g: nutrition.carbs_g,
+            fat_g: nutrition.fat_g,
+            fiber_g: nutrition.fiber_g,
+            sugar_g: nutrition.sugar_g,
+            sodium_mg: nutrition.sodium_mg,
+            saturated_fat_g: nutrition.saturated_fat_g,
+            micronutrients: nutrition.micronutrients || {},
+            source: (nutrition.source || 'vision') as 'vision' | 'barcode' | 'user',
+          }
+        : undefined;
+
+      return {
+        id: String(row.id),
+        startedAt: row.started_at,
+        endedAt: row.ended_at || undefined,
+        mealType: dbToMealType(String(row.meal_type || 'custom')),
+        foodName: preNutrition?.food_label,
+        note: row.notes || '',
+        strictMode: false,
+        verification: {},
+        status: mapDbStatusToSessionStatus(row.status, row.ended_at),
+        preNutrition,
+        overrideUsed: false,
+        blockedAppsAtTime: [],
+        distractionRating: row.distraction_rating ?? undefined,
+      } as MealSession;
+    });
+  } catch (e: any) {
+    console.warn('[mealLogger] fetchRemoteCompletedSessions failed:', e?.message);
+    return [];
   }
 }

@@ -26,8 +26,8 @@ async function consumeQuota(
   const res = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/consume_vision_quota`, {
     method: 'POST',
     headers: {
-      apikey: env.SUPABASE_SERVICE_KEY,
-      Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+      apikey: env.SUPABASE_SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({ p_user_id: userId, p_kind: kind, p_limit: limit }),
@@ -203,7 +203,7 @@ async function getUser(
   const whoamiRes = await fetch(`${env.SUPABASE_URL}/auth/v1/user`, {
     method: 'GET',
     headers: {
-      apikey: env.SUPABASE_SERVICE_KEY,
+      apikey: env.SUPABASE_SERVICE_ROLE_KEY,
       Authorization: `Bearer ${jwt}`,
     },
   });

@@ -51,9 +51,17 @@ All limits are gated by `ENFORCE_LIMITS=true` environment variable.
 ## Guardrails CI
 
 `scripts/guardrails.mjs` runs on every commit and checks:
-1. No raw `.includes(userId)` patterns — must use `ownsR2Key()`.
-2. All R2 key validations use `startsWith(\`uploads/\${…}/\`)`.
-3. No hardcoded secrets in source.
+1. Post-scan flow never calls `verifyFood()`.
+2. Backend code never uses `includes(auth.user_id)` for R2 ownership checks.
+3. Barcode logic does not treat `_100g` calories as per-serving calories.
+4. Required security skill docs exist.
+5. Tracked `.env` files are blocked (`.env`, `.env.local`, `**/.env.*`), except `.env.example`.
+6. Tracked text files are scanned for hardcoded secret patterns, including:
+	- `sb_secret_*` tokens
+	- hardcoded `SUPABASE_SERVICE_ROLE_KEY` / `SUPABASE_SERVICE_KEY` values
+	- hardcoded `SUPABASE_ANON_KEY` values that embed a Supabase key literal
+	- hardcoded `SUPABASE_URL` values that embed a concrete Supabase project URL
+	- hardcoded bearer token literals
 
 Must print `GUARDRAILS_OK` to pass.
 
