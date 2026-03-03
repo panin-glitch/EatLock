@@ -7,10 +7,10 @@
  *   SUPABASE_URL, SUPABASE_ANON_KEY, TEST_EMAIL, TEST_PASSWORD
  *
  * Usage (Windows PowerShell):
- *   $env:SUPABASE_URL="https://xxx.supabase.invalid"; $env:SUPABASE_ANON_KEY="ey..."; $env:TEST_EMAIL="you@example.com"; $env:TEST_PASSWORD="hunter2"; npm run token
+ *   $env:SUPABASE_URL="https://YOUR_SUPABASE_PROJECT_URL"; $env:SUPABASE_ANON_KEY="YOUR_ANON_KEY"; $env:TEST_EMAIL="you@example.com"; $env:TEST_PASSWORD="hunter2"; npm run token
  *
  * Usage (bash / macOS / Linux):
- *   SUPABASE_URL="https://xxx.supabase.invalid" SUPABASE_ANON_KEY="ey..." TEST_EMAIL="you@example.com" TEST_PASSWORD="hunter2" npm run token
+ *   SUPABASE_URL="https://YOUR_SUPABASE_PROJECT_URL" SUPABASE_ANON_KEY="YOUR_ANON_KEY" TEST_EMAIL="you@example.com" TEST_PASSWORD="hunter2" npm run token
  */
 
 import { createClient } from "@supabase/supabase-js";
