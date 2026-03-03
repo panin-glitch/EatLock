@@ -164,7 +164,7 @@ export async function fetchOpenFoodFacts(barcode: string): Promise<BarcodeLookup
       carbs_g: round1(carb),
       fat_g: round1(fat),
       serving_hint: p.serving_size || null,
-      per_100g,
+      per_100g: per100g,
     };
   } catch (e) {
     console.error('[barcode] OpenFoodFacts fetch error:', e);

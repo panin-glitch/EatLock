@@ -22,7 +22,6 @@ export default function BlockScreen() {
   const { theme } = useTheme();
   const { blockConfig, updateBlockConfig } = useAppState();
   const [showAddApp, setShowAddApp] = useState(false);
-  const [newWebsite, setNewWebsite] = useState('');
   const [showHelpModal, setShowHelpModal] = useState(false);
 
   const addApp = (app: AppInfo) => {
@@ -41,16 +40,6 @@ export default function BlockScreen() {
     });
   };
 
-  const toggleShort = (key: keyof typeof blockConfig.blockShortsFlags) => {
-    updateBlockConfig({
-      ...blockConfig,
-      blockShortsFlags: {
-        ...blockConfig.blockShortsFlags,
-        [key]: !blockConfig.blockShortsFlags[key],
-      },
-    });
-  };
-
   const toggleProtection = (key: keyof typeof blockConfig.protections) => {
     updateBlockConfig({
       ...blockConfig,
@@ -61,34 +50,11 @@ export default function BlockScreen() {
     });
   };
 
-  const addWebsite = () => {
-    if (!newWebsite.trim()) return;
-    updateBlockConfig({
-      ...blockConfig,
-      blockWebsites: [...blockConfig.blockWebsites, newWebsite.trim()],
-    });
-    setNewWebsite('');
-  };
-
-  const removeWebsite = (url: string) => {
-    updateBlockConfig({
-      ...blockConfig,
-      blockWebsites: blockConfig.blockWebsites.filter((w) => w !== url),
-    });
-  };
-
   const availableToAdd = AVAILABLE_APPS.filter(
     (app) => !blockConfig.blockedApps.find((a) => a.id === app.id)
   );
 
   const styles = makeStyles(theme);
-
-  const shortsItems = [
-    { key: 'ytShorts' as const, name: 'YouTube Shorts', icon: 'play-circle-outline' },
-    { key: 'igReels' as const, name: 'IG Reels', icon: 'camera' },
-    { key: 'snapSpotlight' as const, name: 'Snapchat Spotlight', icon: 'chat-bubble' },
-    { key: 'fbReels' as const, name: 'Facebook Reels', icon: 'people' },
-  ];
 
   const protectionItems = [
     { key: 'blockUninstall' as const, label: 'Block app uninstall during strict mode', icon: 'delete-forever' },
@@ -148,90 +114,7 @@ export default function BlockScreen() {
           )}
         </View>
 
-        {/* Section 2: Block Shorts */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Block Shorts</Text>
-          <Text style={styles.sectionHint}>
-            Block short-form video content during meals
-          </Text>
-          {shortsItems.map((item) => (
-            <View key={item.key} style={styles.toggleRow}>
-              <View style={styles.toggleRowLeft}>
-                <MaterialIcons name={item.icon as any} size={20} color={theme.text} />
-                <Text style={styles.toggleRowLabel}>{item.name}</Text>
-              </View>
-              {blockConfig.blockShortsFlags[item.key] ? (
-                <TouchableOpacity
-                  style={styles.addedBadge}
-                  onPress={() => toggleShort(item.key)}
-                >
-                  <MaterialIcons name="check" size={16} color={theme.primary} />
-                  <Text style={styles.addedBadgeText}>Added</Text>
-                </TouchableOpacity>
-              ) : (
-                <TouchableOpacity
-                  style={styles.addBadge}
-                  onPress={() => toggleShort(item.key)}
-                >
-                  <MaterialIcons name="add" size={16} color={theme.primary} />
-                  <Text style={styles.addBadgeText}>Add</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          ))}
-        </View>
-
-        {/* Section 3: Other blocks */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Other Blocks</Text>
-
-          {/* Block Websites */}
-          <View style={styles.subsection}>
-            <Text style={styles.subsectionTitle}>Block Websites</Text>
-            <View style={styles.websiteInputRow}>
-              <TextInput
-                style={styles.websiteInput}
-                value={newWebsite}
-                onChangeText={setNewWebsite}
-                placeholder="e.g. reddit.com"
-                placeholderTextColor={theme.textMuted}
-                onSubmitEditing={addWebsite}
-              />
-              <TouchableOpacity style={styles.websiteAddBtn} onPress={addWebsite}>
-                <MaterialIcons name="add" size={20} color="#FFF" />
-              </TouchableOpacity>
-            </View>
-            {blockConfig.blockWebsites.map((url) => (
-              <View key={url} style={styles.websiteRow}>
-                <MaterialIcons name="language" size={18} color={theme.textSecondary} />
-                <Text style={styles.websiteText}>{url}</Text>
-                <TouchableOpacity onPress={() => removeWebsite(url)}>
-                  <MaterialIcons name="close" size={18} color={theme.danger} />
-                </TouchableOpacity>
-              </View>
-            ))}
-          </View>
-
-          {/* Block Notifications */}
-          <View style={styles.toggleCard}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.toggleCardLabel}>Block Notifications</Text>
-              <Text style={styles.toggleCardHint}>
-                Silence notifications during strict mode meals
-              </Text>
-            </View>
-            <Switch
-              value={blockConfig.blockNotificationsEnabled}
-              onValueChange={(val) =>
-                updateBlockConfig({ ...blockConfig, blockNotificationsEnabled: val })
-              }
-              trackColor={{ false: theme.inputBg, true: theme.primaryDim }}
-              thumbColor={blockConfig.blockNotificationsEnabled ? theme.primary : theme.textMuted}
-            />
-          </View>
-        </View>
-
-        {/* Section 4: Block Protections */}
+        {/* Section 2: Block Protections */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Block Protections</Text>
           <Text style={styles.sectionHint}>

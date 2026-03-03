@@ -14,6 +14,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../../theme/ThemeProvider';
 import { supabase } from '../../services/supabaseClient';
+import { getDisplayName } from '../../utils/displayName';
 
 type Stats = {
   meals_completed: number;
@@ -54,7 +55,7 @@ export default function MemberStatsScreen() {
 
       if (statError) throw statError;
 
-      setName(profile?.username || 'User');
+      setName(getDisplayName(null, profile));
       setAvatarUrl(profile?.avatar_url || null);
       setStats(statData as Stats);
     } catch (error: any) {

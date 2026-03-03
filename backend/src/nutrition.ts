@@ -181,6 +181,10 @@ const NUTRITION_SCHEMA = {
       protein_g: { type: 'number' },
       carbs_g: { type: 'number' },
       fat_g: { type: 'number' },
+      fiber_g: { type: 'number' },
+      sugar_g: { type: 'number' },
+      sodium_mg: { type: 'number' },
+      saturated_fat_g: { type: 'number' },
       confidence: { type: 'number' },
       notes: { type: 'string' },
     },
@@ -192,6 +196,10 @@ const NUTRITION_SCHEMA = {
       'protein_g',
       'carbs_g',
       'fat_g',
+      'fiber_g',
+      'sugar_g',
+      'sodium_mg',
+      'saturated_fat_g',
       'confidence',
       'notes',
     ],
@@ -226,7 +234,7 @@ ANCHOR TABLE (per typical home serving):
 
 Use these as anchors. Scale up or down based on what you see.
 
-Output STRICT JSON only. Always include protein_g, carbs_g, fat_g estimates. Use 0 if you truly cannot estimate a macro.`;
+Output STRICT JSON only. Always include protein_g, carbs_g, fat_g, fiber_g, sugar_g, sodium_mg, and saturated_fat_g estimates. Use 0 if you truly cannot estimate a value.`;
 
 export async function handleNutritionEstimate(
   request: Request,

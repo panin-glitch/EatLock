@@ -130,13 +130,31 @@ export interface HomeWidgetSettings {
   showTruthBomb: boolean;
 }
 
+export interface NutritionGoalsSettings {
+  dailyCalorieGoal: number;
+  macroSplit: {
+    carbsPct: number;
+    proteinPct: number;
+    fatPct: number;
+  };
+}
+
 export interface UserSettings {
   truthBomb: TruthBombSettings;
   homeWidgets: HomeWidgetSettings;
+  nutritionGoals: NutritionGoalsSettings;
   developer?: {
     disableQuotasDev: boolean;
   };
 }
+
+export const DEFAULT_MACRO_SPLIT = {
+  carbsPct: 0.5,
+  proteinPct: 0.2,
+  fatPct: 0.3,
+} as const;
+
+export const DEFAULT_DAILY_CALORIE_GOAL = 2000;
 
 export const DEFAULT_BLOCK_CONFIG: BlockConfig = {
   blockedApps: [
@@ -218,6 +236,14 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
     showNextMeal: true,
     showLockedApps: true,
     showTruthBomb: true,
+  },
+  nutritionGoals: {
+    dailyCalorieGoal: DEFAULT_DAILY_CALORIE_GOAL,
+    macroSplit: {
+      carbsPct: DEFAULT_MACRO_SPLIT.carbsPct,
+      proteinPct: DEFAULT_MACRO_SPLIT.proteinPct,
+      fatPct: DEFAULT_MACRO_SPLIT.fatPct,
+    },
   },
   developer: {
     disableQuotasDev: false,

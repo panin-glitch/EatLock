@@ -1,5 +1,16 @@
 import { MealSchedule, MealSession, DayOfWeek } from '../types/models';
 
+export function computeMacroTargetsFromCalories(
+  calorieGoal: number,
+  split: { carbsPct: number; proteinPct: number; fatPct: number },
+): { carbsGoalG: number; proteinGoalG: number; fatGoalG: number } {
+  const safeCalories = Math.max(0, calorieGoal);
+  const carbsGoalG = Math.round((safeCalories * split.carbsPct) / 4);
+  const proteinGoalG = Math.round((safeCalories * split.proteinPct) / 4);
+  const fatGoalG = Math.round((safeCalories * split.fatPct) / 9);
+  return { carbsGoalG, proteinGoalG, fatGoalG };
+}
+
 const DAYS_ORDER: DayOfWeek[] = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 export function getNextMeal(schedules: MealSchedule[]): { schedule: MealSchedule; nextTime: Date } | null {

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -7,48 +7,43 @@ import {
   TouchableOpacity,
   Image,
   TextInput,
-  Alert,
   ActivityIndicator,
   ScrollView,
+  Alert,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useTheme } from '../../theme/ThemeProvider';
 import { useAuth } from '../../state/AuthContext';
-import { supabase } from '../../services/supabaseClient';
 import { saveUsername, isValidUsername } from '../../services/profileService';
 import { signOut, updateEmail } from '../../services/authService';
+import { getDisplayName } from '../../utils/displayName';
 
 export default function ProfileScreen() {
   const { theme } = useTheme();
-  const { user } = useAuth();
+  const { user, profile, displayName, refreshProfile } = useAuth();
   const navigation = useNavigation<any>();
 
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [username, setUsername] = useState('');
   const [initialUsername, setInitialUsername] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   // Email change state
   const [emailInput, setEmailInput] = useState('');
   const [emailSaving, setEmailSaving] = useState(false);
   const isAnonymous = !user?.email;
 
-  const fallbackName = useMemo(() => user?.email?.split('@')[0] ?? 'User', [user?.email]);
-
-  const loadProfile = useCallback(async () => {
-    if (!user?.id) return;
-    const { data } = await supabase
-      .from('profiles')
-      .select('avatar_url, username')
-      .eq('user_id', user.id)
-      .maybeSingle();
-
-    setAvatarUrl(data?.avatar_url ?? null);
-    const loadedUsername = data?.username ?? fallbackName;
+  const loadProfile = useCallback(async (): Promise<string | null> => {
+    if (!user?.id) return null;
+    const nextProfile = await refreshProfile();
+    setAvatarUrl(nextProfile?.avatar_url ?? null);
+    const loadedUsername = getDisplayName(user, nextProfile ?? profile);
     setUsername(loadedUsername);
     setInitialUsername(loadedUsername);
-  }, [user?.id, fallbackName]);
+    return loadedUsername;
+  }, [profile, refreshProfile, user]);
 
   useEffect(() => {
     loadProfile();
@@ -56,23 +51,34 @@ export default function ProfileScreen() {
 
   const saveProfile = useCallback(async () => {
     if (!user?.id) return;
+    setSaveError(null);
     setIsSaving(true);
     try {
       const result = await saveUsername(user.id, username);
       if (!result.ok) {
-        Alert.alert('Save failed', result.message);
+        setSaveError(result.message);
         return;
       }
 
+      // Optional: refresh cached profile, but don't fail the save if read-back is slow/blocked
+await refreshProfile();
+
+setInitialUsername(result.username);
+setUsername(result.username);
+setSaveError(null);
+
+// Trust the saved value locally
+setInitialUsername(result.username);
+setUsername(result.username);
+
       setInitialUsername(result.username);
       setUsername(result.username);
-      Alert.alert('Saved', 'Profile updated.');
     } catch (error: any) {
-      Alert.alert('Save failed', error?.message ?? 'Could not save profile changes.');
+      setSaveError(error?.message ?? 'Could not save profile changes.');
     } finally {
       setIsSaving(false);
     }
-  }, [user?.id, username]);
+  }, [loadProfile, user?.id, username]);
 
   const handleEmailChange = useCallback(async () => {
     const trimmed = emailInput.trim();
@@ -196,6 +202,10 @@ export default function ProfileScreen() {
               <Text style={[styles.saveBtnText, { color: hasChanges && isValidUsername(username) ? theme.background : theme.textMuted }]}>Save changes</Text>
             )}
           </TouchableOpacity>
+
+          {saveError ? (
+            <Text style={[styles.helperText, { color: theme.warning, marginTop: 8 }]}>{saveError}</Text>
+          ) : null}
         </View>
       </ScrollView>
     </View>

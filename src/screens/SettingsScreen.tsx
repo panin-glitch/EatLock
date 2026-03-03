@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -6,27 +6,73 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
+  TextInput,
   Switch,
   Alert,
   Linking,
   StatusBar,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../theme/ThemeProvider';
 import { useAppState } from '../state/AppStateContext';
-import { useAuth } from '../state/AuthContext';
-import { signOut } from '../services/authService';
 import { ThemeName, themes } from '../theme/colors';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { DEFAULT_DAILY_CALORIE_GOAL } from '../types/models';
+import { computeMacroTargetsFromCalories } from '../utils/helpers';
+import { fetchRemoteUserSettings, setMicronutrientsEnabled } from '../services/userSettingsService';
 
 export default function SettingsScreen() {
   const { theme, themeName, setThemeName } = useTheme();
   const { settings, updateSettings, clearAll } = useAppState();
-  const { user, isAuthenticated } = useAuth();
   const navigation = useNavigation<any>();
 
   const themeNames = Object.keys(themes) as ThemeName[];
+  const [calorieGoalInput, setCalorieGoalInput] = useState(String(settings.nutritionGoals.dailyCalorieGoal));
+  const [microsEnabled, setMicrosEnabled] = useState(false);
+  const [microsLoading, setMicrosLoading] = useState(true);
+
+  // Load remote micronutrients toggle on focus
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      setMicrosLoading(true);
+      fetchRemoteUserSettings().then((s) => {
+        if (!cancelled) {
+          setMicrosEnabled(s.micronutrients_enabled);
+          setMicrosLoading(false);
+        }
+      }).catch(() => {
+        if (!cancelled) setMicrosLoading(false);
+      });
+      return () => { cancelled = true; };
+    }, []),
+  );
+
+  const toggleMicrosEnabled = async () => {
+    const next = !microsEnabled;
+    setMicrosEnabled(next);
+    try {
+      await setMicronutrientsEnabled(next);
+    } catch (e: any) {
+      setMicrosEnabled(!next); // revert
+      Alert.alert('Error', e?.message || 'Could not save setting');
+    }
+  };
+
+  useEffect(() => {
+    setCalorieGoalInput(String(settings.nutritionGoals.dailyCalorieGoal));
+  }, [settings.nutritionGoals.dailyCalorieGoal]);
+
+  const recommendedTargets = useMemo(
+    () =>
+      computeMacroTargetsFromCalories(
+        Number.isFinite(Number(calorieGoalInput)) ? Number(calorieGoalInput) : settings.nutritionGoals.dailyCalorieGoal,
+        settings.nutritionGoals.macroSplit,
+      ),
+    [calorieGoalInput, settings.nutritionGoals.dailyCalorieGoal, settings.nutritionGoals.macroSplit],
+  );
 
   const toggleWidget = (key: keyof typeof settings.homeWidgets) => {
     updateSettings({
@@ -45,6 +91,22 @@ export default function SettingsScreen() {
         disableQuotasDev: !(settings.developer?.disableQuotasDev ?? false),
       },
     });
+  };
+
+  const commitCalorieGoal = () => {
+    const parsed = Number(calorieGoalInput);
+    const nextGoal = Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : DEFAULT_DAILY_CALORIE_GOAL;
+
+    if (nextGoal !== settings.nutritionGoals.dailyCalorieGoal) {
+      updateSettings({
+        ...settings,
+        nutritionGoals: {
+          ...settings.nutritionGoals,
+          dailyCalorieGoal: nextGoal,
+        },
+      });
+    }
+    setCalorieGoalInput(String(nextGoal));
   };
 
   const handleDeleteAccount = () => {
@@ -96,52 +158,41 @@ export default function SettingsScreen() {
           <Text style={styles.rowText}>Profile</Text>
           <MaterialIcons name="chevron-right" size={22} color={theme.textSecondary} />
         </TouchableOpacity>
-        {isAuthenticated && user?.email ? (
-          <>
-            <View style={styles.row}>
-              <MaterialIcons name="person" size={22} color={theme.primary} />
-              <Text style={[styles.rowText, { color: theme.primary }]}>
-                {user.email}
-              </Text>
+
+        {/* Nutrition goals */}
+        <Text style={styles.sectionLabel}>NUTRITION GOALS</Text>
+        <View style={styles.widgetGroup}>
+          <View style={styles.goalRow}>
+            <Text style={styles.widgetLabel}>Daily calorie goal</Text>
+            <View style={styles.goalInputWrap}>
+              <TextInput
+                style={styles.goalInput}
+                value={calorieGoalInput}
+                onChangeText={setCalorieGoalInput}
+                onBlur={commitCalorieGoal}
+                onEndEditing={commitCalorieGoal}
+                keyboardType="number-pad"
+                returnKeyType="done"
+                placeholder="2000"
+                placeholderTextColor={theme.textMuted}
+              />
+              <Text style={styles.goalUnit}>kcal</Text>
             </View>
-            <TouchableOpacity
-              style={styles.row}
-              onPress={() => {
-                Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
-                  { text: 'Cancel', style: 'cancel' },
-                  {
-                    text: 'Sign Out',
-                    onPress: () => signOut(),
-                  },
-                ]);
-              }}
-            >
-              <MaterialIcons name="logout" size={22} color={theme.textSecondary} />
-              <Text style={styles.rowText}>Sign out</Text>
-              <MaterialIcons name="chevron-right" size={22} color={theme.textMuted} />
-            </TouchableOpacity>
-          </>
-        ) : isAuthenticated ? (
-          <>
-            <View style={styles.row}>
-              <MaterialIcons name="person" size={22} color={theme.primary} />
-              <Text style={[styles.rowText, { color: theme.primary }]}>
-                Signed in (anonymous)
-              </Text>
-            </View>
-            <TouchableOpacity style={styles.row} onPress={() => navigation.navigate('Auth')}>
-              <MaterialIcons name="email" size={22} color={theme.textSecondary} />
-              <Text style={styles.rowText}>Upgrade to email sign-in</Text>
-              <MaterialIcons name="chevron-right" size={22} color={theme.textMuted} />
-            </TouchableOpacity>
-          </>
-        ) : (
-          <TouchableOpacity style={styles.row} onPress={() => navigation.navigate('Auth')}>
-            <MaterialIcons name="person-outline" size={22} color={theme.textSecondary} />
-            <Text style={styles.rowText}>Sign in / Create account</Text>
-            <MaterialIcons name="chevron-right" size={22} color={theme.textMuted} />
-          </TouchableOpacity>
-        )}
+          </View>
+
+          <View style={styles.goalDivider} />
+
+          <View style={styles.goalInfoRow}>
+            <Text style={styles.goalInfoLabel}>Split</Text>
+            <Text style={styles.goalInfoValue}>Carbs 50% · Protein 20% · Fat 30%</Text>
+          </View>
+          <View style={styles.goalInfoRow}>
+            <Text style={styles.goalInfoLabel}>Recommended targets</Text>
+            <Text style={styles.goalInfoValue}>
+              {recommendedTargets.carbsGoalG}g carbs · {recommendedTargets.proteinGoalG}g protein · {recommendedTargets.fatGoalG}g fat
+            </Text>
+          </View>
+        </View>
 
         {/* Permissions */}
         <Text style={styles.sectionLabel}>PERMISSIONS</Text>
@@ -232,6 +283,29 @@ export default function SettingsScreen() {
               trackColor={{ false: theme.inputBg, true: theme.primaryDim }}
               thumbColor={settings.homeWidgets.showLockedApps ? theme.primary : theme.textMuted}
             />
+          </View>
+        </View>
+
+        {/* Micronutrients (beta) */}
+        <Text style={styles.sectionLabel}>MICRONUTRIENTS</Text>
+        <View style={styles.widgetGroup}>
+          <View style={[styles.widgetRow, { borderBottomWidth: 0 }]}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.widgetLabel}>Micronutrients (beta)</Text>
+              <Text style={[styles.goalInfoLabel, { marginTop: 2 }]}>
+                Track fiber, sugar, sodium, sat. fat & more
+              </Text>
+            </View>
+            {microsLoading ? (
+              <ActivityIndicator size="small" color={theme.primary} />
+            ) : (
+              <Switch
+                value={microsEnabled}
+                onValueChange={toggleMicrosEnabled}
+                trackColor={{ false: theme.inputBg, true: theme.primaryDim }}
+                thumbColor={microsEnabled ? theme.primary : theme.textMuted}
+              />
+            )}
           </View>
         </View>
 
@@ -402,6 +476,49 @@ const makeStyles = (theme: any) =>
       borderBottomColor: theme.border,
     },
     widgetLabel: { fontSize: 15, color: theme.text },
+    goalRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      padding: 16,
+    },
+    goalInputWrap: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: theme.inputBg,
+      borderWidth: 1,
+      borderColor: theme.border,
+      borderRadius: 10,
+      paddingHorizontal: 10,
+      minWidth: 110,
+      height: 40,
+    },
+    goalInput: {
+      color: theme.text,
+      fontSize: 15,
+      fontWeight: '600',
+      minWidth: 56,
+      textAlign: 'right',
+    },
+    goalUnit: {
+      marginLeft: 8,
+      color: theme.textSecondary,
+      fontSize: 13,
+      fontWeight: '600',
+    },
+    goalDivider: {
+      height: 1,
+      backgroundColor: theme.border,
+      marginHorizontal: 16,
+    },
+    goalInfoRow: {
+      paddingHorizontal: 16,
+      paddingTop: 12,
+      paddingBottom: 2,
+      gap: 4,
+    },
+    goalInfoLabel: { fontSize: 12, color: theme.textMuted, fontWeight: '700' },
+    goalInfoValue: { fontSize: 14, color: theme.textSecondary, lineHeight: 19 },
     dangerRow: {
       flexDirection: 'row',
       alignItems: 'center',

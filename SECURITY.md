@@ -1,17 +1,7 @@
-# Security Notes
+# Security
 
-## No secrets in repo
+For security architecture, RLS policies, R2 ownership rules, quotas, and guardrails, see: docs/security.md
 
-- Do not commit service-role keys, OpenAI keys, access tokens, or `.env` files.
-- Client app config should only contain public values (for example Supabase publishable/anon key and worker URL).
-- Cloudflare Worker secrets must be stored with `wrangler secret put`.
-
-## Local development
-
-- Use `backend/.dev.vars` or local `.env` files only on your machine.
-- These are ignored by Git via `.gitignore`.
-
-## Logging
-
-- Request logs should contain request id, endpoint, and status code.
-- Never log raw Authorization tokens, keys, or image bytes.
+## Secret handling (quick rules)
+- Never commit service keys, API keys, tokens, or `.env` files.
+- Store Worker secrets using `wrangler secret put`.

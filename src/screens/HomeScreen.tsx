@@ -1,5 +1,5 @@
-import React, { useMemo, useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, StatusBar, TouchableOpacity, Image } from 'react-native';
+import React, { useMemo, useCallback, useRef, useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, StatusBar, TouchableOpacity, Image, ImageBackground } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import Svg, { Circle } from 'react-native-svg';
@@ -8,24 +8,37 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../theme/ThemeProvider';
 import { useAppState } from '../state/AppStateContext';
 import { useAuth } from '../state/AuthContext';
-import { supabase } from '../services/supabaseClient';
-import { computeStreak, getSessionDuration, getSessionsForDate, getWeekDates } from '../utils/helpers';
+import { computeMacroTargetsFromCalories, computeStreak, getSessionDuration, getSessionsForDate } from '../utils/helpers';
 import TodaysMealsList from '../components/home/TodaysMealsList';
 import { HEADER_BOTTOM_PADDING, HEADER_HORIZONTAL_PADDING } from '../components/common/ScreenHeader';
+import { DEFAULT_DAILY_CALORIE_GOAL, DEFAULT_MACRO_SPLIT } from '../types/models';
 
-const tadlockImg = require('../../assets/tadlock.png');
+const tadlockImg = require('../../assets/tadlock.gif');
 
 export default function HomeScreen() {
   const { theme } = useTheme();
   const insets = useSafeAreaInsets();
   const { settings, activeSession, sessions } = useAppState();
-  const { user } = useAuth();
+  const { displayName, profile, refreshProfile } = useAuth();
   const navigation = useNavigation<any>();
-  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const dateStripRef = useRef<ScrollView>(null);
+  const hasPositionedDateStrip = useRef(false);
 
   const [selectedDate, setSelectedDate] = useState(new Date());
-  const weekDates = useMemo(() => getWeekDates(new Date()), []);
+  const dateStripDates = useMemo(() => {
+    const today = new Date();
+    const daysBack = 12 * 7; // 12 weeks past
+    const daysForward = 4 * 7; // 4 weeks future
+    return Array.from({ length: daysBack + daysForward + 1 }, (_, index) => {
+      const d = new Date(today);
+      d.setDate(today.getDate() - daysBack + index);
+      return d;
+    });
+  }, []);
+  const initialTodayIndex = 12 * 7;
+  const dayCellWidth = 50;
   const selectedSessions = useMemo(() => getSessionsForDate(sessions, selectedDate), [sessions, selectedDate]);
+  const completedSelectedSessions = useMemo(() => selectedSessions.filter((s) => !!s.endedAt), [selectedSessions]);
 
   const { current: streak } = useMemo(() => computeStreak(sessions), [sessions]);
   const unreadNotifications = !!activeSession;
@@ -45,59 +58,51 @@ export default function HomeScreen() {
   const gaugeProgress = Math.min(timeSpentMinutes / 90, 1);
 
   const macroStats = useMemo(() => {
-    const caloriesEntries = selectedSessions.filter((s) => (s.preNutrition?.estimated_calories ?? 0) > 0).length;
     const caloriesTotal = Math.round(
-      selectedSessions.reduce((sum, s) => sum + (s.preNutrition?.estimated_calories ?? 0), 0),
+      completedSelectedSessions.reduce((sum, s) => sum + (s.preNutrition?.estimated_calories ?? 0), 0),
     );
-    const withNutrition = selectedSessions.filter((s) => s.preNutrition);
-    const knownCounts = {
-      protein: withNutrition.filter((s) => s.preNutrition?.protein_g != null).length,
-      fat: withNutrition.filter((s) => s.preNutrition?.fat_g != null).length,
-    };
 
     const totals = {
-      protein: Math.round(selectedSessions.reduce((sum, s) => sum + (s.preNutrition?.protein_g ?? 0), 0)),
-      fat: Math.round(selectedSessions.reduce((sum, s) => sum + (s.preNutrition?.fat_g ?? 0), 0)),
+      protein: Math.round(completedSelectedSessions.reduce((sum, s) => sum + (s.preNutrition?.protein_g ?? 0), 0)),
+      carbs: Math.round(completedSelectedSessions.reduce((sum, s) => sum + (s.preNutrition?.carbs_g ?? 0), 0)),
+      fat: Math.round(completedSelectedSessions.reduce((sum, s) => sum + (s.preNutrition?.fat_g ?? 0), 0)),
     };
 
-    const hasEnoughData = (known: number) => withNutrition.length > 0 && known / withNutrition.length >= 0.5;
+    const dailyCalorieGoal = settings.nutritionGoals?.dailyCalorieGoal ?? DEFAULT_DAILY_CALORIE_GOAL;
+    const macroSplit = settings.nutritionGoals?.macroSplit ?? DEFAULT_MACRO_SPLIT;
+    const macroTargets = computeMacroTargetsFromCalories(dailyCalorieGoal, macroSplit);
+    const hasGoal = dailyCalorieGoal > 0;
 
     return {
-      calories: caloriesEntries > 0 && caloriesTotal > 0 ? `${caloriesTotal}` : '—',
-      protein: hasEnoughData(knownCounts.protein) ? `${totals.protein}g` : '—',
-      fat: hasEnoughData(knownCounts.fat) ? `${totals.fat}g` : '—',
+      caloriesValue: hasGoal ? `${caloriesTotal}` : 'Set goal',
+      proteinValue: !hasGoal ? 'Set goal' : `${totals.protein}g`,
+      carbsValue: !hasGoal ? 'Set goal' : `${totals.carbs}g`,
+      fatValue: !hasGoal ? 'Set goal' : `${totals.fat}g`,
+      caloriesProgress: hasGoal ? caloriesTotal / dailyCalorieGoal : null,
+      proteinProgress: hasGoal && macroTargets.proteinGoalG > 0
+        ? totals.protein / macroTargets.proteinGoalG
+        : null,
+      carbsProgress: hasGoal && macroTargets.carbsGoalG > 0
+        ? totals.carbs / macroTargets.carbsGoalG
+        : null,
+      fatProgress: hasGoal && macroTargets.fatGoalG > 0
+        ? totals.fat / macroTargets.fatGoalG
+        : null,
     };
-  }, [selectedSessions]);
+  }, [completedSelectedSessions, settings.nutritionGoals]);
 
   const now = new Date();
   const greeting = now.getHours() < 12 ? 'Good morning' : now.getHours() < 18 ? 'Good afternoon' : 'Good evening';
-  const username = user?.email?.split('@')[0] || 'there';
+  const username = displayName;
   const quips = ['Small bites, big wins 🐸', 'You got this 💪', 'Stay steady, Tadlock style 🐸'];
   const showQuips = settings.homeWidgets.showTruthBomb ?? true;
   const quip = quips[now.getDay() % quips.length];
   const lightHaptic = () => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
 
-  const loadProfileAvatar = useCallback(async () => {
-    if (!user?.id) {
-      setAvatarUrl(null);
-      return;
-    }
-    const { data } = await supabase
-      .from('profiles')
-      .select('avatar_url')
-      .eq('user_id', user.id)
-      .maybeSingle();
-    setAvatarUrl(data?.avatar_url ?? null);
-  }, [user?.id]);
-
-  useEffect(() => {
-    loadProfileAvatar();
-  }, [loadProfileAvatar]);
-
   useFocusEffect(
     useCallback(() => {
-      loadProfileAvatar();
-    }, [loadProfileAvatar]),
+      refreshProfile();
+    }, [refreshProfile]),
   );
 
   return (
@@ -125,8 +130,8 @@ export default function HomeScreen() {
           }}
           activeOpacity={0.8}
         >
-          {avatarUrl ? (
-            <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
+          {profile?.avatar_url ? (
+            <Image source={{ uri: profile.avatar_url }} style={styles.avatarImage} />
           ) : (
             <MaterialIcons name="person" size={20} color={theme.textSecondary} />
           )}
@@ -165,14 +170,28 @@ export default function HomeScreen() {
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
-        <View style={styles.weekStrip}>
-          {weekDates.map((date) => {
+        <ScrollView
+          ref={dateStripRef}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.weekStrip}
+          onContentSizeChange={() => {
+            if (hasPositionedDateStrip.current) return;
+            hasPositionedDateStrip.current = true;
+            dateStripRef.current?.scrollTo({ x: initialTodayIndex * dayCellWidth - dayCellWidth, y: 0, animated: false });
+          }}
+        >
+          {dateStripDates.map((date) => {
             const isSelected = date.toDateString() === selectedDate.toDateString();
             return (
               <TouchableOpacity
                 key={date.toISOString()}
                 onPress={() => setSelectedDate(new Date(date))}
-                style={[styles.dayCell, { backgroundColor: isSelected ? theme.primary : theme.surface }]}
+                style={[
+                  styles.dayCell,
+                  styles.dayCellSpaced,
+                  { backgroundColor: isSelected ? theme.primary : theme.surface },
+                ]}
               >
                 <Text style={[styles.dayLetter, { color: isSelected ? theme.background : theme.textSecondary }]}>
                   {['S', 'M', 'T', 'W', 'T', 'F', 'S'][date.getDay()]}
@@ -181,7 +200,7 @@ export default function HomeScreen() {
               </TouchableOpacity>
             );
           })}
-        </View>
+        </ScrollView>
 
         <View style={[styles.gaugeCard, { backgroundColor: theme.surface }]}> 
           <Text style={[styles.gaugeLabel, { color: theme.textSecondary }]}>Time spent eating today</Text>
@@ -190,20 +209,52 @@ export default function HomeScreen() {
               progress={gaugeProgress}
               color={gaugeColor}
               trackColor={theme.border}
-              minutes={timeSpentMinutes}
-              textColor={theme.text}
               overlayColor={theme.background === '#F2F2F7' ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.25)'}
             />
             <View>
+              <Text style={[styles.gaugeValue, { color: theme.text }]}>{timeSpentMinutes} min</Text>
               {showQuips ? <Text style={[styles.gaugeHint, { color: theme.textMuted }]}>{quip}</Text> : null}
             </View>
           </View>
         </View>
 
         <View style={styles.macrosRow}>
-          <MacroRing label="Calories today" value={macroStats.calories} color="#FF9F0A" trackColor={theme.surfaceElevated} textColor={theme.text} labelColor={theme.textSecondary} />
-          <MacroRing label="Protein today" value={macroStats.protein} color="#8B5CF6" trackColor={theme.surfaceElevated} textColor={theme.text} labelColor={theme.textSecondary} />
-          <MacroRing label="Fat today" value={macroStats.fat} color="#FF453A" trackColor={theme.surfaceElevated} textColor={theme.text} labelColor={theme.textSecondary} />
+          <MacroRing
+            label="Calories today"
+            value={macroStats.caloriesValue}
+            progress={macroStats.caloriesProgress}
+            color="#FF9F0A"
+            trackColor={theme.surfaceElevated}
+            textColor={theme.text}
+            labelColor={theme.textSecondary}
+          />
+          <MacroRing
+            label="Protein today"
+            value={macroStats.proteinValue}
+            progress={macroStats.proteinProgress}
+            color="#8B5CF6"
+            trackColor={theme.surfaceElevated}
+            textColor={theme.text}
+            labelColor={theme.textSecondary}
+          />
+          <MacroRing
+            label="Carbs today"
+            value={macroStats.carbsValue}
+            progress={macroStats.carbsProgress}
+            color="#3B82F6"
+            trackColor={theme.surfaceElevated}
+            textColor={theme.text}
+            labelColor={theme.textSecondary}
+          />
+          <MacroRing
+            label="Fat today"
+            value={macroStats.fatValue}
+            progress={macroStats.fatProgress}
+            color="#FF453A"
+            trackColor={theme.surfaceElevated}
+            textColor={theme.text}
+            labelColor={theme.textSecondary}
+          />
         </View>
 
         <TodaysMealsList sessions={selectedSessions} />
@@ -216,15 +267,11 @@ function Gauge({
   progress,
   color,
   trackColor,
-  minutes,
-  textColor,
   overlayColor,
 }: {
   progress: number;
   color: string;
   trackColor: string;
-  minutes: number;
-  textColor: string;
   overlayColor: string;
 }) {
   const size = 108;
@@ -232,10 +279,12 @@ function Gauge({
   const radius = (size - stroke) / 2;
   const circumference = 2 * Math.PI * radius;
   const strokeDashoffset = circumference * (1 - Math.min(Math.max(progress, 0), 1));
-  const innerSize = Math.round(size * 0.66);
+  const innerSize = Math.round(size * 0.7);
   return (
     <View style={styles.gaugeWrap}>
-      <View
+      <ImageBackground
+        source={tadlockImg}
+        resizeMode="cover"
         style={[
           styles.gaugeInnerArtwork,
           {
@@ -244,10 +293,10 @@ function Gauge({
             borderRadius: innerSize / 2,
           },
         ]}
+        imageStyle={{ borderRadius: innerSize / 2 }}
       >
-        <Image source={tadlockImg} style={styles.gaugeArtworkImage} resizeMode="cover" />
         <View style={[styles.gaugeArtworkOverlay, { backgroundColor: overlayColor }]} />
-      </View>
+      </ImageBackground>
 
       <Svg width={size} height={size} style={styles.gaugeSvgLayer}>
         <Circle cx={size / 2} cy={size / 2} r={radius} stroke={trackColor} strokeWidth={stroke} fill="none" />
@@ -265,10 +314,6 @@ function Gauge({
           origin={`${size / 2}, ${size / 2}`}
         />
       </Svg>
-
-      <View style={styles.gaugeCenterTextWrap} pointerEvents="none">
-        <Text style={[styles.gaugeCenterValue, { color: textColor }]}>{minutes} min</Text>
-      </View>
     </View>
   );
 }
@@ -276,6 +321,7 @@ function Gauge({
 function MacroRing({
   label,
   value,
+  progress,
   color,
   trackColor,
   textColor,
@@ -283,6 +329,7 @@ function MacroRing({
 }: {
   label: string;
   value: string;
+  progress: number | null;
   color: string;
   trackColor: string;
   textColor: string;
@@ -292,11 +339,10 @@ function MacroRing({
   const stroke = 8;
   const radius = (size - stroke) / 2;
   const circumference = 2 * Math.PI * radius;
-  const hasData = value !== '—';
-  const ringColor = hasData ? color : labelColor;
-  const ringArc = hasData
-    ? `${Math.round(circumference * 0.72)} ${Math.round(circumference)}`
-    : `${Math.round(circumference)} ${Math.round(circumference)}`;
+  const hasProgress = typeof progress === 'number';
+  const ringColor = hasProgress ? color : labelColor;
+  const clampedProgress = Math.min(Math.max(progress ?? 0, 0), 1);
+  const strokeDashoffset = circumference * (1 - clampedProgress);
   return (
     <View style={styles.macroItem}>
       <Svg width={size} height={size}>
@@ -309,13 +355,14 @@ function MacroRing({
           strokeWidth={stroke}
           fill="none"
           strokeLinecap="round"
-          strokeDasharray={ringArc}
+          strokeDasharray={`${circumference}`}
+          strokeDashoffset={hasProgress ? strokeDashoffset : 0}
           rotation="-90"
           origin={`${size / 2}, ${size / 2}`}
         />
       </Svg>
       <View style={styles.macroCenterText}>
-        <Text style={[styles.macroValue, { color: hasData ? textColor : labelColor }]}>{value}</Text>
+        <Text style={[styles.macroValue, { color: hasProgress ? textColor : labelColor }]}>{value}</Text>
       </View>
       <Text style={[styles.macroLabel, { color: labelColor }]}>{label}</Text>
     </View>
@@ -346,8 +393,8 @@ const styles = StyleSheet.create({
   },
   weekStrip: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     marginTop: 12,
+    paddingRight: 8,
   },
   dayCell: {
     width: 42,
@@ -355,11 +402,13 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
     alignItems: 'center',
   },
+  dayCellSpaced: { marginRight: 8 },
   dayLetter: { fontSize: 11, fontWeight: '700' },
   dayNum: { fontSize: 15, fontWeight: '800', marginTop: 1 },
   gaugeCard: { borderRadius: 20, padding: 14, marginTop: 10 },
   gaugeLabel: { fontSize: 14, fontWeight: '700' },
   gaugeInnerRow: { flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 8 },
+  gaugeValue: { fontSize: 32, fontWeight: '800' },
   gaugeHint: { fontSize: 12, marginTop: 2, maxWidth: 180 },
   gaugeWrap: {
     width: 108,
@@ -372,34 +421,24 @@ const styles = StyleSheet.create({
     zIndex: 2,
   },
   gaugeInnerArtwork: {
+    position: 'absolute',
     overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 1,
   },
-  gaugeArtworkImage: {
-    width: '100%',
-    height: '100%',
-  },
   gaugeArtworkOverlay: {
     ...StyleSheet.absoluteFillObject,
   },
-  gaugeCenterTextWrap: {
-    position: 'absolute',
-    zIndex: 3,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  gaugeCenterValue: { fontSize: 18, fontWeight: '800' },
   macrosRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginTop: 4,
     marginBottom: 4,
   },
-  macroItem: { alignItems: 'center', width: '31%' },
+  macroItem: { alignItems: 'center', width: '24%' },
   macroCenterText: { position: 'absolute', top: 25 },
-  macroValue: { fontWeight: '800', fontSize: 14 },
+  macroValue: { fontWeight: '800', fontSize: 12 },
   macroLabel: {
     marginTop: 6,
     fontSize: 12,

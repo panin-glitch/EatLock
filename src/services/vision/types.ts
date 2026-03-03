@@ -73,7 +73,24 @@ export interface NutritionEstimate {
   protein_g?: number | null;
   carbs_g?: number | null;
   fat_g?: number | null;
+  fiber_g?: number | null;
+  sugar_g?: number | null;
+  sodium_mg?: number | null;
+  saturated_fat_g?: number | null;
+  micronutrients?: Record<string, number>;
   source: 'vision' | 'barcode' | 'user';
+}
+
+/** Micronutrient enrichment response from the backend */
+export interface MicrosEnrichResult {
+  enriched: boolean;
+  reason?: string;
+  fiber_g: number | null;
+  sugar_g: number | null;
+  sodium_mg: number | null;
+  saturated_fat_g: number | null;
+  micronutrients: Record<string, number>;
+  source_refs: Array<Record<string, string>>;
 }
 
 export type VisionSoftErrorCode = 'RATE_LIMIT' | 'SESSION_EXPIRED' | 'NETWORK' | 'SERVER';

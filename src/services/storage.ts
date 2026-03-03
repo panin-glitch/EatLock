@@ -111,7 +111,37 @@ export async function saveBlockConfig(config: BlockConfig): Promise<void> {
 // ===== USER SETTINGS =====
 export async function getUserSettings(): Promise<UserSettings> {
   const data = await AsyncStorage.getItem(KEYS.USER_SETTINGS);
-  return data ? JSON.parse(data) : DEFAULT_USER_SETTINGS;
+  if (!data) return DEFAULT_USER_SETTINGS;
+
+  const parsed = JSON.parse(data) as Partial<UserSettings>;
+  return {
+    ...DEFAULT_USER_SETTINGS,
+    ...parsed,
+    truthBomb: {
+      ...DEFAULT_USER_SETTINGS.truthBomb,
+      ...(parsed.truthBomb ?? {}),
+      categories: {
+        ...DEFAULT_USER_SETTINGS.truthBomb.categories,
+        ...(parsed.truthBomb?.categories ?? {}),
+      },
+    },
+    homeWidgets: {
+      ...DEFAULT_USER_SETTINGS.homeWidgets,
+      ...(parsed.homeWidgets ?? {}),
+    },
+    nutritionGoals: {
+      ...DEFAULT_USER_SETTINGS.nutritionGoals,
+      ...(parsed.nutritionGoals ?? {}),
+      macroSplit: {
+        ...DEFAULT_USER_SETTINGS.nutritionGoals.macroSplit,
+        ...(parsed.nutritionGoals?.macroSplit ?? {}),
+      },
+    },
+    developer: {
+      ...DEFAULT_USER_SETTINGS.developer,
+      ...(parsed.developer ?? {}),
+    },
+  };
 }
 
 export async function saveUserSettings(settings: UserSettings): Promise<void> {

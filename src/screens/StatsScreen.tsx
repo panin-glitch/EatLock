@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -7,23 +7,37 @@ import {
   Dimensions,
   TouchableOpacity,
   StatusBar,
+  Image,
+  ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../theme/ThemeProvider';
 import { useAppState } from '../state/AppStateContext';
-import { useAuth } from '../state/AuthContext';
 import {
+  computeMacroTargetsFromCalories,
   computeFocusScore,
   computeStreak,
 } from '../utils/helpers';
 import InteractiveLineChart from '../components/charts/InteractiveLineChart';
-import { MealSession } from '../types/models';
-import { supabase } from '../services/supabaseClient';
+import { DEFAULT_DAILY_CALORIE_GOAL, DEFAULT_MACRO_SPLIT } from '../types/models';
 import ScreenHeader from '../components/common/ScreenHeader';
+import { fetchRemoteUserSettings } from '../services/userSettingsService';
+import { enrichMicros } from '../services/microsService';
+import {
+  buildMonthlyWeekBuckets,
+  buildRollingDailyBuckets,
+  buildWeeklyDayBuckets,
+  endOfLocalDay,
+  startOfLocalDay,
+  toValidDate,
+  type StatsBucketPoint,
+} from '../utils/statsBuckets';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const FILTERS = ['Weekly', 'Monthly'] as const;
 type FilterType = (typeof FILTERS)[number];
+const tadlockSleepingImg = require('../../assets/tadlocksleeping.png');
 
 // ── Helpers ──────────────────────────────────
 
@@ -31,76 +45,11 @@ function getDaysForFilter(filter: FilterType): number {
   return filter === 'Weekly' ? 7 : 30;
 }
 
-interface AggregatedDayPoint {
-  key: string;
-  label: string;
-  meals: number;
-  calories: number;
-  focusMinutes: number;
-  lowDistraction: number;
-}
-
-interface SessionRow {
-  id: string;
-  started_at: string;
-  ended_at: string | null;
-  status: string | null;
-  distraction_rating: number | null;
-}
-
 function getSafeSegments(maxValue: number): number {
   if (maxValue <= 0) return 1;
   return Math.min(Math.max(1, Math.ceil(maxValue)), 6);
 }
-
-function startOfLocalDay(d: Date): Date {
-  const out = new Date(d);
-  out.setHours(0, 0, 0, 0);
-  return out;
-}
-
-function endOfLocalDay(d: Date): Date {
-  const out = new Date(d);
-  out.setHours(23, 59, 59, 999);
-  return out;
-}
-
-function addDays(d: Date, delta: number): Date {
-  const out = new Date(d);
-  out.setDate(out.getDate() + delta);
-  return out;
-}
-
-function toLocalDayKey(dateLike: string | Date): string {
-  const date = new Date(dateLike);
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
-function toLocalLabel(dateLike: string | Date): string {
-  const date = new Date(dateLike);
-  return `${date.getMonth() + 1}/${date.getDate()}`;
-}
-
-function buildDaySeries(dayCount: number, offsetDays = 0): AggregatedDayPoint[] {
-  const now = new Date();
-  return Array.from({ length: dayCount }, (_, index) => {
-    const dayOffset = dayCount - 1 - index + offsetDays;
-    const d = addDays(now, -dayOffset);
-    return {
-      key: toLocalDayKey(d),
-      label: toLocalLabel(d),
-      meals: 0,
-      calories: 0,
-      focusMinutes: 0,
-      lowDistraction: 0,
-    };
-  });
-}
-
-function chartSeries(points: AggregatedDayPoint[], metric: keyof Pick<AggregatedDayPoint, 'meals' | 'calories' | 'focusMinutes' | 'lowDistraction'>) {
+function chartSeries(points: StatsBucketPoint[], metric: keyof Pick<StatsBucketPoint, 'meals' | 'calories' | 'focusMinutes' | 'lowDistraction'>) {
   const step = Math.max(1, Math.floor(points.length / 7));
   return {
     labels: points.map((p, i) => (i % step === 0 ? p.label : '')),
@@ -147,159 +96,157 @@ function formatDelta(cur: number, prev: number, unit: string): string {
 
 export default function StatsScreen() {
   const { theme } = useTheme();
-  const { sessions } = useAppState();
-  const { user } = useAuth();
+  const { sessions, activeSession, settings } = useAppState();
   const [filter, setFilter] = useState<FilterType>('Weekly');
-  const [currentPoints, setCurrentPoints] = useState<AggregatedDayPoint[]>(() => buildDaySeries(getDaysForFilter('Weekly')));
-  const [prevPoints, setPrevPoints] = useState<AggregatedDayPoint[]>(() => buildDaySeries(getDaysForFilter('Weekly'), getDaysForFilter('Weekly')));
+  const periodDays = getDaysForFilter(filter);
+  const sessionsForStats = useMemo(
+    () => (activeSession ? [...sessions, activeSession] : sessions),
+    [activeSession, sessions],
+  );
+
+  const currentPoints = useMemo(
+    () => buildRollingDailyBuckets(sessionsForStats, periodDays),
+    [periodDays, sessionsForStats],
+  );
+  const prevPoints = useMemo(
+    () => buildRollingDailyBuckets(sessionsForStats, periodDays, periodDays),
+    [periodDays, sessionsForStats],
+  );
+  const weeklyChartPoints = useMemo(
+    () => buildWeeklyDayBuckets(sessionsForStats),
+    [sessionsForStats],
+  );
+  const monthlyChartPoints = useMemo(
+    () => buildMonthlyWeekBuckets(sessionsForStats),
+    [sessionsForStats],
+  );
 
   const filteredLocal = useMemo(() => {
-    const days = getDaysForFilter(filter);
-    const rangeStart = startOfLocalDay(addDays(new Date(), -(days - 1))).getTime();
-    return sessions.filter((s) => {
-      if (!s.endedAt) return false;
-      const startedAt = new Date(s.startedAt).getTime();
-      return startedAt >= rangeStart;
+    const rangeStart = startOfLocalDay(new Date(Date.now() - (periodDays - 1) * 24 * 60 * 60 * 1000)).getTime();
+    const rangeEnd = endOfLocalDay(new Date()).getTime();
+    return sessionsForStats.filter((s) => {
+      if (s.status === 'ACTIVE' || s.status === 'INCOMPLETE') return false;
+      const eventMs = (toValidDate(s.endedAt) ?? toValidDate(s.startedAt))?.getTime();
+      return typeof eventMs === 'number' && eventMs >= rangeStart && eventMs <= rangeEnd;
     });
-  }, [sessions, filter]);
+  }, [sessionsForStats, periodDays]);
 
-  const localCaloriesBySessionId = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const session of sessions) {
-      const localCalories = session.preNutrition?.estimated_calories;
-      if (localCalories && localCalories > 0) {
-        map.set(session.id, Math.round(localCalories));
-      }
-    }
-    return map;
-  }, [sessions]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const loadAggregates = async () => {
-      const days = getDaysForFilter(filter);
-      const nextCurrent = buildDaySeries(days);
-      const nextPrev = buildDaySeries(days, days);
-
-      const currentByKey = new Map(nextCurrent.map((point) => [point.key, point]));
-      const prevByKey = new Map(nextPrev.map((point) => [point.key, point]));
-
-      if (!user?.id) {
-        if (!cancelled) {
-          setCurrentPoints(nextCurrent);
-          setPrevPoints(nextPrev);
-        }
-        return;
-      }
-
-      const rangeStart = startOfLocalDay(addDays(new Date(), -(days * 2 - 1)));
-      const rangeEnd = endOfLocalDay(new Date());
-
-      const { data: sessionRows, error: sessionError } = await supabase
-        .from('meal_sessions')
-        .select('id, started_at, ended_at, status, distraction_rating')
-        .eq('user_id', user.id)
-        .eq('status', 'completed')
-        .not('ended_at', 'is', null)
-        .gte('started_at', rangeStart.toISOString())
-        .lte('started_at', rangeEnd.toISOString());
-
-      if (sessionError || !sessionRows) {
-        if (!cancelled) {
-          setCurrentPoints(nextCurrent);
-          setPrevPoints(nextPrev);
-        }
-        return;
-      }
-
-      const typedRows = sessionRows as SessionRow[];
-      const sessionIds = typedRows.map((row) => row.id);
-      const nutritionCaloriesBySessionId = new Map<string, number>();
-
-      if (sessionIds.length > 0) {
-        const { data: nutritionRows } = await supabase
-          .from('meal_nutrition')
-          .select('meal_session_id, estimated_calories')
-          .eq('user_id', user.id)
-          .in('meal_session_id', sessionIds);
-
-        for (const row of nutritionRows ?? []) {
-          const sessionId = row.meal_session_id as string | null;
-          const calories = row.estimated_calories as number | null;
-          if (!sessionId || !calories || calories <= 0) continue;
-          nutritionCaloriesBySessionId.set(
-            sessionId,
-            (nutritionCaloriesBySessionId.get(sessionId) ?? 0) + Math.round(calories),
-          );
-        }
-      }
-
-      for (const row of typedRows) {
-        const dayKey = toLocalDayKey(row.started_at);
-        const target = currentByKey.get(dayKey) ?? prevByKey.get(dayKey);
-        if (!target) continue;
-
-        target.meals += 1;
-
-        const startedMs = new Date(row.started_at).getTime();
-        const endedMs = row.ended_at ? new Date(row.ended_at).getTime() : startedMs;
-        const minutes = Math.max(0, Math.round((endedMs - startedMs) / 60000));
-        target.focusMinutes += minutes;
-
-        if (typeof row.distraction_rating === 'number' && row.distraction_rating <= 2) {
-          target.lowDistraction += 1;
-        }
-
-        const calories = nutritionCaloriesBySessionId.get(row.id) ?? localCaloriesBySessionId.get(row.id) ?? 0;
-        if (calories > 0) {
-          target.calories += calories;
-        }
-      }
-
-      if (!cancelled) {
-        setCurrentPoints(nextCurrent);
-        setPrevPoints(nextPrev);
-      }
-    };
-
-    loadAggregates().catch(() => {
-      if (!cancelled) {
-        const days = getDaysForFilter(filter);
-        setCurrentPoints(buildDaySeries(days));
-        setPrevPoints(buildDaySeries(days, days));
-      }
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [filter, user?.id, localCaloriesBySessionId]);
+  const chartPoints = useMemo(() => {
+    return filter === 'Weekly' ? weeklyChartPoints : monthlyChartPoints;
+  }, [filter, monthlyChartPoints, weeklyChartPoints]);
 
   // ── Stats ──
-  const totalSessions = currentPoints.reduce((sum, point) => sum + point.meals, 0);
+  const totalSessions = chartPoints.reduce((sum, point) => sum + point.meals, 0);
   const prevTotalSessions = prevPoints.reduce((sum, point) => sum + point.meals, 0);
-  const totalFocusMinutes = currentPoints.reduce((sum, point) => sum + point.focusMinutes, 0);
+  const totalFocusMinutes = chartPoints.reduce((sum, point) => sum + point.focusMinutes, 0);
   const prevTotalFocusMinutes = prevPoints.reduce((sum, point) => sum + point.focusMinutes, 0);
   const avgDuration = totalSessions > 0 ? (totalFocusMinutes / totalSessions) * 60000 : 0;
   const prevAvgDuration = prevTotalSessions > 0 ? (prevTotalFocusMinutes / prevTotalSessions) * 60000 : 0;
   const focusScore = computeFocusScore(filteredLocal);
-  const streaks = computeStreak(sessions);
+  const streaks = computeStreak(sessionsForStats);
+
+  const macroKnownCounts = useMemo(
+    () => ({
+      protein: filteredLocal.filter((s) => s.preNutrition?.protein_g != null).length,
+      carbs: filteredLocal.filter((s) => s.preNutrition?.carbs_g != null).length,
+      fat: filteredLocal.filter((s) => s.preNutrition?.fat_g != null).length,
+    }),
+    [filteredLocal],
+  );
+
+  const macroTotalsInRange = useMemo(
+    () => ({
+      protein: Math.round(filteredLocal.reduce((sum, s) => sum + (s.preNutrition?.protein_g ?? 0), 0)),
+      carbs: Math.round(filteredLocal.reduce((sum, s) => sum + (s.preNutrition?.carbs_g ?? 0), 0)),
+      fat: Math.round(filteredLocal.reduce((sum, s) => sum + (s.preNutrition?.fat_g ?? 0), 0)),
+    }),
+    [filteredLocal],
+  );
+
+  const hasEnoughMacroData = (knownCount: number) => filteredLocal.length > 0 && knownCount / filteredLocal.length >= 0.5;
+  const macroCoveragePoor =
+    !hasEnoughMacroData(macroKnownCounts.protein) ||
+    !hasEnoughMacroData(macroKnownCounts.carbs) ||
+    !hasEnoughMacroData(macroKnownCounts.fat);
+
+  // ── Micros toggle + totals ──
+  const [microsEnabled, setMicrosEnabled] = useState(false);
+  const [enrichingMicros, setEnrichingMicros] = useState(false);
+
+  useEffect(() => {
+    fetchRemoteUserSettings().then((s) => setMicrosEnabled(s.micronutrients_enabled)).catch(() => {});
+  }, []);
+
+  const microsTotals = useMemo(() => {
+    if (!microsEnabled) return null;
+    let fiber = 0, sugar = 0, sodium = 0, satFat = 0;
+    let hasFiber = 0, hasSugar = 0, hasSodium = 0, hasSatFat = 0;
+    let missingMicros = 0;
+
+    for (const s of filteredLocal) {
+      const n = s.preNutrition;
+      if (!n) continue;
+      const hasSome = n.fiber_g != null || n.sugar_g != null || n.sodium_mg != null || n.saturated_fat_g != null;
+      if (!hasSome) { missingMicros++; continue; }
+      if (n.fiber_g != null) { fiber += n.fiber_g; hasFiber++; }
+      if (n.sugar_g != null) { sugar += n.sugar_g; hasSugar++; }
+      if (n.sodium_mg != null) { sodium += n.sodium_mg; hasSodium++; }
+      if (n.saturated_fat_g != null) { satFat += n.saturated_fat_g; hasSatFat++; }
+    }
+
+    return {
+      fiber: Math.round(fiber),
+      sugar: Math.round(sugar),
+      sodium: Math.round(sodium),
+      satFat: Math.round(satFat * 10) / 10,
+      hasFiber, hasSugar, hasSodium, hasSatFat,
+      missingMicros,
+      totalMeals: filteredLocal.length,
+    };
+  }, [filteredLocal, microsEnabled]);
+
+  const handleBatchEnrich = useCallback(async () => {
+    setEnrichingMicros(true);
+    try {
+      const missing = filteredLocal.filter((s) => {
+        const n = s.preNutrition;
+        return n && n.fiber_g == null && n.sugar_g == null && n.sodium_mg == null && n.saturated_fat_g == null;
+      });
+      let enriched = 0;
+      for (const s of missing.slice(0, 10)) {
+        try {
+          await enrichMicros(s.id);
+          enriched++;
+        } catch { /* skip individual failures */ }
+      }
+      Alert.alert('Done', `Enriched ${enriched} of ${missing.length} meals. Refresh to see updated totals.`);
+    } catch (e: any) {
+      Alert.alert('Error', e?.message || 'Enrichment failed');
+    } finally {
+      setEnrichingMicros(false);
+    }
+  }, [filteredLocal]);
+
+  const dailyCalorieGoal = settings.nutritionGoals?.dailyCalorieGoal ?? DEFAULT_DAILY_CALORIE_GOAL;
+  const macroSplit = settings.nutritionGoals?.macroSplit ?? DEFAULT_MACRO_SPLIT;
+  const macroTargets = useMemo(() => computeMacroTargetsFromCalories(dailyCalorieGoal, macroSplit), [dailyCalorieGoal, macroSplit]);
+  const periodProteinGoal = macroTargets.proteinGoalG * periodDays;
 
   // ── Calories ──
-  const totalCaloriesInRange = currentPoints.reduce((sum, point) => sum + point.calories, 0);
+  const totalCaloriesInRange = chartPoints.reduce((sum, point) => sum + point.calories, 0);
   const prevCalories = prevPoints.reduce((sum, point) => sum + point.calories, 0);
+  const hasMealsData = totalSessions > 0;
+  const hasCaloriesData = totalCaloriesInRange > 0;
 
   const displayPeriod = filter === 'Weekly' ? 'week' : 'month';
 
   // ── Chart data ──
-  const mealsChart = useMemo(() => chartSeries(currentPoints, 'meals'), [currentPoints]);
-  const caloriesChart = useMemo(() => chartSeries(currentPoints, 'calories'), [currentPoints]);
-  const weeklyCalories = filter === 'Weekly'
-    ? totalCaloriesInRange
-    : Math.round(totalCaloriesInRange / Math.max(1, getDaysForFilter(filter) / 7));
-  const mealsMax = Math.max(1, ...mealsChart.data);
-  const mealsSegments = getSafeSegments(mealsMax);
+  const mealsChart = useMemo(() => chartSeries(chartPoints, 'meals'), [chartPoints]);
+  const caloriesChart = useMemo(() => chartSeries(chartPoints, 'calories'), [chartPoints]);
+  const periodCalories = totalCaloriesInRange;
+  const mealsDataMax = Math.max(0, ...mealsChart.data);
+  const mealsAxisMax = Math.max(1, mealsDataMax) + 1;
+  const mealsSegments = Math.min(Math.max(1, mealsAxisMax), 6);
   const caloriesMax = Math.max(1, ...caloriesChart.data);
   const caloriesSegments = (() => {
     if (caloriesMax <= 0) return 1;
@@ -311,7 +258,7 @@ export default function StatsScreen() {
     }
     return Math.min(Math.max(1, Math.ceil(caloriesMax / step)), 6);
   })();
-  const mealsYFormatter = useMemo(() => buildUniqueIntegerFormatter(mealsMax, mealsSegments), [mealsMax, mealsSegments]);
+  const mealsYFormatter = useMemo(() => buildUniqueIntegerFormatter(mealsAxisMax, mealsSegments), [mealsAxisMax, mealsSegments]);
   const caloriesYFormatter = useMemo(() => buildUniqueIntegerFormatter(caloriesMax, caloriesSegments), [caloriesMax, caloriesSegments]);
 
   const chartConfig = {
@@ -352,6 +299,14 @@ export default function StatsScreen() {
     const missingCals = filteredLocal.filter(s => !s.preNutrition?.estimated_calories).length;
     if (missingCals > filteredLocal.length * 0.5) {
       suggestions.push("Try scanning at least 1 meal per day to stay on top of your calories.");
+    }
+
+    if (macroCoveragePoor) {
+      suggestions.push("Log meals with macro details to track protein, carbs, and fat accurately.");
+    }
+
+    if (!macroCoveragePoor && periodProteinGoal > 0 && macroTotalsInRange.protein < periodProteinGoal * 0.6) {
+      suggestions.push("Protein is trending below your goal—consider adding a high-protein meal option.");
     }
 
     const lateMeals = filteredLocal.filter(s => new Date(s.startedAt).getHours() >= 21).length;
@@ -398,8 +353,8 @@ export default function StatsScreen() {
 
         {/* ── Meals per week chart ── */}
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Meals per week</Text>
-          {mealsChart.data.some((d) => d > 0) ? (
+          <Text style={styles.cardTitle}>Meals per {displayPeriod}</Text>
+          {hasMealsData ? (
             <InteractiveLineChart
               data={{ labels: mealsChart.labels, datasets: [{ data: mealsChart.data }] }}
               width={SCREEN_WIDTH - 72}
@@ -410,13 +365,14 @@ export default function StatsScreen() {
               formatYLabel={mealsYFormatter}
               yAxisSuffix=""
               fromZero
+              fromNumber={mealsAxisMax}
               bezier
               metricLabel="meals"
             />
           ) : (
             <View style={styles.chartEmpty}>
-              <MaterialIcons name="bar-chart" size={32} color={theme.textMuted} />
-              <Text style={styles.chartEmptyText}>Start tracking meals to see your chart</Text>
+              <Image source={tadlockSleepingImg} style={styles.chartEmptyImage} resizeMode="contain" />
+              <Text style={styles.chartEmptyText}>Tad slept off waiting for you</Text>
             </View>
           )}
         </View>
@@ -432,9 +388,9 @@ export default function StatsScreen() {
           </View>
           <View style={styles.tile}>
             <Text style={[styles.tileValue, { color: '#FF9F0A' }]}>
-              {weeklyCalories > 0 ? Math.round(weeklyCalories) : '—'}
+              {Math.round(periodCalories)}
             </Text>
-            <Text style={styles.tileLabel}>Calories per week</Text>
+            <Text style={styles.tileLabel}>Calories per {displayPeriod}</Text>
           </View>
         </View>
         <View style={styles.tilesRow}>
@@ -461,8 +417,8 @@ export default function StatsScreen() {
 
         {/* ── Calories per week chart ── */}
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Calories per week</Text>
-          {caloriesChart.data.some((d) => d > 0) ? (
+          <Text style={styles.cardTitle}>Calories per {displayPeriod}</Text>
+          {hasCaloriesData ? (
             <InteractiveLineChart
               data={{ labels: caloriesChart.labels, datasets: [{ data: caloriesChart.data }] }}
               width={SCREEN_WIDTH - 72}
@@ -478,8 +434,8 @@ export default function StatsScreen() {
             />
           ) : (
             <View style={styles.chartEmpty}>
-              <MaterialIcons name="local-fire-department" size={32} color={theme.textMuted} />
-              <Text style={styles.chartEmptyText}>Log meals with calories to see trends</Text>
+              <Image source={tadlockSleepingImg} style={styles.chartEmptyImage} resizeMode="contain" />
+              <Text style={styles.chartEmptyText}>Tad slept off waiting for you</Text>
             </View>
           )}
           {totalCaloriesInRange > 0 && (
@@ -491,6 +447,54 @@ export default function StatsScreen() {
             </Text>
           )}
         </View>
+
+        {/* ── Micronutrients daily totals ── */}
+        {microsEnabled && microsTotals && microsTotals.totalMeals > 0 && (
+          <View style={styles.card}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10 }}>
+              <MaterialIcons name="science" size={20} color={theme.primary} />
+              <Text style={[styles.cardTitle, { marginBottom: 0, marginLeft: 8 }]}>
+                Micronutrients ({filter === 'Weekly' ? 'week' : 'month'})
+              </Text>
+            </View>
+
+            <View style={styles.tilesRow}>
+              <View style={[styles.tile, { marginTop: 0 }]}>
+                <Text style={[styles.tileValue, { color: '#34C759', fontSize: 20 }]}>{microsTotals.fiber}g</Text>
+                <Text style={styles.tileLabel}>Fiber</Text>
+              </View>
+              <View style={[styles.tile, { marginTop: 0 }]}>
+                <Text style={[styles.tileValue, { color: '#AF52DE', fontSize: 20 }]}>{microsTotals.sugar}g</Text>
+                <Text style={styles.tileLabel}>Sugar</Text>
+              </View>
+            </View>
+            <View style={[styles.tilesRow, { marginTop: 8 }]}>
+              <View style={[styles.tile, { marginTop: 0 }]}>
+                <Text style={[styles.tileValue, { color: '#5AC8FA', fontSize: 20 }]}>{microsTotals.sodium}mg</Text>
+                <Text style={styles.tileLabel}>Sodium</Text>
+              </View>
+              <View style={[styles.tile, { marginTop: 0 }]}>
+                <Text style={[styles.tileValue, { color: '#FF6482', fontSize: 20 }]}>{microsTotals.satFat}g</Text>
+                <Text style={styles.tileLabel}>Sat Fat</Text>
+              </View>
+            </View>
+
+            {microsTotals.missingMicros > 0 && (
+              <View style={[styles.microsBanner, { borderColor: theme.border, backgroundColor: theme.chipBg }]}>
+                <Text style={[styles.microsBannerText, { color: theme.textSecondary }]}>
+                  {microsTotals.missingMicros} meal{microsTotals.missingMicros > 1 ? 's' : ''} missing micros
+                </Text>
+                {enrichingMicros ? (
+                  <ActivityIndicator size="small" color={theme.primary} />
+                ) : (
+                  <TouchableOpacity onPress={handleBatchEnrich}>
+                    <Text style={[styles.microsBannerAction, { color: theme.primary }]}>Compute</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            )}
+          </View>
+        )}
 
         {/* ── Habit insights ── */}
         <View style={styles.card}>
@@ -575,7 +579,8 @@ const makeStyles = (theme: any) =>
     },
     cardTitle: { fontSize: 15, fontWeight: '700', color: theme.text, marginBottom: 10 },
     chart: { borderRadius: 12, marginTop: 4 },
-    chartEmpty: { alignItems: 'center', paddingVertical: 30 },
+    chartEmpty: { alignItems: 'center', justifyContent: 'center', paddingVertical: 30, minHeight: 180 },
+    chartEmptyImage: { width: 112, height: 112 },
     chartEmptyText: { color: theme.textMuted, fontSize: 14, marginTop: 8, textAlign: 'center' },
     chartSub: { color: theme.textSecondary, fontSize: 12, marginTop: 8, textAlign: 'center' },
     tilesRow: { flexDirection: 'row', gap: 12, marginTop: 12 },
@@ -601,4 +606,15 @@ const makeStyles = (theme: any) =>
     suggestionRow: { flexDirection: 'row', alignItems: 'flex-start', marginTop: 8 },
     suggestionDot: { width: 6, height: 6, borderRadius: 3, marginTop: 7, marginRight: 10 },
     suggestionText: { flex: 1, fontSize: 13, color: theme.textSecondary, lineHeight: 18 },
+    microsBanner: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      borderWidth: 1,
+      borderRadius: 12,
+      padding: 12,
+      marginTop: 10,
+    },
+    microsBannerText: { fontSize: 13, fontWeight: '500' },
+    microsBannerAction: { fontSize: 13, fontWeight: '700' },
   });

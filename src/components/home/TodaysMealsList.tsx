@@ -4,14 +4,17 @@
  * Tap a row to see full detail modal with calories, macros, roast, distraction.
  * Empty-state when no sessions exist.
  */
-import React, { useRef, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Modal, Pressable, Animated, Easing, Image, Alert } from 'react-native';
+import React, { useRef, useState, useEffect, useCallback } from 'react';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Modal, Pressable, Animated, Easing, Image, Alert, ActivityIndicator, TextInput } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '../../theme/ThemeProvider';
 import { useAppState } from '../../state/AppStateContext';
 import type { MealSession } from '../../types/models';
+import type { MicrosEnrichResult } from '../../services/vision/types';
 import { SwipeableRow } from '../SwipeableRow';
+import { fetchRemoteUserSettings } from '../../services/userSettingsService';
+import { enrichMicros, updateFoodLabel } from '../../services/microsService';
 
 interface Props {
   sessions: MealSession[];
@@ -46,17 +49,62 @@ function mealIcon(type: string): keyof typeof MaterialIcons.glyphMap {
 
 export default function TodaysMealsList({ sessions }: Props) {
   const { theme } = useTheme();
-  const { deleteSession } = useAppState();
+  const { deleteSession, updateActiveSession } = useAppState();
   const [selected, setSelected] = useState<MealSession | null>(null);
   const [detailVisible, setDetailVisible] = useState(false);
   const backdropOpacity = useRef(new Animated.Value(0)).current;
   const sheetTranslateY = useRef(new Animated.Value(36)).current;
   const lightHaptic = () => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
 
+  // Micros toggle state
+  const [microsEnabled, setMicrosEnabled] = useState(false);
+  const [microsData, setMicrosData] = useState<MicrosEnrichResult | null>(null);
+  const [microsLoading, setMicrosLoading] = useState(false);
+
+  // Edit food label state
+  const [editingLabel, setEditingLabel] = useState(false);
+  const [editLabelText, setEditLabelText] = useState('');
+  const [editLabelSaving, setEditLabelSaving] = useState(false);
+
+  useEffect(() => {
+    fetchRemoteUserSettings().then((s) => setMicrosEnabled(s.micronutrients_enabled)).catch(() => {});
+  }, []);
+
+  const handleEnrichMicros = useCallback(async (mealId: string) => {
+    setMicrosLoading(true);
+    try {
+      const result = await enrichMicros(mealId);
+      setMicrosData(result);
+    } catch (e: any) {
+      Alert.alert('Error', e?.message || 'Could not enrich micros');
+    } finally {
+      setMicrosLoading(false);
+    }
+  }, []);
+
+  const handleSaveFoodLabel = useCallback(async () => {
+    if (!selected || !editLabelText.trim()) return;
+    setEditLabelSaving(true);
+    try {
+      await updateFoodLabel(selected.id, editLabelText.trim());
+      // Update local session
+      setSelected((prev) => prev ? { ...prev, foodName: editLabelText.trim() } : prev);
+      setEditingLabel(false);
+    } catch (e: any) {
+      Alert.alert('Error', e?.message || 'Could not update food label');
+    } finally {
+      setEditLabelSaving(false);
+    }
+  }, [selected, editLabelText]);
+
   const openDetail = (session: MealSession) => {
     lightHaptic();
     setSelected(session);
     setDetailVisible(true);
+    setMicrosData(null);
+    setMicrosLoading(false);
+    setEditingLabel(false);
+    setEditLabelText(session.foodName || session.preNutrition?.food_label || '');
     backdropOpacity.setValue(0);
     sheetTranslateY.setValue(36);
     Animated.parallel([
@@ -159,6 +207,43 @@ export default function TodaysMealsList({ sessions }: Props) {
               </View>
             </View>
 
+            {/* Food label (editable) */}
+            <View style={styles.detailSection}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>Food</Text>
+                {!editingLabel && (
+                  <TouchableOpacity onPress={() => { setEditingLabel(true); setEditLabelText(selected.foodName || selected.preNutrition?.food_label || ''); }}>
+                    <MaterialIcons name="edit" size={16} color={theme.textMuted} />
+                  </TouchableOpacity>
+                )}
+              </View>
+              {editingLabel ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <TextInput
+                    style={[styles.editInput, { color: theme.text, borderColor: theme.border, backgroundColor: theme.inputBg }]}
+                    value={editLabelText}
+                    onChangeText={setEditLabelText}
+                    maxLength={80}
+                    autoFocus
+                    returnKeyType="done"
+                    onSubmitEditing={handleSaveFoodLabel}
+                    editable={!editLabelSaving}
+                  />
+                  {editLabelSaving ? (
+                    <ActivityIndicator size="small" color={theme.primary} />
+                  ) : (
+                    <TouchableOpacity onPress={handleSaveFoodLabel}>
+                      <MaterialIcons name="check" size={22} color={theme.primary} />
+                    </TouchableOpacity>
+                  )}
+                </View>
+              ) : (
+                <Text style={[styles.detailText, { color: theme.text }]}>
+                  {selected.foodName || selected.preNutrition?.food_label || selected.mealType}
+                </Text>
+              )}
+            </View>
+
             {/* Calories & Macros */}
             {nut && (
               <View style={styles.detailSection}>
@@ -189,6 +274,61 @@ export default function TodaysMealsList({ sessions }: Props) {
                 </View>
               </View>
             )}
+
+            {/* Micronutrients section */}
+            {microsEnabled && nut && (() => {
+              const hasMicros = nut.fiber_g != null || nut.sugar_g != null || nut.sodium_mg != null || nut.saturated_fat_g != null || microsData?.enriched;
+              const displayData = microsData?.enriched ? microsData : null;
+              const fib = displayData?.fiber_g ?? nut.fiber_g;
+              const sug = displayData?.sugar_g ?? nut.sugar_g;
+              const sod = displayData?.sodium_mg ?? nut.sodium_mg;
+              const sat = displayData?.saturated_fat_g ?? nut.saturated_fat_g;
+              const anyMicro = fib != null || sug != null || sod != null || sat != null;
+
+              return (
+                <View style={styles.detailSection}>
+                  <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>Micronutrients</Text>
+                  {anyMicro ? (
+                    <View style={styles.macroRow}>
+                      {fib != null && (
+                        <View style={[styles.macroPill, { backgroundColor: '#34C759' + '22' }]}>
+                          <Text style={[styles.macroVal, { color: '#34C759' }]}>{fib}g</Text>
+                          <Text style={[styles.macroUnit, { color: '#34C759' }]}>Fiber</Text>
+                        </View>
+                      )}
+                      {sug != null && (
+                        <View style={[styles.macroPill, { backgroundColor: '#AF52DE' + '22' }]}>
+                          <Text style={[styles.macroVal, { color: '#AF52DE' }]}>{sug}g</Text>
+                          <Text style={[styles.macroUnit, { color: '#AF52DE' }]}>Sugar</Text>
+                        </View>
+                      )}
+                      {sod != null && (
+                        <View style={[styles.macroPill, { backgroundColor: '#5AC8FA' + '22' }]}>
+                          <Text style={[styles.macroVal, { color: '#5AC8FA' }]}>{Math.round(sod)}mg</Text>
+                          <Text style={[styles.macroUnit, { color: '#5AC8FA' }]}>Sodium</Text>
+                        </View>
+                      )}
+                      {sat != null && (
+                        <View style={[styles.macroPill, { backgroundColor: '#FF6482' + '22' }]}>
+                          <Text style={[styles.macroVal, { color: '#FF6482' }]}>{sat}g</Text>
+                          <Text style={[styles.macroUnit, { color: '#FF6482' }]}>Sat Fat</Text>
+                        </View>
+                      )}
+                    </View>
+                  ) : microsLoading ? (
+                    <ActivityIndicator size="small" color={theme.primary} style={{ alignSelf: 'flex-start', marginTop: 4 }} />
+                  ) : (
+                    <TouchableOpacity
+                      style={[styles.enrichBtn, { borderColor: theme.primary }]}
+                      onPress={() => handleEnrichMicros(selected.id)}
+                    >
+                      <MaterialIcons name="auto-fix-high" size={16} color={theme.primary} />
+                      <Text style={[styles.enrichBtnText, { color: theme.primary }]}>Compute micros</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              );
+            })()}
 
             {(selected.preImageUri || selected.postImageUri) && (
               <View style={styles.detailSection}>
@@ -397,4 +537,24 @@ const styles = StyleSheet.create({
   distractMin: { fontSize: 12, marginLeft: 8 },
   closeBtn: { borderRadius: 14, paddingVertical: 14, alignItems: 'center', marginTop: 8 },
   closeBtnText: { fontSize: 15, fontWeight: '700' },
+  enrichBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginTop: 4,
+  },
+  enrichBtnText: { fontSize: 13, fontWeight: '600' },
+  editInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: 14,
+  },
 });

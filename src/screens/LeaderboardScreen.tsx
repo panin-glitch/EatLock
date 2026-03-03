@@ -22,6 +22,7 @@ import { useTheme } from '../theme/ThemeProvider';
 import { useAuth } from '../state/AuthContext';
 import { supabase } from '../services/supabaseClient';
 import ScreenHeader from '../components/common/ScreenHeader';
+import { getDisplayName } from '../utils/displayName';
 
 type Group = {
   id: string;
@@ -159,7 +160,7 @@ export default function LeaderboardScreen() {
       const baseMembers = ((data || []) as any[]).map((row) => ({
         user_id: row.user_id,
         role: row.role === 'admin' ? 'admin' : 'member',
-        username: row.profiles?.username || 'User',
+        username: getDisplayName(row.user_id === user?.id ? user : null, row.profiles),
         avatar_url: row.profiles?.avatar_url || null,
       }));
 

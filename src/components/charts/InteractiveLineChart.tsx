@@ -16,6 +16,7 @@ export interface InteractiveLineChartProps {
   formatYLabel?: (v: string) => string;
   yAxisSuffix?: string;
   fromZero?: boolean;
+  fromNumber?: number;
   bezier?: boolean;
   metricLabel: string; // 'meals', 'cal', 'min'
 }
@@ -36,16 +37,13 @@ export default function InteractiveLineChart(props: InteractiveLineChartProps) {
 
   // We capture the x,y coordinates of each point
   const handleRenderDotContent = ({ x, y, index, indexData }: any) => {
-    // Save to ref if not saved (assuming only 1 dataset and order is guaranteed)
-    if (pointsRef.current.length !== data.labels.length) {
-      if (index === 0) pointsRef.current = []; // reset on new render
-      pointsRef.current[index] = {
-        x,
-        y,
-        value: indexData,
-        label: data.labels[index] || '',
-      };
-    }
+    if (index === 0) pointsRef.current = []; // reset on each render pass
+    pointsRef.current[index] = {
+      x,
+      y,
+      value: indexData,
+      label: data.labels[index] || '',
+    };
     return null; // We don't render standard dot text
   };
 

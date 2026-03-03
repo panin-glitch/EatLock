@@ -13,7 +13,6 @@ import {
   StyleSheet,
   TouchableOpacity,
   ScrollView,
-  Alert,
   StatusBar,
   Image,
 } from 'react-native';
@@ -55,30 +54,23 @@ export default function MealSessionActiveScreen({ navigation, route }: Props) {
   const handleDone = () => {
     if (!activeSession || !canFinish) return;
 
-    if (!activeSession.preImageUri) {
+    const routeBarcode = route.params?.preBarcodeData?.data || route.params?.barcode;
+    const isBarcodeSession = !!(
+      activeSession.preBarcodeData ||
+      activeSession.barcode ||
+      routeBarcode
+    );
+
+    if (!activeSession.preImageUri && !isBarcodeSession) {
       Alert.alert('Before photo required', 'This session can only finish after comparing BEFORE and AFTER photos.');
       return;
     }
 
-    navigation.navigate('PostScanCamera', {
+    navigation.push('PostScanCamera', {
       preImageUri: activeSession.preImageUri,
+      isBarcodeSession,
+      previousBarcode: activeSession.barcode || activeSession.preBarcodeData?.data || routeBarcode,
     });
-  };
-
-  const handleLeave = () => {
-    Alert.alert(
-      'Keep session active',
-      'You can leave this screen, but apps stay locked until AFTER photo comparison is finished.',
-      [
-        { text: 'Stay', style: 'cancel' },
-        {
-          text: 'Go back',
-          onPress: () => {
-            navigation.navigate('Main');
-          },
-        },
-      ]
-    );
   };
 
   const s = makeStyles(theme);
@@ -96,9 +88,7 @@ export default function MealSessionActiveScreen({ navigation, route }: Props) {
 
       {/* Header */}
       <View style={s.header}>
-        <TouchableOpacity onPress={handleLeave}>
-          <MaterialIcons name="close" size={26} color={theme.textMuted} />
-        </TouchableOpacity>
+        <View style={{ width: 26 }} />
         <Text style={s.headerTitle}>{mealType}</Text>
         <View style={{ width: 26 }} />
       </View>

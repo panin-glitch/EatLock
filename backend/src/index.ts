@@ -16,6 +16,8 @@ import { handleVisionQueue, QueueMessage } from './queue/consumer';
 import { handleVerifyFood, handleCompareMeal } from './vision';
 import { handleNutritionEstimate } from './nutrition';
 import { handleBarcodeLookup } from './barcode';
+import { handleEnrichMicros } from './enrich_micros';
+import { handleUpdateFoodLabel } from './food_label';
 
 export interface Env {
   IMAGES: R2Bucket;
@@ -381,6 +383,18 @@ export default {
       // POST /v1/barcode/lookup
       if (method === 'POST' && path === '/v1/barcode/lookup') {
         return finalize(await handleBarcodeLookup(request, env));
+      }
+
+      // POST /v1/meals/:mealId/enrich_micros
+      const enrichMatch = path.match(/^\/v1\/meals\/([a-f0-9-]{36})\/enrich_micros$/);
+      if (method === 'POST' && enrichMatch) {
+        return finalize(await handleEnrichMicros(request, env, enrichMatch[1]));
+      }
+
+      // PUT /v1/meals/:mealId/food_label
+      const foodLabelMatch = path.match(/^\/v1\/meals\/([a-f0-9-]{36})\/food_label$/);
+      if (method === 'PUT' && foodLabelMatch) {
+        return finalize(await handleUpdateFoodLabel(request, env, foodLabelMatch[1]));
       }
 
       // POST /v1/vision/enqueue
