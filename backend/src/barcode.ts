@@ -11,24 +11,12 @@
 
 import type { Env } from './index';
 import { createClient } from '@supabase/supabase-js';
+import { consumeRateLimit, limitsEnforced, serviceKey } from './limits';
 
 // ── Burst rate limiting ──────────────────────
 
 const BARCODE_BURST_LIMIT = 10;
-const SHORT_WINDOW_MS = 60 * 1000;
-const burstBuckets = new Map<string, number[]>();
-
-function checkBurst(key: string, limit: number, windowMs: number): boolean {
-  const now = Date.now();
-  const current = (burstBuckets.get(key) || []).filter((ts) => now - ts < windowMs);
-  if (current.length >= limit) {
-    burstBuckets.set(key, current);
-    return false;
-  }
-  current.push(now);
-  burstBuckets.set(key, current);
-  return true;
-}
+const SHORT_WINDOW_SECONDS = 60;
 
 // ── Helpers ──────────────────────────────────
 
@@ -59,7 +47,7 @@ async function getUser(
   const whoamiRes = await fetch(`${env.SUPABASE_URL}/auth/v1/user`, {
     method: 'GET',
     headers: {
-      apikey: env.SUPABASE_SERVICE_ROLE_KEY,
+      apikey: serviceKey(env),
       Authorization: `Bearer ${jwt}`,
     },
   });
@@ -182,12 +170,24 @@ export async function handleBarcodeLookup(
   const auth = await getUser(request, env);
   if (auth instanceof Response) return auth;
 
-  // Per-IP + per-user burst limit
-  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
-  const burstUserOk = checkBurst(`barcode:user:${auth.user_id}`, BARCODE_BURST_LIMIT, SHORT_WINDOW_MS);
-  const burstIpOk = checkBurst(`barcode:ip:${ip}`, BARCODE_BURST_LIMIT * 2, SHORT_WINDOW_MS);
-  if (!burstUserOk || !burstIpOk) {
-    return err('Too many barcode requests. Please slow down.', 429);
+  const enforce = limitsEnforced(env);
+  if (enforce) {
+    const ip = request.headers.get('CF-Connecting-IP') || request.headers.get('x-forwarded-for') || 'unknown';
+    const userAllowed = await consumeRateLimit(
+      env,
+      `barcode:user:${auth.user_id}`,
+      BARCODE_BURST_LIMIT,
+      SHORT_WINDOW_SECONDS,
+    );
+    const ipAllowed = await consumeRateLimit(
+      env,
+      `barcode:ip:${ip}`,
+      BARCODE_BURST_LIMIT * 2,
+      SHORT_WINDOW_SECONDS,
+    );
+    if (!userAllowed.allowed || !ipAllowed.allowed) {
+      return err('Too many barcode requests. Please slow down.', 429);
+    }
   }
 
   let body: { barcode?: string };
@@ -204,7 +204,7 @@ export async function handleBarcodeLookup(
   const barcode = body.barcode.trim();
 
   // 1. Check cache
-  const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
+  const supabase = createClient(env.SUPABASE_URL, serviceKey(env), {
     auth: { persistSession: false },
   });
 

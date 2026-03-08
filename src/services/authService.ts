@@ -2,6 +2,7 @@
  * Auth service — wraps Supabase Auth operations.
  */
 import { supabase } from './supabaseClient';
+import { ENV } from '../config/env';
 
 export async function signUp(email: string, password: string) {
   const { data, error } = await supabase.auth.signUp({ email, password });
@@ -21,10 +22,19 @@ export async function signOut() {
 }
 
 export async function resetPassword(email: string) {
-  const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: 'tadlock://reset-password',
-  });
+  const options = ENV.PASSWORD_RESET_URL
+    ? { redirectTo: ENV.PASSWORD_RESET_URL }
+    : undefined;
+  const { error } = options
+    ? await supabase.auth.resetPasswordForEmail(email, options)
+    : await supabase.auth.resetPasswordForEmail(email);
   if (error) throw error;
+}
+
+export function getResetPasswordSuccessMessage(): string {
+  return ENV.PASSWORD_RESET_URL
+    ? 'A password reset link has been sent. It will open in your browser.'
+    : 'A password reset link has been sent using your secure web reset flow.';
 }
 
 export async function updatePassword(newPassword: string) {
@@ -60,7 +70,7 @@ export async function refreshAuthSession(): Promise<string | null> {
 /**
  * Ensure a Supabase session exists. If no session is found, sign in
  * anonymously so the app has a valid JWT for authenticated Worker calls.
- * The session is persisted in AsyncStorage and auto-refreshed by the client.
+ * The session is persisted securely and auto-refreshed by the client.
  */
 export async function ensureAuth(): Promise<string> {
   // First try: maybe we already have a persisted session
@@ -80,13 +90,4 @@ export async function ensureAuth(): Promise<string> {
   }
   console.log('[ensureAuth] Signed in anonymously ✓');
   return anonData.session.access_token;
-}
-
-export async function recreateAnonymousSession(): Promise<string> {
-  await supabase.auth.signOut();
-  const { data, error } = await supabase.auth.signInAnonymously();
-  if (error || !data.session?.access_token) {
-    throw new Error(error?.message || 'Failed to recreate anonymous session');
-  }
-  return data.session.access_token;
 }

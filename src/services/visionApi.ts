@@ -3,66 +3,9 @@
  * All OpenAI calls go through the Cloudflare Worker backend (never from app).
  */
 import { ENV } from '../config/env';
-import { getAccessToken, ensureAuth, refreshAuthSession, recreateAnonymousSession } from './authService';
+import { fetchWithAuth as authenticatedFetch } from './authFetch';
 
 const API = ENV.WORKER_API_URL;
-const __DEV__ = process.env.NODE_ENV !== 'production';
-let hasLoggedTokenDebug = false;
-
-function isJwt(token: string): boolean {
-  return token.split('.').length === 3;
-}
-
-async function getBearerToken(): Promise<string> {
-  let token = await getAccessToken();
-  if (!token) {
-    token = await ensureAuth();
-  }
-  if (!token) {
-    throw new Error('Sign-in expired. Please try again.');
-  }
-  if (!isJwt(token)) {
-    throw new Error('Auth token invalid');
-  }
-  if (__DEV__ && !hasLoggedTokenDebug) {
-    console.log(`[Auth] token head=${token.slice(0, 12)} len=${token.length}`);
-    hasLoggedTokenDebug = true;
-  }
-  return token;
-}
-
-async function fetchWithAuth(url: string, init: RequestInit, retryOn401 = true): Promise<Response> {
-  const token = await getBearerToken();
-  const baseHeaders = (init.headers || {}) as Record<string, string>;
-
-  const makeInit = (bearer: string): RequestInit => ({
-    ...init,
-    headers: {
-      ...baseHeaders,
-      Authorization: `Bearer ${bearer}`,
-      'x-eatlock-supabase-url': ENV.SUPABASE_URL,
-      'x-tadlock-supabase-url': ENV.SUPABASE_URL,
-    },
-  });
-
-  let res = await fetch(url, makeInit(token));
-  if (res.status === 401 && retryOn401) {
-    let refreshed = await refreshAuthSession();
-    if (!refreshed) {
-      try {
-        refreshed = await recreateAnonymousSession();
-      } catch {
-        refreshed = null;
-      }
-    }
-    if (!refreshed) {
-      throw new Error('Sign-in expired. Please try again.');
-    }
-    res = await fetch(url, makeInit(refreshed));
-  }
-
-  return res;
-}
 
 // ── Types ─────────────────────────────
 
@@ -98,7 +41,7 @@ export interface VisionJobStatus {
 // ── Upload ────────────────────────────
 
 export async function getSignedUploadUrl(stage: string): Promise<{ r2_key: string; upload_url: string }> {
-  const res = await fetchWithAuth(`${API}/v1/r2/signed-upload`, {
+  const res = await authenticatedFetch(`${API}/v1/r2/signed-upload`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ stage, content_type: 'image/jpeg' }),
@@ -115,7 +58,7 @@ export async function uploadImageToR2(uploadUrl: string, imageUri: string): Prom
   const response = await fetch(imageUri);
   const blob = await response.blob();
 
-  const uploadRes = await fetchWithAuth(uploadUrl, {
+  const uploadRes = await authenticatedFetch(uploadUrl, {
     method: 'PUT',
     headers: {
       'Content-Type': 'image/jpeg',
@@ -135,7 +78,7 @@ export async function enqueueVisionJob(
   r2Keys: Record<string, string>,
   sessionId?: string
 ): Promise<string> {
-  const res = await fetchWithAuth(`${API}/v1/vision/enqueue`, {
+  const res = await authenticatedFetch(`${API}/v1/vision/enqueue`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -157,7 +100,7 @@ export async function enqueueVisionJob(
 // ── Polling ───────────────────────────
 
 export async function getVisionJobStatus(jobId: string): Promise<VisionJobStatus> {
-  const res = await fetchWithAuth(`${API}/v1/vision/job/${jobId}`, {
+  const res = await authenticatedFetch(`${API}/v1/vision/job/${jobId}`, {
     method: 'GET',
     headers: { 'Content-Type': 'application/json' },
   });

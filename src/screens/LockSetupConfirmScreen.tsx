@@ -1,11 +1,4 @@
-/**
- * LockSetupConfirm — confirms blocked apps + meal type, then starts the session.
- *
- * Receives preImageUri + preCheck from PreScanCamera.
- * On "Start Meal" → creates session → navigates to MealSessionActive.
- */
-
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -16,18 +9,37 @@ import {
   Image,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { useTheme } from '../theme/ThemeProvider';
-import { useAppState } from '../state/AppStateContext';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { MealType } from '../types/models';
+import { useAppState } from '../state/AppStateContext';
+import type { MealType } from '../types/models';
 import type { FoodCheckResult, NutritionEstimate } from '../services/vision/types';
+import { blockingEngine } from '../services/blockingEngine';
+import type { BlockingSupport } from '../services/blockingSupport';
 
 const MEAL_TYPES: MealType[] = ['Breakfast', 'Lunch', 'Dinner', 'Snack', 'Custom'];
 
 type Props = NativeStackScreenProps<any, 'LockSetupConfirm'>;
 
+type AppBadgeStyle = {
+  bg: string;
+  textColor: string;
+  glyph: string;
+};
+
+function getAppBadgeStyle(appId: string, appName: string): AppBadgeStyle {
+  const id = appId.toLowerCase();
+  if (id.includes('instagram')) return { bg: '#D62976', textColor: '#FFFFFF', glyph: 'I' };
+  if (id.includes('youtube')) return { bg: '#FF0000', textColor: '#FFFFFF', glyph: 'Y' };
+  if (id.includes('snapchat')) return { bg: '#FFFC00', textColor: '#111111', glyph: 'S' };
+  if (id.includes('twitter') || id.includes('x')) return { bg: '#000000', textColor: '#FFFFFF', glyph: 'X' };
+  return {
+    bg: '#E5E7EB',
+    textColor: '#334155',
+    glyph: (appName || 'A').trim().charAt(0).toUpperCase() || 'A',
+  };
+}
+
 export default function LockSetupConfirmScreen({ navigation, route }: Props) {
-  const { theme } = useTheme();
   const { blockConfig, startSession } = useAppState();
   const {
     preImageUri,
@@ -36,40 +48,56 @@ export default function LockSetupConfirmScreen({ navigation, route }: Props) {
     preNutrition,
     foodName: routeFoodName,
     barcode: routeBarcode,
-    overrideUsed: routeOverride,
-  } = (route.params as {
-    preImageUri?: string;
-    preCheck?: FoodCheckResult;
-    preNutrition?: NutritionEstimate;
-    preBarcodeData?: { type: string; data: string };
-    foodName?: string;
-    barcode?: string;
-    overrideUsed?: boolean;
-  }) || {};
+  } =
+    (route.params as {
+      preImageUri?: string;
+      preCheck?: FoodCheckResult;
+      preNutrition?: NutritionEstimate;
+      preBarcodeData?: { type: string; data: string };
+      foodName?: string;
+      barcode?: string;
+    }) || {};
 
   const detectMealType = (): MealType => {
-    const h = new Date().getHours();
-    if (h < 11) return 'Breakfast';
-    if (h < 15) return 'Lunch';
-    if (h < 20) return 'Dinner';
+    const hour = new Date().getHours();
+    if (hour < 11) return 'Breakfast';
+    if (hour < 15) return 'Lunch';
+    if (hour < 20) return 'Dinner';
     return 'Snack';
   };
 
   const [selectedMealType, setSelectedMealType] = useState<MealType>(detectMealType());
   const [confirmed, setConfirmed] = useState(false);
   const [starting, setStarting] = useState(false);
+  const [support, setSupport] = useState<BlockingSupport | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    blockingEngine.getSupport().then((next) => {
+      if (!cancelled) {
+        setSupport(next);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const blockedApps = blockConfig.blockedApps;
+  const displayApps = useMemo(() => blockedApps.slice(0, 4), [blockedApps]);
 
   const handleStart = async () => {
     if (!confirmed || starting) return;
     setStarting(true);
     try {
-      const resolvedPreBarcodeData = preBarcodeData || (routeBarcode ? { type: 'barcode', data: routeBarcode } : undefined);
+      const resolvedPreBarcodeData =
+        preBarcodeData || (routeBarcode ? { type: 'barcode', data: routeBarcode } : undefined);
+
       await startSession(
         selectedMealType,
-        '', // note
-        true, // strictMode
+        '',
+        true,
         preImageUri,
         routeFoodName || undefined,
         preCheck,
@@ -77,264 +105,391 @@ export default function LockSetupConfirmScreen({ navigation, route }: Props) {
         routeBarcode,
         resolvedPreBarcodeData,
       );
+
       navigation.reset({
         index: 0,
         routes: [
           { name: 'Main' },
-          { name: 'MealSessionActive', params: { mealType: selectedMealType, preBarcodeData: resolvedPreBarcodeData } },
+          {
+            name: 'MealSessionActive',
+            params: { mealType: selectedMealType, preBarcodeData: resolvedPreBarcodeData },
+          },
         ],
       });
-    } catch (e) {
-      console.error('Failed to start session:', e);
+    } catch (error) {
+      console.error('Failed to start session:', error);
       setStarting(false);
     }
   };
 
-  const s = makeStyles(theme);
-
   return (
-    <View style={s.container}>
-      <StatusBar barStyle="light-content" backgroundColor={theme.background} />
+    <View style={styles.container}>
+      <StatusBar barStyle="dark-content" backgroundColor="#F6F8F6" />
 
-      {/* Header */}
-      <View style={s.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <MaterialIcons name="arrow-back" size={26} color={theme.text} />
+      <View style={styles.header}>
+        <TouchableOpacity style={styles.headerIconBtn} onPress={() => navigation.goBack()}>
+          <MaterialIcons name="arrow-back" size={22} color="#0F172A" />
         </TouchableOpacity>
-        <Text style={s.headerTitle}>Confirm & Lock</Text>
-        <View style={{ width: 26 }} />
+        <Text style={styles.headerTitle}>Confirm & Lock</Text>
+        <View style={{ width: 40 }} />
       </View>
 
-      <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
-        {/* Before photo thumbnail */}
-        {preImageUri && (
-          <View style={s.thumbRow}>
-            <Image source={{ uri: preImageUri }} style={s.thumb} />
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <View style={styles.beforeCard}>
+          <View style={styles.beforeImageWrap}>
+            {preImageUri ? (
+              <Image source={{ uri: preImageUri }} style={styles.beforeImage} />
+            ) : (
+              <View style={styles.beforeImagePlaceholder}>
+                <MaterialIcons
+                  name={preBarcodeData ? 'qr-code-scanner' : 'photo-camera'}
+                  size={30}
+                  color="#94A3B8"
+                />
+              </View>
+            )}
+
+            <View style={styles.verifiedBadgeIcon}>
+              <MaterialIcons name="check" size={14} color="#FFFFFF" />
+            </View>
+          </View>
+
+          <View style={styles.beforeTextRow}>
             <View style={{ flex: 1 }}>
-              <Text style={s.thumbLabel}>{preBarcodeData ? 'Snack Barcode' : 'Before Photo'}</Text>
-              {preBarcodeData ? (
-                <Text style={s.thumbSub}>Code: {preBarcodeData.data}</Text>
-              ) : preCheck?.roastLine ? (
-                <Text style={s.thumbSub}>{preCheck.roastLine}</Text>
-              ) : null}
-            </View>
-            <MaterialIcons name={preBarcodeData ? 'qr-code-scanner' : 'check-circle'} size={22} color={theme.success} />
-          </View>
-        )}
-
-        {routeOverride && (
-          <View style={[s.overrideBadge, { backgroundColor: theme.warning + '22' }]}>
-            <MaterialIcons name="warning" size={18} color={theme.warning} />
-            <Text style={[s.overrideText, { color: theme.warning }]}>
-              Photo skipped — meal won't be verified
-            </Text>
-          </View>
-        )}
-
-        {/* Meal type selector */}
-        <Text style={s.sectionLabel}>Meal Type</Text>
-        <View style={s.mealTypeRow}>
-          {MEAL_TYPES.map((type) => (
-            <TouchableOpacity
-              key={type}
-              style={[s.mealTypeChip, selectedMealType === type && s.mealTypeChipSelected]}
-              onPress={() => setSelectedMealType(type)}
-            >
-              <Text style={[s.mealTypeText, selectedMealType === type && s.mealTypeTextSelected]}>
-                {type}
+              <Text style={styles.beforeTitle}>{preBarcodeData ? 'Snack Barcode' : 'Before Photo'}</Text>
+              <Text style={styles.beforeSubtitle}>
+                {preBarcodeData
+                  ? `Code: ${preBarcodeData.data}`
+                  : preCheck?.roastLine || 'Meal captured'}
               </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {/* App count */}
-        <View style={s.countBadge}>
-          <MaterialIcons name="lock" size={20} color={theme.primary} />
-          <Text style={s.countText}>
-            {blockedApps.length} app{blockedApps.length !== 1 ? 's' : ''} will be blocked
-          </Text>
-        </View>
-
-        {/* App chips */}
-        <View style={s.chipGrid}>
-          {blockedApps.map((app) => (
-            <View key={app.id} style={s.appChip}>
-              <MaterialIcons name={app.icon as any} size={20} color={theme.primary} />
-              <Text style={s.appChipText}>{app.name}</Text>
             </View>
-          ))}
+            <View style={styles.verifiedPill}>
+              <Text style={styles.verifiedPillText}>Verified</Text>
+            </View>
+          </View>
         </View>
 
-        {blockedApps.length === 0 && (
-          <View style={s.emptyState}>
-            <MaterialIcons name="lock-open" size={48} color={theme.textMuted} />
-            <Text style={s.emptyText}>No apps selected. Go to Block tab to add.</Text>
+        <View style={{ marginTop: 6 }}>
+          <Text style={styles.sectionLabel}>Meal Type</Text>
+          <View style={styles.mealTypeRow}>
+            {MEAL_TYPES.map((type) => {
+              const selected = selectedMealType === type;
+              return (
+                <TouchableOpacity
+                  key={type}
+                  style={[styles.mealTypeChip, selected && styles.mealTypeChipSelected]}
+                  onPress={() => setSelectedMealType(type)}
+                  activeOpacity={0.8}
+                >
+                  {selected ? <MaterialIcons name="check" size={16} color="#FFFFFF" /> : null}
+                  <Text style={[styles.mealTypeText, selected && styles.mealTypeTextSelected]}>{type}</Text>
+                </TouchableOpacity>
+              );
+            })}
           </View>
-        )}
+        </View>
 
-        {/* Confirmation checkbox */}
-        <TouchableOpacity
-          style={s.confirmRow}
-          onPress={() => setConfirmed(!confirmed)}
-          activeOpacity={0.7}
-        >
-          <View style={[s.checkbox, confirmed && s.checkboxChecked]}>
-            {confirmed && <MaterialIcons name="check" size={16} color="#FFF" />}
+        <View style={styles.restrictionsWrap}>
+          <View style={styles.restrictionsHeader}>
+            <Text style={styles.sectionLabel}>App Restrictions</Text>
+            <View style={styles.countPill}>
+              <Text style={styles.countPillText}>
+                {support?.canEnforce
+                  ? `${blockedApps.length} app${blockedApps.length === 1 ? '' : 's'} will be blocked`
+                  : `${blockedApps.length} app${blockedApps.length === 1 ? '' : 's'} selected for focus mode`}
+              </Text>
+            </View>
           </View>
-          <Text style={s.confirmText}>
-            I understand these apps will be blocked until I finish eating.
-          </Text>
-        </TouchableOpacity>
+
+          {!support?.canEnforce && support?.detail ? (
+            <Text style={styles.supportHint}>{support.detail}</Text>
+          ) : null}
+
+          <View style={styles.appsGrid}>
+            {displayApps.map((app) => {
+              const badgeStyle = getAppBadgeStyle(app.id, app.name);
+              return (
+                <View key={app.id} style={styles.appGridItem}>
+                  <View style={[styles.appLogo, { backgroundColor: badgeStyle.bg }]}>
+                    <Text style={[styles.appLogoText, { color: badgeStyle.textColor }]}>{badgeStyle.glyph}</Text>
+                  </View>
+                  <Text style={styles.appLabel} numberOfLines={1}>
+                    {app.name}
+                  </Text>
+                </View>
+              );
+            })}
+          </View>
+
+          <TouchableOpacity
+            style={styles.confirmRow}
+            onPress={() => setConfirmed((prev) => !prev)}
+            activeOpacity={0.85}
+          >
+            <View style={[styles.checkbox, confirmed && styles.checkboxChecked]}>
+              {confirmed ? <MaterialIcons name="check" size={14} color="#FFFFFF" /> : null}
+            </View>
+            <Text style={styles.confirmText}>
+              {support?.canEnforce
+                ? 'I understand these apps will be blocked until I upload my Finished Plate photo.'
+                : 'I understand this device cannot enforce app blocking in the current build.'}
+            </Text>
+          </TouchableOpacity>
+        </View>
       </ScrollView>
 
-      {/* Start button */}
-      <View style={s.bottomBar}>
+      <View style={styles.bottomActionWrap}>
         <TouchableOpacity
-          style={[s.startBtn, (!confirmed || starting) && s.startBtnDisabled]}
+          style={[styles.startBtn, (!confirmed || starting) && styles.startBtnDisabled]}
           onPress={handleStart}
           disabled={!confirmed || starting}
+          activeOpacity={0.9}
         >
-          <MaterialIcons
-            name="restaurant"
-            size={20}
-            color={confirmed && !starting ? '#FFF' : theme.textMuted}
-          />
-          <Text
-            style={[s.startBtnText, (!confirmed || starting) && s.startBtnTextDisabled]}
-          >
-            {starting ? 'Starting...' : 'Start Meal'}
-          </Text>
+          <MaterialIcons name="restaurant" size={18} color="#FFFFFF" />
+          <Text style={styles.startBtnText}>{starting ? 'Starting…' : 'Start Meal'}</Text>
         </TouchableOpacity>
       </View>
     </View>
   );
 }
 
-const makeStyles = (c: any) =>
-  StyleSheet.create({
-    container: { flex: 1, backgroundColor: c.background },
-    header: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      paddingHorizontal: 20,
-      paddingTop: 56,
-      paddingBottom: 16,
-    },
-    headerTitle: { fontSize: 17, fontWeight: '600', color: c.text },
-    content: { paddingHorizontal: 20, paddingBottom: 120 },
-    thumbRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 12,
-      backgroundColor: c.card,
-      borderRadius: 14,
-      padding: 12,
-      marginBottom: 16,
-      borderWidth: 1,
-      borderColor: c.border,
-    },
-    thumb: { width: 56, height: 56, borderRadius: 10 },
-    thumbLabel: { fontSize: 14, fontWeight: '600', color: c.text },
-    thumbSub: { fontSize: 12, color: c.textSecondary, marginTop: 2 },
-    overrideBadge: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 8,
-      padding: 12,
-      borderRadius: 12,
-      marginBottom: 16,
-    },
-    overrideText: { fontSize: 13, fontWeight: '600' },
-    sectionLabel: {
-      fontSize: 14,
-      fontWeight: '600',
-      color: c.textSecondary,
-      marginTop: 8,
-      marginBottom: 8,
-    },
-    mealTypeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
-    mealTypeChip: {
-      paddingHorizontal: 16,
-      paddingVertical: 8,
-      borderRadius: 20,
-      backgroundColor: c.chipBg,
-    },
-    mealTypeChipSelected: {
-      backgroundColor: c.chipSelectedBg,
-      borderColor: c.primary,
-      borderWidth: 1,
-    },
-    mealTypeText: { fontSize: 14, color: c.textSecondary },
-    mealTypeTextSelected: { color: c.primary, fontWeight: '600' },
-    countBadge: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 8,
-      backgroundColor: c.primaryDim,
-      paddingHorizontal: 16,
-      paddingVertical: 10,
-      borderRadius: 14,
-      marginTop: 8,
-      marginBottom: 20,
-      alignSelf: 'flex-start',
-    },
-    countText: { color: c.primary, fontSize: 15, fontWeight: '600' },
-    chipGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 30 },
-    appChip: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 8,
-      backgroundColor: c.card,
-      borderRadius: 14,
-      paddingHorizontal: 14,
-      paddingVertical: 10,
-      borderWidth: 1,
-      borderColor: c.border,
-    },
-    appChipText: { color: c.text, fontSize: 14, fontWeight: '500' },
-    emptyState: { alignItems: 'center', paddingVertical: 40 },
-    emptyText: { color: c.textMuted, fontSize: 14, textAlign: 'center', marginTop: 12 },
-    confirmRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 12,
-      backgroundColor: c.card,
-      borderRadius: 16,
-      padding: 16,
-      borderWidth: 1,
-      borderColor: c.border,
-    },
-    checkbox: {
-      width: 24,
-      height: 24,
-      borderRadius: 6,
-      borderWidth: 2,
-      borderColor: c.textMuted,
-      justifyContent: 'center',
-      alignItems: 'center',
-    },
-    checkboxChecked: { backgroundColor: c.primary, borderColor: c.primary },
-    confirmText: { flex: 1, color: c.text, fontSize: 14, lineHeight: 20 },
-    bottomBar: {
-      position: 'absolute',
-      bottom: 0,
-      left: 0,
-      right: 0,
-      padding: 20,
-      paddingBottom: 36,
-      backgroundColor: c.background,
-    },
-    startBtn: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: 8,
-      backgroundColor: c.primary,
-      borderRadius: 16,
-      paddingVertical: 16,
-    },
-    startBtnDisabled: { backgroundColor: c.surfaceElevated },
-    startBtnText: { color: '#FFF', fontSize: 17, fontWeight: '600' },
-    startBtnTextDisabled: { color: c.textMuted },
-  });
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#F6F8F6',
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: 52,
+    paddingHorizontal: 16,
+    paddingBottom: 14,
+    backgroundColor: 'rgba(255,255,255,0.9)',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(51,199,88,0.12)',
+  },
+  headerIconBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerTitle: {
+    flex: 1,
+    textAlign: 'center',
+    paddingRight: 40,
+    color: '#0F172A',
+    fontSize: 18,
+    fontWeight: '800',
+    letterSpacing: 0.1,
+  },
+  content: {
+    paddingHorizontal: 16,
+    paddingTop: 18,
+    paddingBottom: 120,
+  },
+  beforeCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(51,199,88,0.15)',
+    backgroundColor: 'rgba(255,255,255,0.78)',
+    padding: 12,
+  },
+  beforeImageWrap: {
+    width: '100%',
+    aspectRatio: 16 / 9,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: '#E5E7EB',
+    position: 'relative',
+  },
+  beforeImage: { width: '100%', height: '100%' },
+  beforeImagePlaceholder: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F1F5F9',
+  },
+  verifiedBadgeIcon: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#33C758',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  beforeTextRow: {
+    marginTop: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  beforeTitle: { color: '#0F172A', fontSize: 18, fontWeight: '800' },
+  beforeSubtitle: { marginTop: 2, color: '#64748B', fontSize: 13 },
+  verifiedPill: {
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: 'rgba(51,199,88,0.18)',
+  },
+  verifiedPillText: {
+    color: '#1EA84B',
+    fontSize: 10,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.7,
+  },
+  sectionLabel: {
+    color: '#0F172A',
+    fontSize: 13,
+    fontWeight: '800',
+    marginBottom: 10,
+  },
+  mealTypeRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  mealTypeChip: {
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#F8FAFC',
+    paddingHorizontal: 14,
+    height: 34,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  mealTypeChipSelected: {
+    backgroundColor: '#33C758',
+    borderColor: '#33C758',
+  },
+  mealTypeText: { color: '#64748B', fontSize: 13, fontWeight: '700' },
+  mealTypeTextSelected: { color: '#FFFFFF' },
+  restrictionsWrap: {
+    marginTop: 18,
+  },
+  restrictionsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  countPill: {
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    backgroundColor: 'rgba(51,199,88,0.12)',
+  },
+  countPillText: {
+    color: '#1EA84B',
+    fontSize: 9,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.7,
+  },
+  supportHint: {
+    marginBottom: 10,
+    color: '#64748B',
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  appsGrid: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    backgroundColor: '#F8FAFC',
+    paddingHorizontal: 10,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  appGridItem: {
+    alignItems: 'center',
+    width: '24%',
+  },
+  appLogo: {
+    width: 54,
+    height: 54,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  appLogoText: { fontSize: 24, fontWeight: '900' },
+  appLabel: {
+    marginTop: 6,
+    fontSize: 10,
+    color: '#64748B',
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  confirmRow: {
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(51,199,88,0.16)',
+    backgroundColor: 'rgba(51,199,88,0.07)',
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+  },
+  checkbox: {
+    width: 18,
+    height: 18,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 1,
+  },
+  checkboxChecked: {
+    borderColor: '#33C758',
+    backgroundColor: '#33C758',
+  },
+  confirmText: {
+    flex: 1,
+    color: '#475569',
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: '500',
+  },
+  bottomActionWrap: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    bottom: 14,
+  },
+  startBtn: {
+    height: 56,
+    borderRadius: 14,
+    backgroundColor: '#33C758',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    shadowColor: '#33C758',
+    shadowOpacity: 0.28,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 4,
+  },
+  startBtnDisabled: {
+    opacity: 0.55,
+  },
+  startBtnText: {
+    color: '#FFFFFF',
+    fontSize: 17,
+    fontWeight: '800',
+  },
+});

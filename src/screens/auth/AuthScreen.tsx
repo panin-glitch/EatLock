@@ -21,7 +21,7 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../../theme/ThemeProvider';
-import { signIn, signUp, resetPassword } from '../../services/authService';
+import { getResetPasswordSuccessMessage, signIn, signUp, resetPassword } from '../../services/authService';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 type Props = NativeStackScreenProps<any, 'Auth'>;
@@ -64,7 +64,7 @@ export default function AuthScreen({ navigation }: Props) {
     }
     try {
       await resetPassword(email.trim());
-      Alert.alert('Check your email', 'A password reset link has been sent.');
+      Alert.alert('Check your email', getResetPasswordSuccessMessage());
     } catch (err: any) {
       Alert.alert('Error', err?.message || 'Something went wrong');
     }

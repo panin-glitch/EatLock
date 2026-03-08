@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -12,6 +12,8 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../theme/ThemeProvider';
 import { useNavigation } from '@react-navigation/native';
+import { blockingEngine } from '../services/blockingEngine';
+import type { BlockingSupport } from '../services/blockingSupport';
 
 interface PermStep {
   key: string;
@@ -25,68 +27,79 @@ export default function PermissionsOnboardingScreen() {
   const { theme } = useTheme();
   const navigation = useNavigation<any>();
   const [granted, setGranted] = useState<Record<string, boolean>>({});
+  const [support, setSupport] = useState<BlockingSupport | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    blockingEngine.getSupport().then((next) => {
+      if (!cancelled) {
+        setSupport(next);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const markGranted = (key: string) => {
     setGranted((prev) => ({ ...prev, [key]: true }));
   };
 
-  const steps: PermStep[] = [
-    {
-      key: 'accessibility',
-      icon: 'accessibility',
-      title: 'Accessibility Service',
-      description:
-        'Required to detect when you open a blocked app and redirect you back to EatLock.',
-      action: () => {
-        if (Platform.OS === 'android') {
+  const steps: PermStep[] = useMemo(() => {
+    if (Platform.OS !== 'android' || !support?.hasNativeBlockerModule) {
+      return [];
+    }
+
+    return [
+      {
+        key: 'accessibility',
+        icon: 'accessibility',
+        title: 'Accessibility Service',
+        description: 'Required for Android builds that can enforce app blocking.',
+        action: () => {
           Linking.openURL('android.settings.ACCESSIBILITY_SETTINGS').catch(() =>
             Linking.openSettings()
           );
-        }
-        markGranted('accessibility');
+          markGranted('accessibility');
+        },
       },
-    },
-    {
-      key: 'overlay',
-      icon: 'picture-in-picture',
-      title: 'Display Over Other Apps',
-      description:
-        'Allows EatLock to show a blocker overlay when you try to open a blocked app during a meal.',
-      action: () => {
-        if (Platform.OS === 'android') {
+      {
+        key: 'overlay',
+        icon: 'picture-in-picture',
+        title: 'Display Over Other Apps',
+        description: 'Optional, but recommended for the full-screen Android blocker overlay.',
+        action: () => {
           Linking.openURL('android.settings.action.MANAGE_OVERLAY_PERMISSION').catch(() =>
             Linking.openSettings()
           );
-        }
-        markGranted('overlay');
+          markGranted('overlay');
+        },
       },
-    },
-    {
-      key: 'notifications',
-      icon: 'notifications-active',
-      title: 'Notifications',
-      description: 'Get meal reminders and session alerts on time.',
-      action: () => {
-        Linking.openSettings();
-        markGranted('notifications');
+      {
+        key: 'notifications',
+        icon: 'notifications-active',
+        title: 'Notifications',
+        description: 'Get meal reminders and session alerts on time.',
+        action: () => {
+          Linking.openSettings();
+          markGranted('notifications');
+        },
       },
-    },
-    {
-      key: 'battery',
-      icon: 'battery-full',
-      title: 'Unrestricted Battery',
-      description:
-        'Prevents Android from killing EatLock in the background, ensuring blocking stays active.',
-      action: () => {
-        if (Platform.OS === 'android') {
+      {
+        key: 'battery',
+        icon: 'battery-full',
+        title: 'Unrestricted Battery',
+        description: 'Helps Android keep the blocker service alive in the background.',
+        action: () => {
           Linking.openURL('android.settings.IGNORE_BATTERY_OPTIMIZATION_SETTINGS').catch(
             () => Linking.openSettings()
           );
-        }
-        markGranted('battery');
+          markGranted('battery');
+        },
       },
-    },
-  ];
+    ];
+  }, [support]);
 
   const allGranted = steps.every((s) => granted[s.key]);
   const styles = makeStyles(theme);
@@ -105,9 +118,19 @@ export default function PermissionsOnboardingScreen() {
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <Text style={styles.description}>
-          EatLock needs a few permissions to block apps during your meals. Tap each item to
-          open the relevant settings.
+          {steps.length > 0
+            ? 'This Android build can enforce app blocking after you enable the required permissions.'
+            : support?.detail || 'Checking device support for app blocking.'}
         </Text>
+
+        {steps.length === 0 ? (
+          <View style={styles.infoCard}>
+            <MaterialIcons name="info-outline" size={20} color={theme.textSecondary} />
+            <Text style={styles.infoText}>
+              Device-level blocking is not available in this build, so there are no blocking permissions to configure here.
+            </Text>
+          </View>
+        ) : null}
 
         {steps.map((step, idx) => (
           <TouchableOpacity
@@ -142,7 +165,7 @@ export default function PermissionsOnboardingScreen() {
           onPress={() => navigation.goBack()}
         >
           <Text style={styles.doneBtnText}>
-            {allGranted ? "All Set — Let's Go!" : 'Skip for Now'}
+            {steps.length === 0 ? 'Back' : allGranted ? "All Set — Let's Go!" : 'Skip for Now'}
           </Text>
         </TouchableOpacity>
       </View>
@@ -168,6 +191,22 @@ const makeStyles = (theme: any) =>
       color: theme.textSecondary,
       lineHeight: 22,
       marginBottom: 20,
+    },
+    infoCard: {
+      flexDirection: 'row',
+      gap: 10,
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: theme.border,
+      backgroundColor: theme.card,
+      padding: 16,
+      marginBottom: 14,
+    },
+    infoText: {
+      flex: 1,
+      fontSize: 13,
+      lineHeight: 19,
+      color: theme.textSecondary,
     },
     stepCard: {
       flexDirection: 'row',

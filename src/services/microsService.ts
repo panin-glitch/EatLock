@@ -4,43 +4,18 @@
  */
 
 import { ENV } from '../config/env';
-import { getAccessToken, ensureAuth, refreshAuthSession, recreateAnonymousSession } from './authService';
+import { fetchWithAuth as authenticatedFetch } from './authFetch';
 import type { MicrosEnrichResult } from './vision/types';
 
 const API = ENV.WORKER_API_URL;
-
-async function fetchWithAuth(url: string, init: RequestInit): Promise<Response> {
-  let token = await getAccessToken();
-  if (!token) token = await ensureAuth();
-  if (!token) throw new Error('Sign-in expired.');
-
-  const makeInit = (bearer: string): RequestInit => ({
-    ...init,
-    headers: {
-      ...(init.headers as Record<string, string> || {}),
-      Authorization: `Bearer ${bearer}`,
-      'Content-Type': 'application/json',
-    },
-  });
-
-  let res = await fetch(url, makeInit(token));
-  if (res.status === 401) {
-    let refreshed = await refreshAuthSession();
-    if (!refreshed) {
-      try { refreshed = await recreateAnonymousSession(); } catch { refreshed = null; }
-    }
-    if (!refreshed) throw new Error('Sign-in expired.');
-    res = await fetch(url, makeInit(refreshed));
-  }
-  return res;
-}
 
 /**
  * Enrich a meal with micronutrient data.
  */
 export async function enrichMicros(mealId: string): Promise<MicrosEnrichResult> {
-  const res = await fetchWithAuth(`${API}/v1/meals/${mealId}/enrich_micros`, {
+  const res = await authenticatedFetch(`${API}/v1/meals/${mealId}/enrich_micros`, {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({}),
   });
 
@@ -60,8 +35,9 @@ export async function updateFoodLabel(
   foodLabel: string,
   detail?: string,
 ): Promise<void> {
-  const res = await fetchWithAuth(`${API}/v1/meals/${mealId}/food_label`, {
+  const res = await authenticatedFetch(`${API}/v1/meals/${mealId}/food_label`, {
     method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ food_label: foodLabel, detail: detail || undefined }),
   });
 

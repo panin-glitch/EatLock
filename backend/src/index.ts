@@ -18,26 +18,38 @@ import { handleNutritionEstimate } from './nutrition';
 import { handleBarcodeLookup } from './barcode';
 import { handleEnrichMicros } from './enrich_micros';
 import { handleUpdateFoodLabel } from './food_label';
+import {
+  acquireConcurrencySlot,
+  consumeRateLimit,
+  consumeVisionQuota,
+  dailyLimitsDisabled,
+  limitsEnforced,
+  releaseConcurrencySlot,
+  secondsUntilUtcMidnight,
+  serviceKey,
+  toLimit,
+} from './limits';
+import { validateVisionQueuePayload } from './visionPayload';
 
 export interface Env {
   IMAGES: R2Bucket;
   VISION_QUEUE: Queue<QueueMessage>;
   SUPABASE_URL: string;
   SUPABASE_SERVICE_ROLE_KEY: string;
+  SUPABASE_SERVICE_KEY?: string;
   OPENAI_API_KEY: string;
+  OPENAI_MODEL?: string;
   DISABLE_DAILY_LIMITS?: string;
   VERIFY_DAILY_LIMIT?: string;
   COMPARE_DAILY_LIMIT?: string;
   NUTRITION_DAILY_LIMIT?: string;
-  DEV_BYPASS_USER_IDS?: string;
-  DEV_BYPASS_TOKENS?: string;
   ENFORCE_LIMITS?: string;
+  ALLOWED_ORIGINS?: string;
 }
 
-const MINUTE_MS = 60 * 1000;
-const SHORT_WINDOW_MS = 2 * MINUTE_MS;
-const signedUploadHits = new Map<string, number[]>();
-const directUploadHits = new Map<string, number[]>();
+const UPLOAD_WINDOW_SECONDS = 2 * 60;
+const VISION_WINDOW_SECONDS = 60;
+const VISION_ACTIVE_TTL_SECONDS = 10 * 60;
 
 // ── Helpers ──────────────────────────────────
 
@@ -52,26 +64,24 @@ function error(message: string, status = 400): Response {
   return json({ error: message }, status);
 }
 
-function getClientIp(request: Request): string {
-  return request.headers.get('CF-Connecting-IP') || request.headers.get('x-forwarded-for') || 'unknown';
+function parseCsvSet(raw?: string): Set<string> {
+  return new Set((raw || '').split(',').map((v) => v.trim()).filter(Boolean));
 }
 
-function checkWindowLimit(
-  bucket: Map<string, number[]>,
-  key: string,
-  limit: number,
-  windowMs: number,
-): boolean {
-  const now = Date.now();
-  const list = bucket.get(key) || [];
-  const recent = list.filter((ts) => now - ts < windowMs);
-  if (recent.length >= limit) {
-    bucket.set(key, recent);
-    return false;
+function resolveCorsOrigin(request: Request, env: Env): string {
+  const allowed = parseCsvSet(env.ALLOWED_ORIGINS);
+  if (allowed.size === 0) return 'null';
+  if (allowed.has('*')) return '*';
+
+  const requestOrigin = request.headers.get('Origin');
+  if (requestOrigin && allowed.has(requestOrigin)) {
+    return requestOrigin;
   }
-  recent.push(now);
-  bucket.set(key, recent);
-  return true;
+  return 'null';
+}
+
+function getClientIp(request: Request): string {
+  return request.headers.get('CF-Connecting-IP') || request.headers.get('x-forwarded-for') || 'unknown';
 }
 
 async function getUser(
@@ -87,26 +97,10 @@ async function getUser(
     return error('Invalid or expired token', 401);
   }
 
-  const configuredHost = new URL(env.SUPABASE_URL).host;
-  const appSupabaseUrl = request.headers.get('x-tadlock-supabase-url') || request.headers.get('x-eatlock-supabase-url');
-  if (appSupabaseUrl) {
-    try {
-      const appHost = new URL(appSupabaseUrl).host;
-      if (appHost !== configuredHost) {
-        console.error(`[Auth] Supabase URL mismatch app=${appHost} worker=${configuredHost}`);
-      }
-    } catch {
-      console.error('[Auth] Invalid x-tadlock-supabase-url header from client');
-    }
-  }
-
-  console.log('[Auth] supabase host:', configuredHost);
-  console.log('[Auth] token head:', jwt.slice(0, 12), 'len:', jwt.length);
-
   const whoamiRes = await fetch(`${env.SUPABASE_URL}/auth/v1/user`, {
     method: 'GET',
     headers: {
-      apikey: env.SUPABASE_SERVICE_ROLE_KEY,
+      apikey: serviceKey(env),
       Authorization: `Bearer ${jwt}`,
     },
   });
@@ -136,12 +130,16 @@ async function handleSignedUpload(
   const auth = await getUser(request, env);
   if (auth instanceof Response) return auth;
   const ip = getClientIp(request);
-  const enforce = (env.ENFORCE_LIMITS || '').trim().toLowerCase() === 'true';
+  const enforce = limitsEnforced(env);
 
   if (enforce) {
-    const userAllowed = checkWindowLimit(signedUploadHits, `signed:user:${auth.user_id}`, 18, SHORT_WINDOW_MS);
-    const ipAllowed = checkWindowLimit(signedUploadHits, `signed:ip:${ip}`, 40, SHORT_WINDOW_MS);
-    if (!userAllowed || !ipAllowed) {
+    const userAllowed = await consumeRateLimit(env, `upload:signed:user:${auth.user_id}`, 18, UPLOAD_WINDOW_SECONDS);
+    if (!userAllowed.allowed) {
+      return error('Too many upload requests. Please wait and try again.', 429);
+    }
+
+    const ipAllowed = await consumeRateLimit(env, `upload:signed:ip:${ip}`, 40, UPLOAD_WINDOW_SECONDS);
+    if (!ipAllowed.allowed) {
       return error('Too many upload requests. Please wait and try again.', 429);
     }
   }
@@ -172,12 +170,16 @@ async function handleDirectUpload(
   const auth = await getUser(request, env);
   if (auth instanceof Response) return auth;
   const ip = getClientIp(request);
-  const enforce = (env.ENFORCE_LIMITS || '').trim().toLowerCase() === 'true';
+  const enforce = limitsEnforced(env);
 
   if (enforce) {
-    const userAllowed = checkWindowLimit(directUploadHits, `upload:user:${auth.user_id}`, 16, SHORT_WINDOW_MS);
-    const ipAllowed = checkWindowLimit(directUploadHits, `upload:ip:${ip}`, 36, SHORT_WINDOW_MS);
-    if (!userAllowed || !ipAllowed) {
+    const userAllowed = await consumeRateLimit(env, `upload:direct:user:${auth.user_id}`, 16, UPLOAD_WINDOW_SECONDS);
+    if (!userAllowed.allowed) {
+      return error('Upload rate limited. Please slow down and retry.', 429);
+    }
+
+    const ipAllowed = await consumeRateLimit(env, `upload:direct:ip:${ip}`, 36, UPLOAD_WINDOW_SECONDS);
+    if (!ipAllowed.allowed) {
       return error('Upload rate limited. Please slow down and retry.', 429);
     }
   }
@@ -227,20 +229,78 @@ async function handleEnqueueVision(
   const auth = await getUser(request, env);
   if (auth instanceof Response) return auth;
 
-  const body = await request.json() as {
-    session_id?: string;
-    stage: 'START_SCAN' | 'END_SCAN';
-    r2_keys: Record<string, string>;
-  };
-
-  if (!body.stage || !body.r2_keys || Object.keys(body.r2_keys).length === 0) {
-    return error('Missing stage or r2_keys');
+  let rawBody: unknown;
+  try {
+    rawBody = await request.json();
+  } catch {
+    return error('Invalid JSON body');
   }
 
+  const validated = validateVisionQueuePayload(rawBody);
+  if (!validated.ok) {
+    return error(validated.error, validated.status);
+  }
+
+  const { quotaKind, r2Keys, sessionId, stage } = validated.value;
+
   // Validate r2_keys belong to user
-  for (const key of Object.values(body.r2_keys)) {
+  for (const key of Object.values(r2Keys)) {
     if (!ownsR2Key(auth.user_id, key as string)) {
       return error('r2_key does not belong to user', 403);
+    }
+  }
+
+  const enforce = limitsEnforced(env);
+  const ip = getClientIp(request);
+  const burstLimit = quotaKind === 'verify' ? 10 : 6;
+  const burstError = quotaKind === 'verify'
+    ? 'Too many requests. Please slow down.'
+    : 'Too many compare requests. Please slow down.';
+  const dailyLimit = quotaKind === 'verify'
+    ? toLimit(env.VERIFY_DAILY_LIMIT, 1000)
+    : toLimit(env.COMPARE_DAILY_LIMIT, 300);
+  const activeBucket = `vision:${quotaKind}:active:${auth.user_id}`;
+  let slotId: string | null = null;
+
+  if (enforce) {
+    const burstUserOk = await consumeRateLimit(
+      env,
+      `vision:${quotaKind}:user:${auth.user_id}`,
+      burstLimit,
+      VISION_WINDOW_SECONDS,
+    );
+    if (!burstUserOk.allowed) {
+      return error(burstError, 429);
+    }
+
+    const burstIpOk = await consumeRateLimit(
+      env,
+      `vision:${quotaKind}:ip:${ip}`,
+      burstLimit * 2,
+      VISION_WINDOW_SECONDS,
+    );
+    if (!burstIpOk.allowed) {
+      return error(burstError, 429);
+    }
+
+    const slot = await acquireConcurrencySlot(env, activeBucket, 3, VISION_ACTIVE_TTL_SECONDS);
+    if (!slot.allowed) {
+      return error('Too many active scan requests. Please wait a moment.', 429);
+    }
+    slotId = slot.slot_id;
+
+    if (!dailyLimitsDisabled(env)) {
+      const quota = await consumeVisionQuota(env, auth.user_id, quotaKind, dailyLimit);
+      if (!quota.allowed) {
+        await releaseConcurrencySlot(env, activeBucket, slotId);
+        return json({
+          error: 'Daily limit reached',
+          kind: quotaKind,
+          limit: dailyLimit,
+          remaining: 0,
+          reset_in_seconds: secondsUntilUtcMidnight(),
+        }, 429);
+      }
     }
   }
 
@@ -249,27 +309,41 @@ async function handleEnqueueVision(
     .from('vision_jobs')
     .insert({
       user_id: auth.user_id,
-      session_id: body.session_id || null,
-      stage: body.stage,
-      r2_keys: body.r2_keys,
+      session_id: sessionId,
+      stage,
+      r2_keys: r2Keys,
       status: 'queued',
     })
     .select('id')
     .single();
 
   if (dbErr || !job) {
-    return error(`Failed to create job: ${dbErr?.message}`, 500);
+    await releaseConcurrencySlot(env, activeBucket, slotId);
+    console.error('[vision/enqueue] Failed to create job', dbErr?.message || dbErr);
+    return error('Failed to create vision job', 500);
   }
 
   // Enqueue message
   const queueMsg: QueueMessage = {
     job_id: job.id,
     user_id: auth.user_id,
-    stage: body.stage,
-    r2_keys: body.r2_keys,
+    stage,
+    r2_keys: r2Keys,
+    rate_limit_slot_id: slotId || undefined,
   };
 
-  await env.VISION_QUEUE.send(queueMsg);
+  try {
+    await env.VISION_QUEUE.send(queueMsg);
+  } catch (queueError) {
+    await releaseConcurrencySlot(env, activeBucket, slotId);
+    await supabase
+      .from('vision_jobs')
+      .update({ status: 'failed', error: 'Failed to enqueue vision job', updated_at: new Date().toISOString() })
+      .eq('id', job.id)
+      .then(() => {}, () => {});
+    console.error('[vision/enqueue] Queue send failed', queueError);
+    return error('Failed to enqueue vision job', 500);
+  }
 
   return json({ job_id: job.id, status: 'queued' }, 201);
 }
@@ -322,20 +396,25 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname;
     const method = request.method;
+    const corsOrigin = resolveCorsOrigin(request, env);
 
     // CORS
     if (method === 'OPTIONS') {
+      const optionsHeaders = new Headers({
+        'Access-Control-Allow-Origin': corsOrigin,
+        'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        'Access-Control-Max-Age': '86400',
+      });
+      if (corsOrigin !== '*') {
+        optionsHeaders.set('Vary', 'Origin');
+      }
       return new Response(null, {
-        headers: {
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-          'Access-Control-Max-Age': '86400',
-        },
+        headers: optionsHeaders,
       });
     }
 
-    const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
+    const supabase = createClient(env.SUPABASE_URL, serviceKey(env), {
       auth: { persistSession: false },
     });
     const requestId = crypto.randomUUID();
@@ -343,7 +422,10 @@ export default {
     const finalize = (response: Response): Response => {
       const headers = new Headers(response.headers);
       headers.set('x-request-id', requestId);
-      headers.set('Access-Control-Allow-Origin', '*');
+      headers.set('Access-Control-Allow-Origin', corsOrigin);
+      if (corsOrigin !== '*') {
+        headers.set('Vary', 'Origin');
+      }
       const safeResponse = new Response(response.body, {
         status: response.status,
         statusText: response.statusText,
@@ -416,7 +498,7 @@ export default {
       return finalize(error('Not found', 404));
     } catch (err: any) {
       console.error(`[req:${requestId}] Unhandled error on ${method} ${path}`);
-      return finalize(error(`Internal error: ${err.message}`, 500));
+      return finalize(error('Internal server error', 500));
     }
   },
 
@@ -446,6 +528,18 @@ export default {
       } while (cursor);
 
       console.log(`[R2 Cleanup] Deleted ${deletedCount} stale uploads.`);
+
+      const supabase = createClient(env.SUPABASE_URL, serviceKey(env), {
+        auth: { persistSession: false },
+      });
+      const nowIso = new Date().toISOString();
+      const staleWindowsIso = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
+
+      await Promise.allSettled([
+        supabase.from('request_limit_windows').delete().lt('updated_at', staleWindowsIso),
+        supabase.from('request_active_slots').delete().lt('expires_at', nowIso),
+        supabase.from('request_cooldowns').delete().lt('cooldown_until', nowIso),
+      ]);
     } catch (err) {
       console.error('[R2 Cleanup] Error during cleanup:', err);
     }

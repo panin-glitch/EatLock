@@ -14,6 +14,19 @@
 
 import type { Env } from './index';
 import { ownsR2Key } from './utils/ownership';
+import {
+  acquireConcurrencySlot,
+  consumeRateLimit,
+  consumeVisionQuota,
+  dailyLimitsDisabled,
+  getCooldownStatus,
+  limitsEnforced,
+  releaseConcurrencySlot,
+  secondsUntilUtcMidnight,
+  serviceKey,
+  setCooldown,
+  toLimit,
+} from './limits';
 
 // ── Supabase RPC quota helper ────────────────
 
@@ -26,124 +39,35 @@ async function consumeQuota(
   const res = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/consume_vision_quota`, {
     method: 'POST',
     headers: {
-      apikey: env.SUPABASE_SERVICE_ROLE_KEY,
-      Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+      apikey: serviceKey(env),
+      Authorization: `Bearer ${serviceKey(env)}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({ p_user_id: userId, p_kind: kind, p_limit: limit }),
   });
   if (!res.ok) {
     console.error('[quota] RPC error', res.status, await res.text().catch(() => ''));
-    // Fall through to in-memory if RPC fails
-    return { allowed: true, used: 0, limit };
+    // Fail closed if quota RPC is unavailable while enforcement is on.
+    return { allowed: false, used: limit, limit };
   }
   return (await res.json()) as { allowed: boolean; used: number; limit: number };
 }
 
 // ── Constants ────────────────────────────────
 
-const MODEL = 'gpt-4o-mini';
+const MODEL_CANDIDATES = ['gpt-4o-mini', 'gpt-4.1-mini'];
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5 MB
 const OPENAI_API = 'https://api.openai.com/v1/responses';
 
-// Rate-limit windows (per user_id, in-memory)
-const SHORT_WINDOW_MS = 60 * 1000;
+// Rate-limit windows (per user_id, durable/shared via Supabase RPCs)
+const SHORT_WINDOW_SECONDS = 60;
 const VERIFY_BURST_LIMIT = 10;
 const COMPARE_BURST_LIMIT = 6;
-const CONCURRENT_WINDOW_MS = 60 * 1000;
 const CONCURRENT_LIMIT = 3;
-const NOT_FOOD_WINDOW_MS = 10 * 60 * 1000;
+const CONCURRENT_TTL_SECONDS = 10 * 60;
+const NOT_FOOD_WINDOW_SECONDS = 10 * 60;
 const NOT_FOOD_LIMIT = 10;
-const NOT_FOOD_COOLDOWN_MS = 5 * 60 * 1000;
-
-const burstBuckets = new Map<string, number[]>();
-const activeOpBuckets = new Map<string, number[]>();
-const failedScanBuckets = new Map<string, number[]>();
-const failedCooldownBuckets = new Map<string, number>();
-
-function parseCsvSet(raw?: string): Set<string> {
-  return new Set((raw || '').split(',').map((v) => v.trim()).filter(Boolean));
-}
-
-function toLimit(value: string | undefined, fallback: number): number {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
-  return Math.floor(parsed);
-}
-
-function dailyLimitsDisabled(env: Env): boolean {
-  const value = (env.DISABLE_DAILY_LIMITS || '').trim().toLowerCase();
-  return value === '1' || value === 'true' || value === 'yes' || value === 'on';
-}
-
-/** All rate-limiting + quota enforcement is OFF unless ENFORCE_LIMITS === "true" */
-function limitsEnforced(env: Env): boolean {
-  const value = (env.ENFORCE_LIMITS || '').trim().toLowerCase();
-  return value === 'true';
-}
-
-function secondsUntilUtcMidnight(): number {
-  const now = new Date();
-  const nextUtcMidnight = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0);
-  return Math.max(1, Math.floor((nextUtcMidnight - now.getTime()) / 1000));
-}
-
-function isDevBypassEnabled(request: Request, env: Env, userId: string): boolean {
-  const bypassHeader = request.headers.get('x-dev-bypass')?.toLowerCase() === 'true';
-  const bypassToken = request.headers.get('x-dev-bypass-token')?.trim();
-  const allowedUsers = parseCsvSet(env.DEV_BYPASS_USER_IDS);
-  const allowedTokens = parseCsvSet(env.DEV_BYPASS_TOKENS);
-  const userAllowed = allowedUsers.has(userId);
-  if (!userAllowed) return false;
-  if (bypassHeader) return true;
-  if (bypassToken && allowedTokens.has(bypassToken)) return true;
-  return false;
-}
-
-function checkBurst(key: string, limit: number, windowMs: number): boolean {
-  const now = Date.now();
-  const current = (burstBuckets.get(key) || []).filter((ts) => now - ts < windowMs);
-  if (current.length >= limit) {
-    burstBuckets.set(key, current);
-    return false;
-  }
-  current.push(now);
-  burstBuckets.set(key, current);
-  return true;
-}
-
-function checkConcurrent(key: string): boolean {
-  const now = Date.now();
-  const current = (activeOpBuckets.get(key) || []).filter((ts) => now - ts < CONCURRENT_WINDOW_MS);
-  if (current.length >= CONCURRENT_LIMIT) {
-    activeOpBuckets.set(key, current);
-    return false;
-  }
-  current.push(now);
-  activeOpBuckets.set(key, current);
-  return true;
-}
-
-function markFailedScan(key: string): void {
-  const now = Date.now();
-  const current = (failedScanBuckets.get(key) || []).filter((ts) => now - ts < NOT_FOOD_WINDOW_MS);
-  current.push(now);
-  failedScanBuckets.set(key, current);
-  if (current.length >= NOT_FOOD_LIMIT) {
-    failedCooldownBuckets.set(key, now + NOT_FOOD_COOLDOWN_MS);
-  }
-}
-
-function isInFailedCooldown(key: string): boolean {
-  const now = Date.now();
-  const until = failedCooldownBuckets.get(key);
-  if (!until) return false;
-  if (now > until) {
-    failedCooldownBuckets.delete(key);
-    return false;
-  }
-  return true;
-}
+const NOT_FOOD_COOLDOWN_SECONDS = 5 * 60;
 
 // ── Helpers ──────────────────────────────────
 
@@ -197,13 +121,10 @@ async function getUser(
     return err('Invalid or expired token', 401);
   }
 
-  console.log('[Auth] supabase host:', new URL(env.SUPABASE_URL).host);
-  console.log('[Auth] token head:', jwt.slice(0, 12), 'len:', jwt.length);
-
   const whoamiRes = await fetch(`${env.SUPABASE_URL}/auth/v1/user`, {
     method: 'GET',
     headers: {
-      apikey: env.SUPABASE_SERVICE_ROLE_KEY,
+      apikey: serviceKey(env),
       Authorization: `Bearer ${jwt}`,
     },
   });
@@ -280,9 +201,11 @@ const COMPARE_SCHEMA = {
 
 // ── Prompts ──────────────────────────────────
 
-const VERIFY_SYSTEM = `You are TadLock's strict meal-photo verifier.
-Given a single photo, determine whether it shows REAL food on a plate/bowl that someone is about to eat.
-Be harsh: reject selfies, fingers covering the lens, screenshots, dark/blurry shots, and non-food objects.
+const VERIFY_SYSTEM = `You are TadLock's meal-photo verifier.
+Goal: avoid false negatives. If edible food or drink is visible, accept it (isFood=true).
+Reject ONLY when clearly not a meal photo: selfies, hand-only shots, screenshots, random objects, or no edible item.
+Do not require perfect lighting or framing to accept a real meal.
+Use reasonCode NOT_FOOD or HAND_SELFIE only when highly certain no edible item is present.
 Write a short witty roastLine (max 18 words, include 1-2 emojis). If rejected, provide a helpful retakeHint (max 15 words).
 If accepted (isFood=true), set reasonCode to "OK", roastLine to a compliment, and retakeHint to empty string.
 quality.brightness/blur/framing are 0-1 scores (1 = perfect).
@@ -328,38 +251,87 @@ async function callOpenAI(
   input: OpenAIInput[],
   schema: typeof FOOD_CHECK_SCHEMA | typeof COMPARE_SCHEMA,
 ): Promise<unknown> {
-  const body = {
-    model: MODEL,
-    instructions: systemPrompt,
-    input,
-    text: { format: schema },
-  };
+  const maxAttempts = 3;
+  const retryDelayMs = [250, 700, 1400];
+  const models = [env.OPENAI_MODEL, ...MODEL_CANDIDATES].filter(
+    (v, i, arr): v is string => !!v && arr.indexOf(v) === i,
+  );
 
-  const res = await fetch(OPENAI_API, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${env.OPENAI_API_KEY}`,
-    },
-    body: JSON.stringify(body),
-  });
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`OpenAI ${res.status}: ${text.slice(0, 300)}`);
+  if (!env.OPENAI_API_KEY || !env.OPENAI_API_KEY.trim()) {
+    throw new Error('OpenAI API key is not configured');
   }
 
-  const data = (await res.json()) as {
-    output: Array<{ type: string; content: Array<{ type: string; text: string }> }>;
-  };
+  let lastError: Error | null = null;
+  for (const model of models) {
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      try {
+        const body = {
+          model,
+          instructions: systemPrompt,
+          input,
+          text: { format: schema },
+        };
+        const res = await fetch(OPENAI_API, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+          },
+          body: JSON.stringify(body),
+        });
 
-  const msgOutput = data.output?.find((o: any) => o.type === 'message');
-  const textContent = msgOutput?.content?.find((c: any) => c.type === 'output_text');
-  if (!textContent?.text) {
-    throw new Error('No text in OpenAI response');
+        if (!res.ok) {
+          const text = await res.text();
+          const lowerText = text.toLowerCase();
+          const modelIssue = lowerText.includes('model') && (lowerText.includes('not found') || lowerText.includes('do not have access'));
+          const isRetryable = res.status >= 500 || res.status === 429;
+          if (isRetryable && attempt < maxAttempts - 1) {
+            await new Promise((resolve) => setTimeout(resolve, retryDelayMs[attempt] ?? 1400));
+            continue;
+          }
+          if (modelIssue) {
+            throw new Error(`OpenAI model issue for ${model}: ${text.slice(0, 300)}`);
+          }
+          throw new Error(`OpenAI ${res.status}: ${text.slice(0, 300)}`);
+        }
+
+        const data = (await res.json()) as {
+          output_text?: string;
+          output?: Array<{ type: string; content?: Array<{ type: string; text?: string }> }>;
+        };
+
+        const directText = typeof data.output_text === 'string' ? data.output_text : '';
+        const msgOutput = data.output?.find((o: any) => o.type === 'message');
+        const textContent = msgOutput?.content?.find((c: any) => c.type === 'output_text');
+        const payloadText = directText || textContent?.text || '';
+        if (!payloadText) {
+          throw new Error('No text in OpenAI response');
+        }
+
+        return JSON.parse(payloadText);
+      } catch (error: any) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        const message = String(lastError.message || '').toLowerCase();
+        const retryable =
+          message.includes('openai 5') ||
+          message.includes('openai 429') ||
+          message.includes('timeout') ||
+          message.includes('1101') ||
+          message.includes('internal error');
+        if (retryable && attempt < maxAttempts - 1) {
+          await new Promise((resolve) => setTimeout(resolve, retryDelayMs[attempt] ?? 1400));
+          continue;
+        }
+        const modelIssue = message.includes('model issue') || (message.includes('model') && message.includes('access'));
+        if (modelIssue) {
+          break;
+        }
+        break;
+      }
+    }
   }
 
-  return JSON.parse(textContent.text);
+  throw lastError ?? new Error('OpenAI call failed');
 }
 
 // ── Route Handlers ───────────────────────────
@@ -374,25 +346,43 @@ export async function handleVerifyFood(
   // Auth
   const auth = await getUser(request, env);
   if (auth instanceof Response) return auth;
-  const bypassQuota = isDevBypassEnabled(request, env, auth.user_id);
-
-  if (enforce && isInFailedCooldown(`failed:${auth.user_id}`)) {
-    return err('Too many failed scans, try again in 5 minutes.', 429);
-  }
-
-  if (enforce && !checkConcurrent(`active:${auth.user_id}`)) {
-    return err('Too many active scan requests. Please wait a moment.', 429);
-  }
+  const cooldownBucket = `vision:verify:cooldown:${auth.user_id}`;
+  const activeBucket = `vision:verify:active:${auth.user_id}`;
+  let slotId: string | null = null;
 
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
   console.log('[verify-food] request start', { user_id: auth.user_id, ip, enforce });
   if (enforce) {
-    const burstUserOk = checkBurst(`verify:user:${auth.user_id}`, VERIFY_BURST_LIMIT, SHORT_WINDOW_MS);
-    const burstIpOk = checkBurst(`verify:ip:${ip}`, VERIFY_BURST_LIMIT * 2, SHORT_WINDOW_MS);
-    if (!burstUserOk || !burstIpOk) {
-      console.warn('[verify-food] burst limited', { user_id: auth.user_id, ip, burstUserOk, burstIpOk });
+    const cooldown = await getCooldownStatus(env, cooldownBucket);
+    if (cooldown.active) {
+      return json({
+        error: 'Too many failed scans, try again in 5 minutes.',
+        retry_after_seconds: cooldown.remaining_seconds,
+      }, 429);
+    }
+
+    const burstUserOk = await consumeRateLimit(
+      env,
+      `vision:verify:user:${auth.user_id}`,
+      VERIFY_BURST_LIMIT,
+      SHORT_WINDOW_SECONDS,
+    );
+    const burstIpOk = await consumeRateLimit(
+      env,
+      `vision:verify:ip:${ip}`,
+      VERIFY_BURST_LIMIT * 2,
+      SHORT_WINDOW_SECONDS,
+    );
+    if (!burstUserOk.allowed || !burstIpOk.allowed) {
+      console.warn('[verify-food] burst limited', { user_id: auth.user_id, ip });
       return json({ error: 'Too many requests', retry_after_seconds: 30 }, 429);
     }
+
+    const slot = await acquireConcurrencySlot(env, activeBucket, CONCURRENT_LIMIT, CONCURRENT_TTL_SECONDS);
+    if (!slot.allowed) {
+      return err('Too many active scan requests. Please wait a moment.', 429);
+    }
+    slotId = slot.slot_id;
   }
 
   // Parse body
@@ -422,7 +412,7 @@ export async function handleVerifyFood(
       return err('Image not found in R2 (expired or invalid key)', 404);
     }
 
-    if (enforce && !bypassQuota && !dailyLimitsDisabled(env)) {
+    if (enforce && !dailyLimitsDisabled(env)) {
       const quota = await consumeQuota(env, auth.user_id, 'verify', verifyDailyLimit);
       if (!quota.allowed) {
         console.warn('[verify-food] daily quota reached', { user_id: auth.user_id, limit: verifyDailyLimit });
@@ -451,7 +441,15 @@ export async function handleVerifyFood(
 
     const typed = result as { isFood?: boolean };
     if (enforce && typed?.isFood === false) {
-      markFailedScan(`failed:${auth.user_id}`);
+      const failureWindow = await consumeRateLimit(
+        env,
+        `vision:verify:failed:${auth.user_id}`,
+        NOT_FOOD_LIMIT,
+        NOT_FOOD_WINDOW_SECONDS,
+      );
+      if (!failureWindow.allowed) {
+        await setCooldown(env, cooldownBucket, NOT_FOOD_COOLDOWN_SECONDS);
+      }
     }
 
     // Do NOT delete the R2 object here — it may be needed for compare-meal later.
@@ -463,7 +461,9 @@ export async function handleVerifyFood(
       message: e?.message,
       stack: e?.stack,
     });
-    return err(`Vision error: ${e.message}`, 502);
+    return err('Vision service unavailable', 502);
+  } finally {
+    await releaseConcurrencySlot(env, activeBucket, slotId);
   }
 }
 
@@ -477,19 +477,32 @@ export async function handleCompareMeal(
   // Auth
   const auth = await getUser(request, env);
   if (auth instanceof Response) return auth;
-  const bypassQuota = isDevBypassEnabled(request, env, auth.user_id);
-
-  if (enforce && !checkConcurrent(`active:${auth.user_id}`)) {
-    return err('Too many active scan requests. Please wait a moment.', 429);
-  }
+  const activeBucket = `vision:compare:active:${auth.user_id}`;
+  let slotId: string | null = null;
 
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
   if (enforce) {
-    const burstUserOk = checkBurst(`compare:user:${auth.user_id}`, COMPARE_BURST_LIMIT, SHORT_WINDOW_MS);
-    const burstIpOk = checkBurst(`compare:ip:${ip}`, COMPARE_BURST_LIMIT * 2, SHORT_WINDOW_MS);
-    if (!burstUserOk || !burstIpOk) {
+    const burstUserOk = await consumeRateLimit(
+      env,
+      `vision:compare:user:${auth.user_id}`,
+      COMPARE_BURST_LIMIT,
+      SHORT_WINDOW_SECONDS,
+    );
+    const burstIpOk = await consumeRateLimit(
+      env,
+      `vision:compare:ip:${ip}`,
+      COMPARE_BURST_LIMIT * 2,
+      SHORT_WINDOW_SECONDS,
+    );
+    if (!burstUserOk.allowed || !burstIpOk.allowed) {
       return err('Too many compare requests. Please slow down.', 429);
     }
+
+    const slot = await acquireConcurrencySlot(env, activeBucket, CONCURRENT_LIMIT, CONCURRENT_TTL_SECONDS);
+    if (!slot.allowed) {
+      return err('Too many active scan requests. Please wait a moment.', 429);
+    }
+    slotId = slot.slot_id;
   }
 
   // Parse body
@@ -523,7 +536,7 @@ export async function handleCompareMeal(
       return err('One or both images not found in R2 (expired or invalid key)', 404);
     }
 
-    if (enforce && !bypassQuota && !dailyLimitsDisabled(env)) {
+    if (enforce && !dailyLimitsDisabled(env)) {
       const quota = await consumeQuota(env, auth.user_id, 'compare', compareDailyLimit);
       if (!quota.allowed) {
         return json({
@@ -556,7 +569,9 @@ export async function handleCompareMeal(
   } catch (e: any) {
     if (e.status === 413) return err(e.message, 413);
     console.error('[compare-meal]', e);
-    return err(`Vision error: ${e.message}`, 502);
+    return err('Vision service unavailable', 502);
+  } finally {
+    await releaseConcurrencySlot(env, activeBucket, slotId);
   }
 }
 

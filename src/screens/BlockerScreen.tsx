@@ -19,7 +19,7 @@ import { useRoute } from '@react-navigation/native';
  * service. For now, it can be pushed onto the stack.
  */
 export default function BlockerScreen() {
-  const { theme } = useTheme();
+  const { theme, themeName } = useTheme();
   const route = useRoute<any>();
   const { appName } = route.params || {};
 
@@ -36,9 +36,12 @@ export default function BlockerScreen() {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor={theme.background} />
+      <StatusBar
+        barStyle={themeName === 'Light' ? 'dark-content' : 'light-content'}
+        backgroundColor={theme.background}
+      />
 
-      <View style={styles.content}>
+      <View style={styles.contentCard}>
         <View style={styles.iconCircle}>
           <MaterialIcons name="block" size={56} color={theme.danger} />
         </View>
@@ -79,11 +82,22 @@ export default function BlockerScreen() {
 const makeStyles = (theme: any) =>
   StyleSheet.create({
     container: { flex: 1, backgroundColor: theme.background },
-    content: {
+    contentCard: {
+      marginHorizontal: 20,
+      marginVertical: 42,
       flex: 1,
       justifyContent: 'center',
       alignItems: 'center',
-      paddingHorizontal: 32,
+      paddingHorizontal: 26,
+      backgroundColor: theme.card,
+      borderRadius: 22,
+      borderWidth: 1,
+      borderColor: theme.border,
+      shadowColor: '#0F172A',
+      shadowOpacity: 0.08,
+      shadowRadius: 14,
+      shadowOffset: { width: 0, height: 6 },
+      elevation: 2,
     },
     iconCircle: {
       width: 100,
@@ -95,19 +109,19 @@ const makeStyles = (theme: any) =>
       marginBottom: 24,
     },
     title: {
-      fontSize: 28,
+      fontSize: 30,
       fontWeight: '700',
       color: theme.text,
       marginBottom: 12,
     },
     subtitle: {
-      fontSize: 17,
+      fontSize: 16,
       color: theme.textSecondary,
       textAlign: 'center',
       marginBottom: 8,
     },
     message: {
-      fontSize: 15,
+      fontSize: 14,
       color: theme.textMuted,
       textAlign: 'center',
       lineHeight: 22,

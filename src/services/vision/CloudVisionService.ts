@@ -5,8 +5,7 @@
 import type { MealVisionService } from './MealVisionService';
 import type { FoodCheckResult, CompareResult, NutritionEstimate, VisionSoftError } from './types';
 import { compressImage } from './imageCompress';
-import { getAccessToken, ensureAuth, refreshAuthSession, recreateAnonymousSession } from '../authService';
-import { getUserSettings } from '../storage';
+import { fetchWithAuth as authenticatedFetch } from '../authFetch';
 import { ENV } from '../../config/env';
 
 const API = ENV.WORKER_API_URL;
@@ -14,11 +13,6 @@ const REQUEST_TIMEOUT = 45_000;
 
 const __DEV__ = process.env.NODE_ENV !== 'production';
 const DEBUG = __DEV__;
-let hasLoggedTokenDebug = false;
-
-function isJwt(token: string): boolean {
-  return token.split('.').length === 3;
-}
 
 function isSoftError<T>(value: T | VisionSoftError): value is VisionSoftError {
   return (value as VisionSoftError)?.kind === 'soft_error';
@@ -34,152 +28,114 @@ function makeSoftError(code: VisionSoftError['code'], title: string, subtitle: s
   };
 }
 
-async function getBearerToken(): Promise<string> {
-  let token = await getAccessToken();
-  if (!token) {
-    token = await ensureAuth();
+function normalizeServerErrorMessage(message: string, status: number): string {
+  const lower = message.toLowerCase();
+  if (lower.includes('1101') || lower.includes('internal error') || lower.includes('cloudflare')) {
+    return 'AI service is temporarily unavailable. Please try again in a moment.';
   }
-  if (!token) {
-    throw new Error('Sign-in expired. Please try again.');
+  if (status >= 500) {
+    return 'AI service is temporarily unavailable. Please try again in a moment.';
   }
-  if (!isJwt(token)) {
-    throw new Error('Auth token invalid');
-  }
-  if (DEBUG && !hasLoggedTokenDebug) {
-    console.log(`[Auth] token head=${token.slice(0, 12)} len=${token.length}`);
-    hasLoggedTokenDebug = true;
-  }
-  return token;
-}
-
-async function shouldSendDevBypassHeader(): Promise<boolean> {
-  if (!__DEV__) return false;
-  try {
-    const settings = await getUserSettings();
-    return !!settings.developer?.disableQuotasDev;
-  } catch {
-    return false;
-  }
-}
-
-async function fetchWithAuth(url: string, init: RequestInit, retryOn401 = true): Promise<Response> {
-  const token = await getBearerToken();
-  const baseHeaders = (init.headers || {}) as Record<string, string>;
-  const useDevBypass = await shouldSendDevBypassHeader();
-
-  const makeInit = (bearer: string): RequestInit => ({
-    ...init,
-    headers: {
-      ...baseHeaders,
-      Authorization: `Bearer ${bearer}`,
-      'x-eatlock-supabase-url': ENV.SUPABASE_URL,
-      'x-tadlock-supabase-url': ENV.SUPABASE_URL,
-      ...(useDevBypass ? { 'X-Dev-Bypass': 'true' } : {}),
-    },
-  });
-
-  let res = await fetch(url, makeInit(token));
-
-  if (res.status === 401 && retryOn401) {
-    if (DEBUG) console.warn(`[Vision] 401 on ${url} — refreshing token and retrying once`);
-    let refreshed = await refreshAuthSession();
-    if (!refreshed) {
-      try {
-        refreshed = await recreateAnonymousSession();
-      } catch {
-        refreshed = null;
-      }
-    }
-
-    if (!refreshed) {
-      return res;
-    }
-
-    res = await fetch(url, makeInit(refreshed));
-  }
-
-  return res;
+  return message;
 }
 
 async function postJSON<T>(endpoint: string, body: Record<string, unknown>): Promise<T | VisionSoftError> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
   const url = `${API}${endpoint}`;
+  const maxAttempts = 3;
+  const retryDelayMs = [250, 700, 1400];
 
   if (DEBUG) console.log(`[Vision] POST ${url}`, JSON.stringify(body).slice(0, 120));
 
-  try {
-    let res: Response;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
     try {
-      res = await fetchWithAuth(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      });
-    } catch (networkErr: any) {
-      if (DEBUG) {
-        console.log('[Vision] network issue', {
-          endpoint,
-          message: networkErr?.message,
-        });
-      }
-      return makeSoftError('NETWORK', 'Connection issue', 'Could not reach the server. Check your connection and try again.');
-    }
-
-    if (DEBUG) console.log(`[Vision] ${endpoint} → ${res.status}`);
-
-    if (!res.ok) {
-      const raw = await res.text().catch(() => '');
-      let errBody: Record<string, unknown> = {};
+      let res: Response;
       try {
-        errBody = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
-      } catch {
-        errBody = {};
-      }
-
-      if (res.status === 401) {
-        return makeSoftError('SESSION_EXPIRED', 'Session expired', 'Please sign in again.');
-      }
-
-      if (res.status === 429) {
-        const retryAfter = Number(errBody.retry_after_seconds ?? 30);
-        const resetInSeconds = Number(errBody.reset_in_seconds ?? 0);
-        const isBurst = (errBody.error as string)?.toLowerCase().includes('too many requests');
-        return makeSoftError(
-          'RATE_LIMIT',
-          'Slow down',
-          isBurst
-            ? `Rate limit reached. Try again in ${Number.isFinite(retryAfter) ? retryAfter : 30}s.`
-            : 'Daily limit reached. Resets at midnight.',
-          {
-            retryAfterSeconds: Number.isFinite(retryAfter) ? retryAfter : 30,
-            resetInSeconds: Number.isFinite(resetInSeconds) ? resetInSeconds : undefined,
-          },
-        );
-      }
-
-      const errMsg =
-        (errBody.error as string) ||
-        (errBody.message as string) ||
-        (raw ? raw.slice(0, 220) : `HTTP ${res.status}`);
-
-      if (DEBUG) {
-        console.log('[Vision] API error', {
-          endpoint,
-          status: res.status,
-          message: errMsg,
+        res = await authenticatedFetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+          signal: controller.signal,
         });
+      } catch (networkErr: any) {
+        if (DEBUG) {
+          console.log('[Vision] network issue', {
+            endpoint,
+            message: networkErr?.message,
+            attempt: attempt + 1,
+          });
+        }
+        if (attempt < maxAttempts - 1) {
+          await new Promise((resolve) => setTimeout(resolve, retryDelayMs[attempt] ?? 1400));
+          continue;
+        }
+        return makeSoftError('NETWORK', 'Connection issue', 'Could not reach the server. Check your connection and try again.');
       }
 
-      return makeSoftError('SERVER', 'AI unavailable', errMsg || 'Something went wrong.');
-    }
+      if (DEBUG) console.log(`[Vision] ${endpoint} → ${res.status}`);
 
-    const data = (await res.json()) as T;
-    return data;
-  } finally {
-    clearTimeout(timer);
+      if (!res.ok) {
+        const raw = await res.text().catch(() => '');
+        let errBody: Record<string, unknown> = {};
+        try {
+          errBody = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+        } catch {
+          errBody = {};
+        }
+
+        if (res.status === 401) {
+          return makeSoftError('SESSION_EXPIRED', 'Session expired', 'Please sign in again.');
+        }
+
+        const errMsg =
+          (errBody.error as string) ||
+          (errBody.message as string) ||
+          (raw ? raw.slice(0, 220) : `HTTP ${res.status}`);
+        const normalizedErrMsg = normalizeServerErrorMessage(errMsg || '', res.status);
+        const transient = res.status >= 500 || res.status === 429 || normalizedErrMsg.toLowerCase().includes('1101');
+
+        if (transient && attempt < maxAttempts - 1) {
+          await new Promise((resolve) => setTimeout(resolve, retryDelayMs[attempt] ?? 1400));
+          continue;
+        }
+
+        if (res.status === 429) {
+          const retryAfter = Number(errBody.retry_after_seconds ?? 30);
+          const resetInSeconds = Number(errBody.reset_in_seconds ?? 0);
+          const isBurst = (errBody.error as string)?.toLowerCase().includes('too many requests');
+          return makeSoftError(
+            'RATE_LIMIT',
+            'Slow down',
+            isBurst
+              ? `Rate limit reached. Try again in ${Number.isFinite(retryAfter) ? retryAfter : 30}s.`
+              : 'Daily limit reached. Resets at midnight.',
+            {
+              retryAfterSeconds: Number.isFinite(retryAfter) ? retryAfter : 30,
+              resetInSeconds: Number.isFinite(resetInSeconds) ? resetInSeconds : undefined,
+            },
+          );
+        }
+
+        if (DEBUG) {
+          console.log('[Vision] API error', {
+            endpoint,
+            status: res.status,
+            message: errMsg,
+          });
+        }
+
+        return makeSoftError('SERVER', 'AI unavailable', normalizedErrMsg || 'Something went wrong.');
+      }
+
+      const data = (await res.json()) as T;
+      return data;
+    } finally {
+      clearTimeout(timer);
+    }
   }
+
+  return makeSoftError('SERVER', 'AI unavailable', 'AI service is temporarily unavailable. Please try again in a moment.');
 }
 
 interface SignedUploadResponse {
@@ -203,7 +159,7 @@ async function uploadToR2(imageUri: string, kind: 'before' | 'after'): Promise<s
   try {
     let putRes: Response;
     try {
-      putRes = await fetchWithAuth(signed.uploadUrl, {
+      putRes = await authenticatedFetch(signed.uploadUrl, {
         method: 'PUT',
         headers: { 'Content-Type': 'image/jpeg' },
         body: buffer,

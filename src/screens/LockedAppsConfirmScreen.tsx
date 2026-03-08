@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -12,6 +12,8 @@ import { useTheme } from '../theme/ThemeProvider';
 import { useAppState } from '../state/AppStateContext';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { MealType } from '../types/models';
+import { blockingEngine } from '../services/blockingEngine';
+import type { BlockingSupport } from '../services/blockingSupport';
 
 const MEAL_TYPES: MealType[] = ['Breakfast', 'Lunch', 'Dinner', 'Snack', 'Custom'];
 
@@ -35,6 +37,20 @@ export default function LockedAppsConfirmScreen() {
   const [selectedMealType, setSelectedMealType] = useState<MealType>(detectMealType());
   const [confirmed, setConfirmed] = useState(false);
   const [starting, setStarting] = useState(false);
+  const [support, setSupport] = useState<BlockingSupport | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    blockingEngine.getSupport().then((next) => {
+      if (!cancelled) {
+        setSupport(next);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const blockedApps = blockConfig.blockedApps;
 
@@ -102,9 +118,15 @@ export default function LockedAppsConfirmScreen() {
         <View style={styles.countBadge}>
           <MaterialIcons name="lock" size={20} color={theme.primary} />
           <Text style={styles.countText}>
-            {blockedApps.length} app{blockedApps.length !== 1 ? 's' : ''} will be blocked
+            {support?.canEnforce
+              ? `${blockedApps.length} app${blockedApps.length !== 1 ? 's' : ''} will be blocked`
+              : `${blockedApps.length} app${blockedApps.length !== 1 ? 's' : ''} selected for focus mode`}
           </Text>
         </View>
+
+        {!support?.canEnforce && support?.detail ? (
+          <Text style={styles.supportText}>{support.detail}</Text>
+        ) : null}
 
         {/* App chips */}
         <View style={styles.chipGrid}>
@@ -135,7 +157,9 @@ export default function LockedAppsConfirmScreen() {
             {confirmed && <MaterialIcons name="check" size={16} color="#FFF" />}
           </View>
           <Text style={styles.confirmText}>
-            I understand these apps will be blocked during this meal.
+            {support?.canEnforce
+              ? 'I understand these apps will be blocked during this meal.'
+              : 'I understand this build cannot enforce device-level app blocking on this device.'}
           </Text>
         </TouchableOpacity>
       </ScrollView>
@@ -232,6 +256,13 @@ const makeStyles = (theme: any) =>
       color: theme.primary,
       fontSize: 15,
       fontWeight: '600',
+    },
+    supportText: {
+      marginTop: -8,
+      marginBottom: 16,
+      color: theme.textSecondary,
+      fontSize: 13,
+      lineHeight: 19,
     },
     chipGrid: {
       flexDirection: 'row',

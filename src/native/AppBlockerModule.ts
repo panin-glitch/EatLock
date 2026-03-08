@@ -50,6 +50,10 @@ function createStub(): AppBlockerNative {
 
 const AppBlocker = getNativeModule();
 
+export function hasNativeAppBlockerModule(): boolean {
+  return Platform.OS === 'android' && !!NativeModules.AppBlockerModule;
+}
+
 export async function startNativeBlocking(packages: string[]): Promise<void> {
   return AppBlocker.startBlocking(packages);
 }

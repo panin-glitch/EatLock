@@ -9,12 +9,16 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { START_SCAN_PROMPT, END_SCAN_PROMPT } from '../prompts/vision';
+import { releaseConcurrencySlot, serviceKey } from '../limits';
+import { ownsR2Key } from '../utils/ownership';
+import { validateVisionQueuePayload } from '../visionPayload';
 
 export interface QueueMessage {
   job_id: string;
   user_id: string;
   stage: 'START_SCAN' | 'END_SCAN';
   r2_keys: Record<string, string>;
+  rate_limit_slot_id?: string;
   attempt?: number; // injected by retry logic
 }
 
@@ -22,6 +26,7 @@ export interface Env {
   IMAGES: R2Bucket;
   SUPABASE_URL: string;
   SUPABASE_SERVICE_ROLE_KEY: string;
+  SUPABASE_SERVICE_KEY?: string;
   OPENAI_API_KEY: string;
 }
 
@@ -36,14 +41,6 @@ function isTransient(err: any): boolean {
   return false;
 }
 
-/** Detect if payload is permanently invalid */
-function isPermanentlyInvalid(msg: QueueMessage): string | null {
-  if (!msg.job_id) return 'missing job_id';
-  if (!msg.stage || !['START_SCAN', 'END_SCAN'].includes(msg.stage)) return 'invalid stage';
-  if (!msg.r2_keys || Object.keys(msg.r2_keys).length === 0) return 'missing r2_keys';
-  return null;
-}
-
 /** Best-effort delete of R2 objects */
 async function deleteR2Objects(env: Env, keys: string[]): Promise<void> {
   for (const key of keys) {
@@ -51,20 +48,50 @@ async function deleteR2Objects(env: Env, keys: string[]): Promise<void> {
   }
 }
 
+function activeBucketFor(stage: QueueMessage['stage'], userId: string): string {
+  return `vision:${stage === 'START_SCAN' ? 'verify' : 'compare'}:active:${userId}`;
+}
+
+function matchesR2Keys(stored: unknown, expected: Record<string, string>): boolean {
+  if (!stored || typeof stored !== 'object' || Array.isArray(stored)) return false;
+  const storedEntries = Object.entries(stored as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b));
+  const expectedEntries = Object.entries(expected).sort(([a], [b]) => a.localeCompare(b));
+  if (storedEntries.length !== expectedEntries.length) return false;
+
+  return storedEntries.every(([key, value], index) => {
+    const [expectedKey, expectedValue] = expectedEntries[index];
+    return key === expectedKey && value === expectedValue;
+  });
+}
+
 export async function handleVisionQueue(
   batch: MessageBatch<QueueMessage>,
   env: Env
 ): Promise<void> {
-  const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
+  const supabase = createClient(env.SUPABASE_URL, serviceKey(env), {
+    auth: { persistSession: false },
+  });
 
   for (const message of batch.messages) {
     const body = message.body;
     const attempt = body.attempt ?? 1;
-    const { job_id, user_id, stage, r2_keys } = body;
+    const { job_id, user_id, stage, r2_keys, rate_limit_slot_id } = body;
     const r2KeyList = r2_keys ? Object.values(r2_keys) : [];
+    const releaseSlot = async () => {
+      if (stage === 'START_SCAN' || stage === 'END_SCAN') {
+        await releaseConcurrencySlot(env as any, activeBucketFor(stage, user_id), rate_limit_slot_id);
+      }
+    };
 
     // ── Permanent validation ──
-    const invalid = isPermanentlyInvalid(body);
+    const validation = validateVisionQueuePayload({ stage, r2_keys });
+    const invalid = !job_id
+      ? 'missing job_id'
+      : !validation.ok
+        ? validation.error
+        : Object.values(validation.value.r2Keys).some((key) => !ownsR2Key(user_id, key))
+          ? 'r2_key does not belong to user'
+          : null;
     if (invalid) {
       console.error(`[VisionQueue] Permanent error for job ${job_id}: ${invalid}`);
       await supabase
@@ -72,7 +99,43 @@ export async function handleVisionQueue(
         .update({ status: 'failed', error: `Invalid payload: ${invalid}`, updated_at: new Date().toISOString() })
         .eq('id', job_id)
         .then(() => {}, () => {});
+      await releaseSlot();
       await deleteR2Objects(env, r2KeyList);
+      message.ack();
+      continue;
+    }
+
+    const { data: jobRow } = await supabase
+      .from('vision_jobs')
+      .select('id, user_id, stage, r2_keys, status')
+      .eq('id', job_id)
+      .single();
+
+    if (!jobRow) {
+      await releaseSlot();
+      await deleteR2Objects(env, r2KeyList);
+      message.ack();
+      continue;
+    }
+
+    if (
+      jobRow.user_id !== user_id ||
+      jobRow.stage !== stage ||
+      !matchesR2Keys(jobRow.r2_keys, r2_keys)
+    ) {
+      await supabase
+        .from('vision_jobs')
+        .update({ status: 'failed', error: 'Queue payload did not match stored job', updated_at: new Date().toISOString() })
+        .eq('id', job_id)
+        .then(() => {}, () => {});
+      await releaseSlot();
+      await deleteR2Objects(env, r2KeyList);
+      message.ack();
+      continue;
+    }
+
+    if (jobRow.status === 'done') {
+      await releaseSlot();
       message.ack();
       continue;
     }
@@ -177,6 +240,7 @@ export async function handleVisionQueue(
       // 7. Delete images from R2 ONLY after success
       await deleteR2Objects(env, r2KeyList);
 
+      await releaseSlot();
       message.ack();
     } catch (err: any) {
       console.error(`[VisionQueue] Job ${job_id} attempt ${attempt}/${MAX_ATTEMPTS} failed:`, err);
@@ -202,6 +266,7 @@ export async function handleVisionQueue(
           .eq('id', job_id)
           .then(() => {}, () => {});
         // Best-effort R2 cleanup on final failure
+        await releaseSlot();
         await deleteR2Objects(env, r2KeyList);
         message.ack();
       }

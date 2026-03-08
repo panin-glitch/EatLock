@@ -2,12 +2,12 @@
  * Supabase client singleton for EatLock.
  */
 import { createClient } from '@supabase/supabase-js';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ENV } from '../config/env';
+import { secureSessionStorage } from './secureSessionStorage';
 
 export const supabase = createClient(ENV.SUPABASE_URL, ENV.SUPABASE_ANON_KEY, {
   auth: {
-    storage: AsyncStorage as any,
+    storage: secureSessionStorage as any,
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: false,

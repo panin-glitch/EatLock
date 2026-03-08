@@ -256,6 +256,10 @@ export async function getUserSettings(): Promise<UserSettings> {
   return {
     ...DEFAULT_USER_SETTINGS,
     ...parsed,
+    app: {
+      ...DEFAULT_USER_SETTINGS.app,
+      ...(parsed.app ?? {}),
+    },
     truthBomb: {
       ...DEFAULT_USER_SETTINGS.truthBomb,
       ...(parsed.truthBomb ?? {}),
@@ -276,9 +280,9 @@ export async function getUserSettings(): Promise<UserSettings> {
         ...(parsed.nutritionGoals?.macroSplit ?? {}),
       },
     },
-    developer: {
-      ...DEFAULT_USER_SETTINGS.developer,
-      ...(parsed.developer ?? {}),
+    streak: {
+      ...DEFAULT_USER_SETTINGS.streak,
+      ...(parsed.streak ?? {}),
     },
   };
 }

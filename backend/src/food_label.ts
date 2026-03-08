@@ -9,6 +9,10 @@
 import type { Env } from './index';
 import { createClient } from '@supabase/supabase-js';
 
+function serviceKey(env: Env): string {
+  return env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SERVICE_KEY || '';
+}
+
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
     status,
@@ -36,7 +40,7 @@ async function getUser(
   const whoamiRes = await fetch(`${env.SUPABASE_URL}/auth/v1/user`, {
     method: 'GET',
     headers: {
-      apikey: env.SUPABASE_SERVICE_ROLE_KEY,
+      apikey: serviceKey(env),
       Authorization: `Bearer ${jwt}`,
     },
   });
@@ -79,7 +83,7 @@ export async function handleUpdateFoodLabel(
   const foodLabel = body.food_label.trim().slice(0, 120);
   const detail = body.detail?.trim().slice(0, 200) || null;
 
-  const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
+  const supabase = createClient(env.SUPABASE_URL, serviceKey(env), {
     auth: { persistSession: false },
   });
 

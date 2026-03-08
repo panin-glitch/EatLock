@@ -47,6 +47,10 @@ function createStub(): OverlayNative {
 
 const Overlay = getNativeModule();
 
+export function hasNativeOverlayModule(): boolean {
+  return Platform.OS === 'android' && !!NativeModules.OverlayModule;
+}
+
 export async function showBlockerOverlay(): Promise<void> {
   return Overlay.showOverlay();
 }

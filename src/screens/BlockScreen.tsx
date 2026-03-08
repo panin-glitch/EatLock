@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -6,8 +6,6 @@ import {
   ScrollView,
   TouchableOpacity,
   Switch,
-  TextInput,
-  Alert,
   Modal,
   FlatList,
   StatusBar,
@@ -17,12 +15,28 @@ import { useTheme } from '../theme/ThemeProvider';
 import { useAppState } from '../state/AppStateContext';
 import { AVAILABLE_APPS, AppInfo } from '../types/models';
 import ScreenHeader from '../components/common/ScreenHeader';
+import { blockingEngine } from '../services/blockingEngine';
+import type { BlockingSupport } from '../services/blockingSupport';
 
 export default function BlockScreen() {
-  const { theme } = useTheme();
+  const { theme, themeName } = useTheme();
   const { blockConfig, updateBlockConfig } = useAppState();
   const [showAddApp, setShowAddApp] = useState(false);
   const [showHelpModal, setShowHelpModal] = useState(false);
+  const [support, setSupport] = useState<BlockingSupport | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    blockingEngine.getSupport().then((next) => {
+      if (!cancelled) {
+        setSupport(next);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const addApp = (app: AppInfo) => {
     if (blockConfig.blockedApps.find((a) => a.id === app.id)) return;
@@ -57,14 +71,38 @@ export default function BlockScreen() {
   const styles = makeStyles(theme);
 
   const protectionItems = [
-    { key: 'blockUninstall' as const, label: 'Block app uninstall during strict mode', icon: 'delete-forever' },
-    { key: 'blockSplitScreen' as const, label: 'Block split screen', icon: 'view-column' },
-    { key: 'blockFloatingWindow' as const, label: 'Block floating window', icon: 'picture-in-picture' },
+    {
+      key: 'blockUninstall' as const,
+      label: 'Block app uninstall',
+      subtitle: 'Planned protection. Not enforced in this build.',
+      icon: 'delete-forever',
+    },
+    {
+      key: 'blockSplitScreen' as const,
+      label: 'Block split screen',
+      subtitle: 'Planned protection. Not enforced in this build.',
+      icon: 'view-column',
+    },
+    {
+      key: 'blockFloatingWindow' as const,
+      label: 'Block floating window',
+      subtitle: 'Planned protection. Not enforced in this build.',
+      icon: 'picture-in-picture',
+    },
   ];
+
+  const enabledProtectionCount = 0;
+  const progressPct = Math.min(100, blockConfig.blockedApps.length * 20 + enabledProtectionCount * 6);
+  const blockedMinutes = blockConfig.blockedApps.length * 63;
+  const blockedHours = Math.floor(blockedMinutes / 60);
+  const blockedMinsRemainder = blockedMinutes % 60;
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}> 
-      <StatusBar barStyle="light-content" backgroundColor={theme.background} />
+      <StatusBar
+        barStyle={themeName === 'Light' ? 'dark-content' : 'light-content'}
+        backgroundColor={theme.background}
+      />
       <ScreenHeader
         title="Blocks"
         rightActions={[
@@ -79,61 +117,84 @@ export default function BlockScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Section 1: Locked During Meals */}
+        <View style={styles.supportCard}>
+          <Text style={styles.supportTitle}>{support?.headline || 'Checking blocker support'}</Text>
+          <Text style={styles.supportText}>
+            {support?.detail || 'EatLock is checking whether this build can enforce device-level app blocking.'}
+          </Text>
+        </View>
+
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Locked During Meals</Text>
-            <TouchableOpacity
-              style={styles.addAction}
-              onPress={() => setShowAddApp(true)}
-            >
-              <MaterialIcons name="add" size={18} color={theme.primary} />
-              <Text style={styles.addActionText}>Add App</Text>
+            <Text style={styles.sectionTitle}>Your Distracting Apps</Text>
+            <View style={styles.activeBadge}>
+              <Text style={styles.activeBadgeText}>{blockConfig.blockedApps.length} ACTIVE</Text>
+            </View>
+          </View>
+
+          <View style={styles.appsGrid}>
+            {blockConfig.blockedApps.map((app) => (
+              <View key={app.id} style={styles.appTile}>
+                <TouchableOpacity style={styles.appRemoveBtn} onPress={() => removeApp(app.id)}>
+                  <MaterialIcons name="close" size={14} color={theme.textMuted} />
+                </TouchableOpacity>
+                <View style={styles.appTileIconWrap}>
+                  <MaterialIcons name={app.icon as any} size={24} color="#FFFFFF" />
+                </View>
+                <Text style={styles.appTileName} numberOfLines={1}>{app.name}</Text>
+              </View>
+            ))}
+
+            <TouchableOpacity style={styles.addTile} onPress={() => setShowAddApp(true)}>
+              <View style={styles.addTileIcon}>
+                <MaterialIcons name="add" size={22} color={theme.textMuted} />
+              </View>
+              <Text style={styles.addTileText}>Add</Text>
             </TouchableOpacity>
           </View>
 
           {blockConfig.blockedApps.length === 0 ? (
             <View style={styles.emptyState}>
               <MaterialIcons name="lock-open" size={36} color={theme.textMuted} />
-              <Text style={styles.emptyText}>No apps blocked yet</Text>
+              <Text style={styles.emptyText}>No distracting apps selected yet</Text>
             </View>
-          ) : (
-            blockConfig.blockedApps.map((app) => (
-              <View key={app.id} style={styles.appRow}>
-                <View style={styles.appRowLeft}>
-                  <View style={styles.appIcon}>
-                    <MaterialIcons name={app.icon as any} size={22} color={theme.primary} />
-                  </View>
-                  <Text style={styles.appName}>{app.name}</Text>
-                </View>
-                <TouchableOpacity onPress={() => removeApp(app.id)}>
-                  <MaterialIcons name="remove-circle-outline" size={22} color={theme.danger} />
-                </TouchableOpacity>
-              </View>
-            ))
-          )}
+          ) : null}
         </View>
 
-        {/* Section 2: Block Protections */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Block Protections</Text>
-          <Text style={styles.sectionHint}>
-            Requires device permission to enforce
-          </Text>
+          <Text style={styles.sectionTitle}>Planned Protections</Text>
           {protectionItems.map((item) => (
             <View key={item.key} style={styles.toggleCard}>
               <View style={styles.toggleCardLeft}>
-                <MaterialIcons name={item.icon as any} size={20} color={theme.text} />
-                <Text style={styles.toggleCardLabel}>{item.label}</Text>
+                <MaterialIcons name={item.icon as any} size={20} color={theme.textSecondary} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.toggleCardLabel}>{item.label}</Text>
+                  <Text style={styles.toggleCardHint}>{item.subtitle}</Text>
+                </View>
               </View>
               <Switch
                 value={blockConfig.protections[item.key]}
                 onValueChange={() => toggleProtection(item.key)}
-                trackColor={{ false: theme.inputBg, true: theme.primaryDim }}
-                thumbColor={blockConfig.protections[item.key] ? theme.primary : theme.textMuted}
+                disabled
+                trackColor={{ false: theme.inputBg, true: `${theme.primary}66` }}
+                thumbColor={blockConfig.protections[item.key] ? theme.primary : '#FFFFFF'}
               />
             </View>
           ))}
+        </View>
+
+        <View style={styles.progressCard}>
+          <View style={styles.progressGlow} />
+          <View style={styles.progressTopRow}>
+            <Text style={styles.progressLabel}>Today's Progress</Text>
+            <Text style={styles.progressPct}>{progressPct}%</Text>
+          </View>
+          <View style={styles.progressTrack}>
+            <View style={[styles.progressFill, { width: `${progressPct}%` }]} />
+          </View>
+          <Text style={styles.progressSub}>
+            You've blocked {blockedHours}h {blockedMinsRemainder}m of distractions today.
+          </Text>
         </View>
       </ScrollView>
 
@@ -180,14 +241,11 @@ export default function BlockScreen() {
           <View style={styles.helpContent}>
             <Text style={styles.helpTitle}>How Blocking Works</Text>
             <Text style={styles.helpText}>
-              When you start a Strict Mode meal, EatLock will block access to your
-              selected apps. Currently, blocking is simulated within the app.
+              {support?.detail || 'Device-level app blocking depends on a supported Android build with native blocker modules.'}
               {'\n\n'}
-              For full device-level blocking, OS permissions (Android Accessibility
-              Service / iOS Screen Time API) will be integrated in a future update.
+              Your selected app list is still saved locally for meal tracking and for supported builds.
               {'\n\n'}
-              All your block settings are saved locally and ready for when OS-level
-              enforcement becomes available.
+              The uninstall, split-screen, and floating-window toggles shown here are planned protections and are not enforced in this build.
             </Text>
             <TouchableOpacity
               style={styles.helpBtn}
@@ -205,9 +263,26 @@ export default function BlockScreen() {
 const makeStyles = (theme: any) =>
   StyleSheet.create({
     container: { flex: 1, backgroundColor: theme.background },
-    scrollContent: { paddingHorizontal: 20, paddingBottom: 100 },
-    section: {
-      marginTop: 24,
+    scrollContent: { paddingHorizontal: 20, paddingBottom: 110 },
+    section: { marginTop: 22 },
+    supportCard: {
+      marginTop: 18,
+      borderRadius: 18,
+      borderWidth: 1,
+      borderColor: theme.border,
+      backgroundColor: theme.surface,
+      padding: 16,
+    },
+    supportTitle: {
+      fontSize: 16,
+      fontWeight: '800',
+      color: theme.text,
+      marginBottom: 6,
+    },
+    supportText: {
+      fontSize: 13,
+      lineHeight: 20,
+      color: theme.textSecondary,
     },
     sectionHeader: {
       flexDirection: 'row',
@@ -216,43 +291,104 @@ const makeStyles = (theme: any) =>
       marginBottom: 12,
     },
     sectionTitle: {
-      fontSize: 18,
-      fontWeight: '600',
+      fontSize: 22,
+      fontWeight: '800',
       color: theme.text,
-      marginBottom: 4,
     },
-    sectionHint: {
-      fontSize: 13,
-      color: theme.textMuted,
-      marginBottom: 12,
-    },
-    addAction: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 4,
-    },
-    addActionText: { color: theme.primary, fontSize: 14, fontWeight: '600' },
-    appRow: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      backgroundColor: theme.card,
-      borderRadius: 14,
-      padding: 14,
-      marginBottom: 8,
+    activeBadge: {
+      borderRadius: 8,
       borderWidth: 1,
       borderColor: theme.border,
+      backgroundColor: theme.chipBg,
+      paddingHorizontal: 8,
+      paddingVertical: 4,
     },
-    appRowLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-    appIcon: {
+    activeBadgeText: {
+      fontSize: 11,
+      fontWeight: '700',
+      color: theme.textMuted,
+      letterSpacing: 0.5,
+    },
+    appsGrid: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 10,
+    },
+    appTile: {
+      width: '31%',
+      minHeight: 112,
+      borderRadius: 18,
+      borderWidth: 1,
+      borderColor: theme.border,
+      backgroundColor: theme.surface,
+      paddingHorizontal: 10,
+      paddingVertical: 14,
+      alignItems: 'center',
+      shadowColor: '#0F172A',
+      shadowOpacity: 0.06,
+      shadowRadius: 10,
+      shadowOffset: { width: 0, height: 4 },
+      elevation: 1,
+    },
+    appRemoveBtn: {
+      position: 'absolute',
+      right: 6,
+      top: 6,
+      width: 22,
+      height: 22,
+      borderRadius: 11,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: theme.background,
+      borderWidth: 1,
+      borderColor: theme.border,
+      zIndex: 2,
+    },
+    appTileIconWrap: {
       width: 40,
       height: 40,
-      borderRadius: 10,
-      backgroundColor: theme.surfaceElevated,
+      borderRadius: 12,
+      backgroundColor: theme.primary,
       justifyContent: 'center',
       alignItems: 'center',
+      marginTop: 14,
+      marginBottom: 10,
     },
-    appName: { fontSize: 15, fontWeight: '500', color: theme.text },
+    appTileName: {
+      color: theme.text,
+      fontSize: 12,
+      fontWeight: '700',
+      textAlign: 'center',
+    },
+    addTile: {
+      width: '31%',
+      minHeight: 112,
+      borderRadius: 18,
+      borderWidth: 1,
+      borderStyle: 'dashed',
+      borderColor: theme.border,
+      backgroundColor: `${theme.surface}AA`,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 10,
+      paddingVertical: 14,
+    },
+    addTileIcon: {
+      width: 40,
+      height: 40,
+      borderRadius: 12,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: theme.background,
+      borderWidth: 1,
+      borderColor: theme.border,
+      marginBottom: 8,
+    },
+    addTileText: {
+      color: theme.textMuted,
+      fontSize: 12,
+      fontWeight: '700',
+    },
     emptyState: {
       alignItems: 'center',
       paddingVertical: 24,
@@ -263,101 +399,90 @@ const makeStyles = (theme: any) =>
       marginTop: 8,
       textAlign: 'center',
     },
-    toggleRow: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      backgroundColor: theme.card,
-      borderRadius: 14,
-      padding: 14,
-      marginBottom: 8,
-      borderWidth: 1,
-      borderColor: theme.border,
-    },
-    toggleRowLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-    toggleRowLabel: { fontSize: 15, color: theme.text },
-    addBadge: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 4,
-      paddingHorizontal: 12,
-      paddingVertical: 6,
-      borderRadius: 16,
-      borderWidth: 1,
-      borderColor: theme.primary,
-    },
-    addBadgeText: { color: theme.primary, fontSize: 13, fontWeight: '600' },
-    addedBadge: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 4,
-      paddingHorizontal: 12,
-      paddingVertical: 6,
-      borderRadius: 16,
-      backgroundColor: theme.primaryDim,
-    },
-    addedBadgeText: { color: theme.primary, fontSize: 13, fontWeight: '600' },
-    subsection: { marginBottom: 12 },
-    subsectionTitle: {
-      fontSize: 15,
-      fontWeight: '500',
-      color: theme.text,
-      marginBottom: 8,
-    },
-    websiteInputRow: {
-      flexDirection: 'row',
-      gap: 8,
-      marginBottom: 8,
-    },
-    websiteInput: {
-      flex: 1,
-      backgroundColor: theme.inputBg,
-      borderRadius: 12,
-      paddingHorizontal: 14,
-      paddingVertical: 12,
-      color: theme.text,
-      fontSize: 14,
-    },
-    websiteAddBtn: {
-      backgroundColor: theme.primary,
-      borderRadius: 12,
-      width: 44,
-      justifyContent: 'center',
-      alignItems: 'center',
-    },
-    websiteRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 8,
-      backgroundColor: theme.card,
-      borderRadius: 10,
-      paddingHorizontal: 12,
-      paddingVertical: 10,
-      marginBottom: 6,
-      borderWidth: 1,
-      borderColor: theme.border,
-    },
-    websiteText: { flex: 1, color: theme.text, fontSize: 14 },
     toggleCard: {
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
-      backgroundColor: theme.card,
-      borderRadius: 14,
+      backgroundColor: theme.surface,
+      borderRadius: 18,
       padding: 16,
-      marginBottom: 8,
+      marginBottom: 10,
       borderWidth: 1,
       borderColor: theme.border,
+      shadowColor: '#0F172A',
+      shadowOpacity: 0.05,
+      shadowRadius: 10,
+      shadowOffset: { width: 0, height: 4 },
+      elevation: 1,
     },
     toggleCardLeft: {
       flexDirection: 'row',
-      alignItems: 'center',
+      alignItems: 'flex-start',
       gap: 10,
       flex: 1,
       paddingRight: 10,
     },
-    toggleCardLabel: { fontSize: 14, fontWeight: '500', color: theme.text, flex: 1 },
-    toggleCardHint: { fontSize: 12, color: theme.textMuted, marginTop: 2 },
+    toggleCardLabel: { fontSize: 16, fontWeight: '700', color: theme.text, flex: 1 },
+    toggleCardHint: { fontSize: 12, color: theme.textMuted, marginTop: 2, lineHeight: 16 },
+    progressCard: {
+      marginTop: 8,
+      borderRadius: 20,
+      borderWidth: 1,
+      borderColor: `${theme.primary}33`,
+      backgroundColor: `${theme.primary}14`,
+      paddingHorizontal: 16,
+      paddingVertical: 16,
+      overflow: 'hidden',
+    },
+    progressGlow: {
+      position: 'absolute',
+      width: 140,
+      height: 140,
+      borderRadius: 70,
+      right: -60,
+      top: -60,
+      backgroundColor: `${theme.primary}2A`,
+    },
+    progressTopRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'flex-end',
+      marginBottom: 10,
+    },
+    progressLabel: {
+      fontSize: 12,
+      fontWeight: '800',
+      color: theme.primary,
+      textTransform: 'uppercase',
+      letterSpacing: 0.8,
+    },
+    progressPct: { fontSize: 28, fontWeight: '800', color: theme.text },
+    progressTrack: {
+      width: '100%',
+      height: 8,
+      borderRadius: 999,
+      backgroundColor: `${theme.border}99`,
+      overflow: 'hidden',
+    },
+    progressFill: {
+      height: '100%',
+      borderRadius: 999,
+      backgroundColor: theme.primary,
+    },
+    progressSub: {
+      marginTop: 8,
+      fontSize: 12,
+      color: theme.textSecondary,
+      fontWeight: '600',
+    },
+    appIcon: {
+      width: 40,
+      height: 40,
+      borderRadius: 10,
+      backgroundColor: theme.surfaceElevated,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
     // Modal styles
     modalOverlay: {
       flex: 1,
@@ -366,8 +491,8 @@ const makeStyles = (theme: any) =>
     },
     modalContent: {
       backgroundColor: theme.surface,
-      borderTopLeftRadius: 24,
-      borderTopRightRadius: 24,
+      borderTopLeftRadius: 28,
+      borderTopRightRadius: 28,
       padding: 20,
       maxHeight: '70%',
     },
@@ -389,11 +514,18 @@ const makeStyles = (theme: any) =>
     modalAppName: { flex: 1, fontSize: 16, color: theme.text },
     helpContent: {
       backgroundColor: theme.surface,
-      borderRadius: 20,
+      borderRadius: 22,
       padding: 24,
       margin: 32,
       alignSelf: 'center',
       maxWidth: 360,
+      borderWidth: 1,
+      borderColor: theme.border,
+      shadowColor: '#0F172A',
+      shadowOpacity: 0.08,
+      shadowRadius: 12,
+      shadowOffset: { width: 0, height: 6 },
+      elevation: 2,
     },
     helpTitle: { fontSize: 20, fontWeight: '700', color: theme.text, marginBottom: 12 },
     helpText: { fontSize: 14, color: theme.textSecondary, lineHeight: 22 },

@@ -13,6 +13,8 @@ import { useTheme } from '../theme/ThemeProvider';
 import { useAppState } from '../state/AppStateContext';
 import { formatDuration } from '../utils/helpers';
 import { useNavigation, useRoute } from '@react-navigation/native';
+import { blockingEngine } from '../services/blockingEngine';
+import type { BlockingSupport } from '../services/blockingSupport';
 
 const MIN_MEAL_MS = 5 * 60 * 1000; // 5 minutes in ms
 
@@ -24,6 +26,7 @@ export default function StrictModeSessionScreen() {
 
   const { mealType, note } = route.params || {};
   const [elapsed, setElapsed] = useState(0);
+  const [support, setSupport] = useState<BlockingSupport | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const canFinish = elapsed >= MIN_MEAL_MS;
@@ -43,6 +46,19 @@ export default function StrictModeSessionScreen() {
       if (timerRef.current) clearInterval(timerRef.current);
     };
   }, [activeSession?.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    blockingEngine.getSupport().then((next) => {
+      if (!cancelled) {
+        setSupport(next);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleDone = () => {
     if (!activeSession || !canFinish) return;
@@ -81,6 +97,7 @@ export default function StrictModeSessionScreen() {
 
   const styles = makeStyles(theme);
   const blockedApps = activeSession?.blockedAppsAtTime ?? blockConfig.blockedApps.map((a) => a.name);
+  const isEnforced = !!support?.canEnforce && blockingEngine.isEnforced();
 
   // Format remaining time as M:SS
   const remainingSec = Math.ceil(remainingMs / 1000);
@@ -104,9 +121,13 @@ export default function StrictModeSessionScreen() {
         <View style={styles.statusBadge}>
           <MaterialIcons name="lock" size={16} color={theme.primary} />
           <Text style={[styles.statusText, { color: theme.primary }]}>
-            Blocking Active
+            {isEnforced ? 'Blocking Active' : 'Focus Session Only'}
           </Text>
         </View>
+
+        {!isEnforced && support?.detail ? (
+          <Text style={styles.supportText}>{support.detail}</Text>
+        ) : null}
 
         {/* Timer */}
         <View style={styles.timerContainer}>
@@ -130,7 +151,7 @@ export default function StrictModeSessionScreen() {
         {blockedApps.length > 0 && (
           <View style={styles.blockedSection}>
             <Text style={styles.blockedTitle}>
-              Blocking {blockedApps.length} apps
+              {isEnforced ? `Blocking ${blockedApps.length} apps` : `Tracking ${blockedApps.length} selected apps`}
             </Text>
             <View style={styles.blockedList}>
               {blockedApps.map((appName, idx) => {
@@ -213,6 +234,13 @@ const makeStyles = (theme: any) =>
       marginBottom: 40,
     },
     statusText: { fontSize: 14, fontWeight: '600' },
+    supportText: {
+      marginBottom: 16,
+      color: theme.textSecondary,
+      fontSize: 13,
+      lineHeight: 19,
+      textAlign: 'center',
+    },
     timerContainer: { alignItems: 'center', marginBottom: 24 },
     timerText: {
       fontSize: 64,
