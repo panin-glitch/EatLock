@@ -140,12 +140,10 @@ export default function TadlockIntroScreen() {
         }}
       >
         <View style={styles.content}>
-          <Image source={stageAsset} style={styles.hero} resizeMode="contain" fadeDuration={0} />
-          <View style={styles.footer}>
-            <Text style={[styles.title, { color: theme.text }]}>TadLock</Text>
-            {prompt ? (
-              <Text style={[styles.prompt, { color: theme.textSecondary }]}>{prompt}</Text>
-            ) : null}
+          <Image source={stageAsset} style={styles.hero} resizeMode="cover" fadeDuration={0} />
+          <View style={styles.overlay} pointerEvents="none">
+            <Text style={styles.title}>TadLock</Text>
+            {prompt ? <Text style={styles.prompt}>{prompt}</Text> : null}
           </View>
         </View>
       </View>
@@ -162,30 +160,40 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 24,
-    paddingTop: 20,
-    paddingBottom: 40,
+    overflow: 'hidden',
   },
   hero: {
-    width: '100%',
-    flex: 1,
-    maxWidth: 480,
+    ...StyleSheet.absoluteFillObject,
   },
-  footer: {
+  overlay: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    bottom: 24,
     alignItems: 'center',
+    borderRadius: 18,
+    backgroundColor: 'rgba(0,0,0,0.38)',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
     gap: 8,
-    minHeight: 72,
   },
   title: {
     fontSize: 28,
     fontWeight: '800',
     letterSpacing: 0.5,
+    color: '#FFFFFF',
+    textAlign: 'center',
+    textShadowColor: 'rgba(0,0,0,0.45)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
   prompt: {
     fontSize: 16,
     fontWeight: '500',
     textAlign: 'center',
+    color: '#FFFFFF',
+    textShadowColor: 'rgba(0,0,0,0.45)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
 });
