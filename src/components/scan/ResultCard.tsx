@@ -8,6 +8,7 @@ export interface ResultCardButton {
   label: string;
   onPress: () => void;
   secondary?: boolean;
+  disabled?: boolean;
 }
 
 export interface CaloriesRowData {
@@ -225,6 +226,7 @@ export function ResultCard({
           {buttons.map((button, index) => (
             <TouchableOpacity
               key={index}
+              disabled={button.disabled}
               style={[
                 styles.button,
                 button.secondary
@@ -236,6 +238,7 @@ export function ResultCard({
                       backgroundColor: theme.primary,
                       borderColor: theme.primary,
                     },
+                button.disabled && styles.buttonDisabled,
               ]}
               onPress={button.onPress}
               activeOpacity={0.7}
@@ -245,6 +248,7 @@ export function ResultCard({
                   styles.buttonText,
                   button.secondary && { color: theme.textSecondary },
                   !button.secondary && { color: '#0F172A' },
+                  button.disabled && styles.buttonTextDisabled,
                 ]}
               >
                 {button.label}
@@ -511,6 +515,12 @@ const makeStyles = (colors: ThemeColors, isDark: boolean, bottomInset: number) =
     buttonText: {
       fontSize: 15,
       fontWeight: '700',
+    },
+    buttonDisabled: {
+      opacity: 0.45,
+    },
+    buttonTextDisabled: {
+      color: colors.textMuted,
     },
 
     mealDetailCard: {

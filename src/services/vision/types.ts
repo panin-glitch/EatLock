@@ -111,6 +111,7 @@ export type SessionStatus =
   | 'VERIFIED'
   | 'PARTIAL'
   | 'FAILED'
+  | 'FORFEITED'
   | 'INCOMPLETE';
 
 // ── Backward-compat aliases ──

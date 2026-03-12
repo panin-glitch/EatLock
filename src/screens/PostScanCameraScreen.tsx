@@ -4,6 +4,7 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
+  Alert,
   StatusBar,
   Animated,
   ActivityIndicator,
@@ -19,6 +20,7 @@ import { getVisionService } from '../services/vision';
 import { getPostScanRoast } from '../services/vision/roasts';
 import type { CompareResult, VisionSoftError } from '../services/vision/types';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { DAILY_FORFEIT_LIMIT } from '../types/models';
 import { ScanFrameOverlay } from '../components/scan/ScanFrameOverlay';
 import { ScanTipsModal } from '../components/scan/ScanTipsModal';
 import { ResultCard } from '../components/scan/ResultCard';
@@ -31,7 +33,7 @@ function isVisionSoftError(value: unknown): value is VisionSoftError {
 
 export default function PostScanCameraScreen({ navigation, route }: Props) {
   const { theme } = useTheme();
-  const { activeSession, updateActiveSession, endSession } = useAppState();
+  const { activeSession, updateActiveSession, endSession, remainingForfeitsToday, forfeitActiveSession } = useAppState();
   const { preImageUri, isBarcodeSession: routeBarcodeSession, previousBarcode: routePreviousBarcode } =
     (route.params as { preImageUri?: string; isBarcodeSession?: boolean; previousBarcode?: string }) || {};
   const isBarcodeSession = !!(routeBarcodeSession || routePreviousBarcode || activeSession?.preBarcodeData || activeSession?.barcode);
@@ -180,9 +182,17 @@ export default function PostScanCameraScreen({ navigation, route }: Props) {
 
       // If comparison is UNVERIFIABLE, surface retakeHint instead of blocking
       if (comparison.verdict === 'UNVERIFIABLE' && comparison.retakeHint) {
-        setResult(null);
+        setResult(comparison);
         setFeedbackRoast(comparison.roastLine || null);
         setErrorMsg(comparison.retakeHint);
+        await updateActiveSession({
+          postImageUri: uri,
+          verification: {
+            ...activeSession?.verification,
+            compareResult: comparison,
+          },
+          roastMessage: comparison.roastLine,
+        });
         return;
       }
 
@@ -324,6 +334,49 @@ export default function PostScanCameraScreen({ navigation, route }: Props) {
     });
   };
 
+  const handleForfeit = () => {
+    if (!result || successCard) return;
+
+    if (remainingForfeitsToday <= 0) {
+      Alert.alert(
+        'No forfeits left today',
+        `You get ${DAILY_FORFEIT_LIMIT} forfeits per day. Retake the after photo to keep going.`,
+      );
+      return;
+    }
+
+    const plural = remainingForfeitsToday === 1 ? 'forfeit' : 'forfeits';
+    Alert.alert(
+      'Use a forfeit?',
+      `This will unlock your blocked apps and mark this meal as forfeited, not verified. You have ${remainingForfeitsToday} ${plural} left today.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Forfeit',
+          style: 'destructive',
+          onPress: async () => {
+            const didForfeit = await forfeitActiveSession(
+              result.roastLine || feedbackRoast || 'Meal forfeited. Apps unlocked.',
+            );
+
+            if (!didForfeit) {
+              Alert.alert(
+                'No forfeits left today',
+                `You get ${DAILY_FORFEIT_LIMIT} forfeits per day. Retake the after photo to keep going.`,
+              );
+              return;
+            }
+
+            navigation.reset({
+              index: 0,
+              routes: [{ name: 'Main' }, { name: 'SessionSummary' }],
+            });
+          },
+        },
+      ],
+    );
+  };
+
   if (!permission) {
     return <View style={styles.fill} />;
   }
@@ -351,6 +404,7 @@ export default function PostScanCameraScreen({ navigation, route }: Props) {
       ? theme.success
       : theme.warning
     : theme.textSecondary;
+  const canForfeitCurrentAttempt = !!result && !successCard && !softError;
 
   return (
     <View style={styles.fill}>
@@ -375,7 +429,12 @@ export default function PostScanCameraScreen({ navigation, route }: Props) {
       <Animated.View pointerEvents="none" style={[styles.freezeOverlay, { opacity: freezeOpacity }]} />
       <Animated.View pointerEvents="none" style={[styles.shutterOverlay, { opacity: shutterOpacity }]} />
 
-      {!photoUri ? <ScanFrameOverlay hintText={useBarcodeRescan ? 'Scan after barcode' : 'Take after photo'} /> : null}
+      {!photoUri ? (
+        <ScanFrameOverlay
+          shape={useBarcodeRescan ? 'corners' : 'circle'}
+          hintText={useBarcodeRescan ? 'Scan after barcode' : 'Take after photo'}
+        />
+      ) : null}
 
       <View style={styles.topBar}>
         <TouchableOpacity style={styles.topBtn} onPress={() => navigation.goBack()}>
@@ -477,6 +536,16 @@ export default function PostScanCameraScreen({ navigation, route }: Props) {
                 : []),
               ...(!successCard
                 ? [{ label: 'Retake', onPress: handleRetake }]
+                : []),
+              ...(canForfeitCurrentAttempt
+                ? [{
+                    label: remainingForfeitsToday > 0
+                      ? `Forfeit (${remainingForfeitsToday} left today)`
+                      : 'Forfeit unavailable today',
+                    onPress: handleForfeit,
+                    secondary: true,
+                    disabled: remainingForfeitsToday <= 0,
+                  }]
                 : []),
             ]}
           />

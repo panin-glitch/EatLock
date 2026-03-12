@@ -28,6 +28,7 @@ const statusConfig: Record<string, { color: string; label: string }> = {
   VERIFIED: { color: '#CA8A04', label: 'Verified' },
   PARTIAL: { color: '#FFCC00', label: 'Partial' },
   FAILED: { color: '#FF3B30', label: 'Failed' },
+  FORFEITED: { color: '#F97316', label: 'Forfeited' },
   INCOMPLETE: { color: '#FF9500', label: 'Active' },
 };
 
@@ -167,6 +168,7 @@ export default function TodaysMealsList({ sessions }: Props) {
     const fat = scaled(nutrition?.fat_g);
 
     const isVerified = selected.status === 'VERIFIED';
+    const isForfeited = selected.status === 'FORFEITED' || selected.overrideUsed;
     const stars = Math.max(0, Math.min(5, selected.distractionRating ?? 0));
 
     return (
@@ -260,11 +262,13 @@ export default function TodaysMealsList({ sessions }: Props) {
                     </View>
                     <View style={[styles.verdictBtn, !isVerified ? styles.verdictBtnActive : styles.verdictBtnInactive]}>
                       <MaterialIcons
-                        name="cancel"
+                        name={isForfeited ? 'gpp-bad' : 'cancel'}
                         size={18}
                         color={!isVerified ? '#CA8A04' : '#94A3B8'}
                       />
-                      <Text style={[styles.verdictBtnText, !isVerified && styles.verdictBtnTextActive]}>Not Verified</Text>
+                      <Text style={[styles.verdictBtnText, !isVerified && styles.verdictBtnTextActive]}>
+                        {isForfeited ? 'Forfeited' : 'Not Verified'}
+                      </Text>
                     </View>
                   </View>
                 </View>
@@ -325,7 +329,9 @@ export default function TodaysMealsList({ sessions }: Props) {
         scrollEnabled={false}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => {
-          const status = statusConfig[item.status] ?? statusConfig.INCOMPLETE;
+          const status = item.overrideUsed
+            ? statusConfig.FORFEITED
+            : (statusConfig[item.status] ?? statusConfig.INCOMPLETE);
 
           const onDelete = () => {
             Alert.alert('Delete meal', 'Remove this tracked meal from today?', [

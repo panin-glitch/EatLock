@@ -22,6 +22,7 @@ export async function logCompletedMeal(session: MealSession): Promise<void> {
     const userId = authSession.user.id;
     const mealType = mealTypeToDb(session.mealType);
     const logDate = new Date(session.startedAt).toISOString().slice(0, 10);
+    const isForfeited = session.status === 'FORFEITED' || session.overrideUsed;
 
     // 1. Upsert meal_sessions
     const sessionRow = {
@@ -31,7 +32,7 @@ export async function logCompletedMeal(session: MealSession): Promise<void> {
       plan_date: logDate,
       started_at: session.startedAt,
       ended_at: session.endedAt || new Date().toISOString(),
-      status: 'completed',
+      status: isForfeited ? 'cancelled' : 'completed',
       notes: session.note || null,
       distraction_rating: session.distractionRating ?? null,
     };
@@ -57,20 +58,22 @@ export async function logCompletedMeal(session: MealSession): Promise<void> {
     }
 
     // 3. Insert meal_logs row (supports multiple per day+type)
-    await supabase.from('meal_logs').insert({
-      user_id: userId,
-      meal_session_id: session.id,
-      log_date: logDate,
-      meal_type: mealType,
-      food_label: n?.food_label || session.foodName || null,
-      calories: n?.estimated_calories ?? null,
-      protein_g: n?.protein_g ?? null,
-      carbs_g: n?.carbs_g ?? null,
-      fat_g: n?.fat_g ?? null,
-      source: n?.source || 'vision',
-      barcode: session.barcode || null,
-      completed: true,
-    });
+    if (!isForfeited) {
+      await supabase.from('meal_logs').insert({
+        user_id: userId,
+        meal_session_id: session.id,
+        log_date: logDate,
+        meal_type: mealType,
+        food_label: n?.food_label || session.foodName || null,
+        calories: n?.estimated_calories ?? null,
+        protein_g: n?.protein_g ?? null,
+        carbs_g: n?.carbs_g ?? null,
+        fat_g: n?.fat_g ?? null,
+        source: n?.source || 'vision',
+        barcode: session.barcode || null,
+        completed: true,
+      });
+    }
 
     console.log('[mealLogger] Logged meal to Supabase:', session.id);
   } catch (e: any) {
@@ -182,7 +185,8 @@ export async function updateSessionDistraction(
 function mapDbStatusToSessionStatus(dbStatus: string | null, endedAt?: string | null): SessionStatus {
   const status = String(dbStatus || '').toLowerCase();
   if (status === 'active' && !endedAt) return 'ACTIVE';
-  if (status === 'cancelled' || status === 'failed') return 'FAILED';
+  if (status === 'cancelled') return 'FORFEITED';
+  if (status === 'failed') return 'FAILED';
   return 'VERIFIED';
 }
 
@@ -217,6 +221,7 @@ export async function fetchRemoteCompletedSessions(limit = 300): Promise<MealSes
     }
 
     return rows.map((row: any) => {
+      const sessionStatus = mapDbStatusToSessionStatus(row.status, row.ended_at);
       const nutrition = nutritionBySession.get(String(row.id));
       const preNutrition: NutritionEstimate | undefined = nutrition
         ? {
@@ -247,9 +252,9 @@ export async function fetchRemoteCompletedSessions(limit = 300): Promise<MealSes
         note: row.notes || '',
         strictMode: false,
         verification: {},
-        status: mapDbStatusToSessionStatus(row.status, row.ended_at),
+        status: sessionStatus,
         preNutrition,
-        overrideUsed: false,
+        overrideUsed: sessionStatus === 'FORFEITED',
         blockedAppsAtTime: [],
         distractionRating: row.distraction_rating ?? undefined,
       } as MealSession;

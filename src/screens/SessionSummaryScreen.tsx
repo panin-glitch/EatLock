@@ -50,8 +50,11 @@ export default function SessionSummaryScreen() {
   });
 
   const nutrition = session?.preNutrition;
+  const isForfeited = session?.status === 'FORFEITED' || session?.overrideUsed;
   const mealTitle = session?.foodName || nutrition?.food_label || 'Meal logged';
-  const mealSubtitle = nutrition?.notes ? `Portion: ${nutrition.notes}` : 'Portion: 1 serving';
+  const mealSubtitle = isForfeited
+    ? 'Forfeited · Not verified'
+    : nutrition?.notes ? `Portion: ${nutrition.notes}` : 'Portion: 1 serving';
   const distractionLabel = focusLevel === 0 ? 'Poor' : focusLevel === 1 ? 'Medium' : 'Great';
 
   const onFocusChange = (level: number) => {
@@ -127,6 +130,11 @@ export default function SessionSummaryScreen() {
               <View style={{ flex: 1, paddingRight: 10 }}>
                 <Text style={styles.mealTitle}>{mealTitle}</Text>
                 <Text style={styles.mealSubtitle}>{mealSubtitle}</Text>
+                <View style={[styles.statusPill, isForfeited ? styles.statusPillForfeited : styles.statusPillVerified]}>
+                  <Text style={[styles.statusPillText, isForfeited ? styles.statusPillTextForfeited : styles.statusPillTextVerified]}>
+                    {isForfeited ? 'Forfeited' : 'Verified'}
+                  </Text>
+                </View>
               </View>
 
               <TouchableOpacity style={styles.editButton}>
@@ -181,7 +189,7 @@ export default function SessionSummaryScreen() {
         </View>
 
         <TouchableOpacity style={styles.logMealBtn} onPress={handleDone} activeOpacity={0.9}>
-          <Text style={styles.logMealText}>LOG MEAL</Text>
+          <Text style={styles.logMealText}>{isForfeited ? 'DONE' : 'LOG MEAL'}</Text>
           <MaterialIcons name="chevron-right" size={20} color="#FFFFFF" />
         </TouchableOpacity>
       </ScrollView>
@@ -330,6 +338,31 @@ const styles = StyleSheet.create({
     marginTop: 2,
     color: '#64748B',
     fontSize: 13,
+  },
+  statusPill: {
+    alignSelf: 'flex-start',
+    marginTop: 10,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  statusPillVerified: {
+    backgroundColor: 'rgba(250,204,21,0.16)',
+  },
+  statusPillForfeited: {
+    backgroundColor: 'rgba(249,115,22,0.14)',
+  },
+  statusPillText: {
+    fontSize: 11,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  statusPillTextVerified: {
+    color: '#CA8A04',
+  },
+  statusPillTextForfeited: {
+    color: '#C2410C',
   },
   editButton: {
     borderRadius: 10,

@@ -2,6 +2,7 @@ import type { FoodCheckResult, CompareResult, SessionStatus, NutritionEstimate }
 
 export type MealType = 'Breakfast' | 'Lunch' | 'Dinner' | 'Snack' | 'Custom';
 export type DayOfWeek = 'Mon' | 'Tue' | 'Wed' | 'Thu' | 'Fri' | 'Sat' | 'Sun';
+export const DAILY_FORFEIT_LIMIT = 2;
 
 export { SessionStatus } from '../services/vision/types';
 
@@ -95,7 +96,7 @@ export interface MealSession {
   /** Roast or praise message from vision comparison */
   roastMessage?: string;
 
-  /** User tapped override to skip verification */
+  /** User consumed a daily forfeit to end the session without verification */
   overrideUsed: boolean;
 
   /** Snapshot of blocked app names when session started */

@@ -146,7 +146,7 @@ export function computeStreak(sessions: MealSession[]): { current: number; longe
 
   const completedDays = new Set<string>();
   for (const s of sessions) {
-    if (s.endedAt) {
+    if (s.endedAt && s.status !== 'FORFEITED' && !s.overrideUsed) {
       const d = new Date(s.startedAt);
       completedDays.add(`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`);
     }

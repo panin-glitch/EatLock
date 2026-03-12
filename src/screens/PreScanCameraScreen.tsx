@@ -380,7 +380,12 @@ export default function PreScanCameraScreen({ navigation }: Props) {
       <Animated.View pointerEvents="none" style={[styles.freezeOverlay, { opacity: freezeOpacity }]} />
       <Animated.View pointerEvents="none" style={[styles.shutterOverlay, { opacity: shutterOpacity }]} />
 
-      {!photoUri ? <ScanFrameOverlay hintText={barcodeMode ? 'Scan barcode' : 'Keep plate in frame'} /> : null}
+      {!photoUri ? (
+        <ScanFrameOverlay
+          shape={barcodeMode ? 'corners' : 'circle'}
+          hintText={barcodeMode ? 'Scan barcode' : 'Keep plate in frame'}
+        />
+      ) : null}
 
       <View style={styles.topBar}>
         <TouchableOpacity style={styles.topBtn} onPress={() => navigation.goBack()}>
@@ -508,7 +513,7 @@ export default function PreScanCameraScreen({ navigation }: Props) {
             <Text style={styles.topTitle}>Take before photo</Text>
             <View style={{ width: 44 }} />
           </View>
-          <ScanFrameOverlay hintText="Photo of your food before eating" />
+          <ScanFrameOverlay shape="circle" hintText="Photo of your food before eating" />
           <View style={styles.controlsArea}>
             <View style={styles.bottomControlsRow}>
               <View style={styles.bottomLeftSpacer} />

@@ -151,7 +151,7 @@ export default function StatsScreen() {
     const rangeStart = startOfLocalDay(new Date(Date.now() - (periodDays - 1) * 24 * 60 * 60 * 1000)).getTime();
     const rangeEnd = endOfLocalDay(new Date()).getTime();
     return sessionsForStats.filter((s) => {
-      if (s.status === 'ACTIVE' || s.status === 'INCOMPLETE') return false;
+      if (s.status === 'ACTIVE' || s.status === 'INCOMPLETE' || s.status === 'FORFEITED' || s.overrideUsed) return false;
       const eventMs = (toValidDate(s.endedAt) ?? toValidDate(s.startedAt))?.getTime();
       return typeof eventMs === 'number' && eventMs >= rangeStart && eventMs <= rangeEnd;
     });
@@ -164,7 +164,7 @@ export default function StatsScreen() {
     return sessionsForStats
       .filter((session) => {
         if (!session.endedAt) return false;
-        if (session.status === 'ACTIVE' || session.status === 'INCOMPLETE') return false;
+        if (session.status === 'ACTIVE' || session.status === 'INCOMPLETE' || session.status === 'FORFEITED' || session.overrideUsed) return false;
         const eventMs = (toValidDate(session.endedAt) ?? toValidDate(session.startedAt))?.getTime();
         return typeof eventMs === 'number' && eventMs >= rangeStart && eventMs <= rangeEnd;
       })

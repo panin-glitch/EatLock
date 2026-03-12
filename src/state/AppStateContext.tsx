@@ -5,6 +5,7 @@ import {
   BlockConfig,
   UserSettings,
   MealType,
+  DAILY_FORFEIT_LIMIT,
   DEFAULT_BLOCK_CONFIG,
   DEFAULT_USER_SETTINGS,
 } from '../types/models';
@@ -16,12 +17,22 @@ import { ensureAuth } from '../services/authService';
 import { fetchRemoteCompletedSessions, logCompletedMeal, updateSessionDistraction } from '../services/mealLogger';
 import { supabase } from '../services/supabaseClient';
 
+const ACTIVE_SESSION_MAX_ELAPSED_MS = 600 * 60 * 1000;
+
+function isExpiredActiveSession(session: MealSession | null, nowMs = Date.now()): boolean {
+  if (!session || session.status !== 'ACTIVE' || !!session.endedAt) return false;
+  const startedAtMs = new Date(session.startedAt).getTime();
+  if (!Number.isFinite(startedAtMs)) return true;
+  return nowMs - startedAtMs >= ACTIVE_SESSION_MAX_ELAPSED_MS;
+}
+
 interface AppState {
   schedules: MealSchedule[];
   sessions: MealSession[];
   blockConfig: BlockConfig;
   settings: UserSettings;
   activeSession: MealSession | null;
+  remainingForfeitsToday: number;
   isLoading: boolean;
   // Actions
   loadAll: () => Promise<void>;
@@ -41,6 +52,7 @@ interface AppState {
     preBarcodeData?: { type: string; data: string },
   ) => Promise<void>;
   endSession: (status: SessionStatus, roastMessage?: string) => Promise<void>;
+  forfeitActiveSession: (roastMessage?: string) => Promise<boolean>;
   updateActiveSession: (updates: Partial<MealSession>) => Promise<void>;
   updateBlockConfig: (config: BlockConfig) => Promise<void>;
   updateSettings: (settings: UserSettings) => Promise<void>;
@@ -62,6 +74,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const [blockConfig, setBlockConfig] = useState<BlockConfig>(DEFAULT_BLOCK_CONFIG);
   const [settings, setSettings] = useState<UserSettings>(DEFAULT_USER_SETTINGS);
   const [activeSession, setActiveSession] = useState<MealSession | null>(null);
+  const [remainingForfeitsToday, setRemainingForfeitsToday] = useState(DAILY_FORFEIT_LIMIT);
   const [isLoading, setIsLoading] = useState(true);
   const lastUserIdRef = useRef<string | null>(null);
   const lastUserWasAnonymousRef = useRef<boolean>(true);
@@ -84,17 +97,19 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         await Storage.migrateLegacyToNamespace(currentUserId);
       }
       await Storage.initializeStorage();
-      const [s, sess, bc, us, as_] = await Promise.all([
+      const [s, sess, bc, us, as_, forfeitsRemaining] = await Promise.all([
         Storage.getMealSchedules(),
         Storage.getMealSessions(),
         Storage.getBlockConfig(),
         Storage.getUserSettings(),
         Storage.getActiveSession(),
+        Storage.getRemainingForfeitsToday(DAILY_FORFEIT_LIMIT),
       ]);
 
       setSchedules(s);
       setBlockConfig(bc);
       setSettings(us);
+      setRemainingForfeitsToday(forfeitsRemaining);
 
       if (isAnonymousUser) {
         setSessions([]);
@@ -106,7 +121,15 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         }
         const mergedSessions = await Storage.getMealSessions();
         setSessions(mergedSessions.length > 0 ? mergedSessions : sess);
-        setActiveSession(as_);
+        if (isExpiredActiveSession(as_)) {
+          await Storage.setActiveSession(null);
+          if (as_?.strictMode) {
+            await blockingEngine.stopBlocking();
+          }
+          setActiveSession(null);
+        } else {
+          setActiveSession(as_);
+        }
       }
 
       lastUserIdRef.current = currentUser?.id ?? null;
@@ -162,6 +185,30 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
 
     return () => subscription.unsubscribe();
   }, [loadAll]);
+
+  useEffect(() => {
+    if (!activeSession || activeSession.status !== 'ACTIVE' || activeSession.endedAt) return;
+
+    const startedAtMs = new Date(activeSession.startedAt).getTime();
+    if (!Number.isFinite(startedAtMs)) return;
+
+    const timeoutMs = Math.max(0, ACTIVE_SESSION_MAX_ELAPSED_MS - (Date.now() - startedAtMs));
+    const timeoutId = setTimeout(() => {
+      if (!isExpiredActiveSession(activeSession)) return;
+
+      (async () => {
+        await Storage.setActiveSession(null);
+        setActiveSession(null);
+        if (activeSession.strictMode) {
+          await blockingEngine.stopBlocking();
+        }
+      })().catch((error) => {
+        console.warn('[AppState] Failed to clear expired active session:', error);
+      });
+    }, timeoutMs);
+
+    return () => clearTimeout(timeoutId);
+  }, [activeSession]);
 
   const addSchedule = async (schedule: MealSchedule) => {
     await Storage.addMealSchedule(schedule);
@@ -249,6 +296,42 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
 
     const updated = await Storage.getMealSessions();
     setSessions(updated);
+    setRemainingForfeitsToday(await Storage.getRemainingForfeitsToday(DAILY_FORFEIT_LIMIT));
+  };
+
+  const forfeitActiveSession = async (roastMessage?: string): Promise<boolean> => {
+    if (!activeSession) return false;
+
+    const allowance = await Storage.consumeForfeitToday(DAILY_FORFEIT_LIMIT);
+    setRemainingForfeitsToday(allowance.remaining);
+
+    if (!allowance.allowed) {
+      return false;
+    }
+
+    const completed: MealSession = {
+      ...activeSession,
+      endedAt: new Date().toISOString(),
+      status: 'FORFEITED',
+      overrideUsed: true,
+      roastMessage: roastMessage || activeSession.roastMessage,
+    };
+
+    await Storage.saveMealSession(completed);
+    await Storage.setActiveSession(null);
+    setActiveSession(null);
+
+    if (completed.strictMode) {
+      await blockingEngine.stopBlocking();
+    }
+
+    logCompletedMeal(completed).catch((e) =>
+      console.warn('[AppState] Supabase meal log failed:', e?.message),
+    );
+
+    const updated = await Storage.getMealSessions();
+    setSessions(updated);
+    return true;
   };
 
   const updateActiveSession = async (updates: Partial<MealSession>) => {
@@ -313,6 +396,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         blockConfig,
         settings,
         activeSession,
+        remainingForfeitsToday,
         isLoading,
         loadAll,
         addSchedule,
@@ -321,6 +405,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         toggleSchedule,
         startSession,
         endSession,
+        forfeitActiveSession,
         updateActiveSession,
         updateBlockConfig,
         updateSettings,

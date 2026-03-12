@@ -15,6 +15,7 @@ const KEYS = {
   BLOCK_CONFIG: 'eatlock_block_config',
   USER_SETTINGS: 'eatlock_user_settings',
   ACTIVE_SESSION: 'eatlock_active_session',
+  FORFEIT_ALLOWANCE: 'eatlock_forfeit_allowance',
   INITIALIZED: 'eatlock_initialized',
 };
 
@@ -23,6 +24,11 @@ const META_KEYS = {
 };
 
 type StorageKey = keyof typeof KEYS;
+
+interface DailyForfeitAllowance {
+  dayKey: string;
+  used: number;
+}
 
 let storageNamespace = 'global';
 
@@ -41,6 +47,38 @@ function namespacedKey(key: StorageKey): string {
 
 function allNamespacedKeys(): string[] {
   return (Object.keys(KEYS) as StorageKey[]).map((k) => namespacedKey(k));
+}
+
+function getTodayKey(now = new Date()): string {
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+async function getDailyForfeitAllowance(): Promise<DailyForfeitAllowance> {
+  const todayKey = getTodayKey();
+  const raw = await AsyncStorage.getItem(namespacedKey('FORFEIT_ALLOWANCE'));
+
+  if (!raw) {
+    return { dayKey: todayKey, used: 0 };
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<DailyForfeitAllowance>;
+    const used = Math.max(0, Math.floor(Number(parsed.used ?? 0)));
+    if (parsed.dayKey === todayKey) {
+      return { dayKey: todayKey, used };
+    }
+  } catch {
+    // Fall through to reset invalid payloads.
+  }
+
+  return { dayKey: todayKey, used: 0 };
+}
+
+async function saveDailyForfeitAllowance(allowance: DailyForfeitAllowance): Promise<void> {
+  await AsyncStorage.setItem(namespacedKey('FORFEIT_ALLOWANCE'), JSON.stringify(allowance));
 }
 
 export function setStorageNamespace(userId: string | null | undefined): void {
@@ -289,6 +327,40 @@ export async function getUserSettings(): Promise<UserSettings> {
 
 export async function saveUserSettings(settings: UserSettings): Promise<void> {
   await AsyncStorage.setItem(namespacedKey('USER_SETTINGS'), JSON.stringify(settings));
+}
+
+export async function getRemainingForfeitsToday(limit: number): Promise<number> {
+  const allowance = await getDailyForfeitAllowance();
+  return Math.max(0, limit - allowance.used);
+}
+
+export async function consumeForfeitToday(limit: number): Promise<{
+  allowed: boolean;
+  remaining: number;
+  used: number;
+}> {
+  const allowance = await getDailyForfeitAllowance();
+
+  if (allowance.used >= limit) {
+    return {
+      allowed: false,
+      remaining: 0,
+      used: allowance.used,
+    };
+  }
+
+  const next = {
+    dayKey: allowance.dayKey,
+    used: allowance.used + 1,
+  };
+
+  await saveDailyForfeitAllowance(next);
+
+  return {
+    allowed: true,
+    remaining: Math.max(0, limit - next.used),
+    used: next.used,
+  };
 }
 
 // ===== CLEAR ALL =====

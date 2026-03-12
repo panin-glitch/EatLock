@@ -65,6 +65,7 @@ export function getWeekOfMonthIndex(dateLike: string | Date): number {
 }
 
 function isCompletedMeal(session: MealSession): boolean {
+  if (session.status === 'FORFEITED' || session.overrideUsed) return false;
   if (toValidDate(session.endedAt)) return true;
   return session.status !== 'ACTIVE' && session.status !== 'INCOMPLETE';
 }
