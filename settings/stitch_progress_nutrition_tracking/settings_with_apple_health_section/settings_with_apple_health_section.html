@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#33c758",
+                        "background-light": "#f6f8f6",
+                        "background-dark": "#131f16",
+                    },
+                    fontFamily: {
+                        "display": ["Inter", "sans-serif"]
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.5rem",
+                        "lg": "1rem",
+                        "xl": "1.5rem",
+                        "full": "9999px"
+                    },
+                },
+            },
+        }
+    </script>
+<style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark text-slate-900 dark:text-slate-100 min-h-screen">
+<div class="max-w-md mx-auto bg-white dark:bg-slate-900 min-h-screen flex flex-col relative overflow-x-hidden">
+<!-- Header -->
+<header class="sticky top-0 z-10 flex items-center bg-white/80 dark:bg-slate-900/80 backdrop-blur-md px-4 py-4 justify-between border-b border-slate-100 dark:border-slate-800">
+<div class="flex items-center gap-4">
+<button class="flex h-10 w-10 items-center justify-center rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" style="">
+<span class="material-symbols-outlined text-slate-900 dark:text-slate-100" style="">arrow_back</span>
+</button>
+<h1 class="text-xl font-bold tracking-tight" style="">Settings</h1>
+</div>
+</header>
+<main class="flex-1 overflow-y-auto pb-24">
+<!-- Premium Banner -->
+<div class="p-4 @container">
+<div class="relative overflow-hidden rounded-xl bg-slate-900 shadow-lg aspect-[16/7] flex flex-col justify-end p-5">
+<div class="absolute inset-0 opacity-60">
+<img alt="Delicious healthy salad bowl" class="w-full h-full object-cover" data-alt="Healthy salad bowl with fresh vegetables" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAPamgpAjdyK0I2RcX1HJS7o24lIs960DYX-DojJAKErUGzalNgqH8e9oM9TNWpxq2BabtfliytiPq1cMJTbvF_32vu7i-Y6M5bL4hcYvVr6xiJjMS7ia_nA2rMNPnn0Rs8-4R23bdVFqZrkuyH0p-hCWTEcgasU-okHP2VktgW72BmBbbK09r9UbcCECsLvXpMrgZh0y6HSznhBhDX7WFs1t_FD0ScEgmtreD0_cZHXSljgVw9lmYT0i7WWnmVNz0ND23WsoCHc1yn" style=""/>
+</div>
+<div class="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent"></div>
+<div class="relative z-10 flex flex-col gap-2">
+<div class="flex items-center gap-2">
+<span class="bg-primary text-white text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider" style="">Plus</span>
+<h2 class="text-white text-xl font-bold" style="">Try Tadlock Plus</h2>
+</div>
+<p class="text-slate-200 text-sm leading-snug max-w-[240px]" style="">Unlock personalized insights and advanced tracking.</p>
+<button class="mt-2 w-fit px-6 py-2 bg-primary text-white text-sm font-semibold rounded-lg hover:bg-primary/90 transition-colors" style="">
+                            Get Plus
+                        </button>
+</div>
+</div>
+</div>
+<!-- Section 1: Goals -->
+<section class="mt-4">
+<h3 class="px-5 mb-2 text-xs font-bold uppercase tracking-widest text-slate-400" style="">Goals</h3>
+<div class="bg-white dark:bg-slate-900">
+<!-- Calories -->
+<div class="flex items-center gap-4 px-5 py-4 border-b border-slate-50 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors">
+<div class="flex h-10 w-10 items-center justify-center rounded-lg bg-orange-100 text-orange-600">
+<span class="material-symbols-outlined" style="">local_fire_department</span>
+</div>
+<div class="flex flex-1 flex-col">
+<p class="text-sm font-semibold" style="">Calories</p>
+<p class="text-xs text-slate-500" style="">Daily target</p>
+</div>
+<div class="flex items-center gap-2">
+<span class="text-sm font-medium text-slate-900 dark:text-slate-100" style="">2,275 cal</span>
+<span class="material-symbols-outlined text-slate-300 text-sm" style="">chevron_right</span>
+</div>
+</div>
+<!-- Macros -->
+<div class="flex items-center gap-4 px-5 py-4 border-b border-slate-50 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors">
+<div class="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-100 text-blue-600">
+<span class="material-symbols-outlined" style="">pie_chart</span>
+</div>
+<div class="flex flex-1 flex-col">
+<p class="text-sm font-semibold" style="">Macros</p>
+<p class="text-xs text-slate-500" style="">Custom ratio</p>
+</div>
+<div class="flex items-center gap-2">
+<span class="text-sm font-medium text-slate-900 dark:text-slate-100" style="">40/30/30</span>
+<span class="material-symbols-outlined text-slate-300 text-sm" style="">chevron_right</span>
+</div>
+</div>
+<!-- Fasting -->
+<!-- Water -->
+<!-- Weight -->
+<!-- Recalculate -->
+<div class="flex items-center gap-4 px-5 py-4 hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors">
+<div class="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
+<span class="material-symbols-outlined" style="">sync</span>
+</div>
+<div class="flex flex-1 flex-col">
+<p class="text-sm font-semibold" style="">Recalculate plan</p>
+<p class="text-xs text-slate-500" style="">Based on latest stats</p>
+</div>
+<span class="material-symbols-outlined text-slate-300 text-sm" style="">chevron_right</span>
+</div>
+</div>
+</section>
+<!-- Section 2: Eating Preferences -->
+<section class="mt-8">
+<h3 class="px-5 mb-2 text-xs font-bold uppercase tracking-widest text-slate-400" style="">Eating preferences</h3>
+<div class="bg-white dark:bg-slate-900">
+<!-- Diet -->
+<div class="flex items-center gap-4 px-5 py-4 border-b border-slate-50 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors">
+<div class="flex h-10 w-10 items-center justify-center rounded-lg bg-green-100 text-green-600">
+<span class="material-symbols-outlined" style="">restaurant</span>
+</div>
+<div class="flex flex-1 flex-col">
+<p class="text-sm font-semibold" style="">Diet</p>
+<p class="text-xs text-slate-500" style="">Current strategy</p>
+</div>
+<div class="flex items-center gap-2">
+<span class="text-sm font-medium text-slate-900 dark:text-slate-100" style="">High protein</span>
+<span class="material-symbols-outlined text-slate-300 text-sm" style="">chevron_right</span>
+</div>
+</div>
+<!-- Restrictions -->
+<!-- Meals -->
+<div class="flex items-center gap-4 px-5 py-4 hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors">
+<div class="flex h-10 w-10 items-center justify-center rounded-lg bg-yellow-100 text-yellow-600">
+<span class="material-symbols-outlined" style="">fastfood</span>
+</div>
+<div class="flex flex-1 flex-col">
+<p class="text-sm font-semibold" style="">Meals per day</p>
+<p class="text-xs text-slate-500" style="">Frequency</p>
+</div>
+<div class="flex items-center gap-2">
+<span class="text-sm font-medium text-slate-900 dark:text-slate-100" style="">3 meals</span>
+<span class="material-symbols-outlined text-slate-300 text-sm" style="">chevron_right</span>
+</div>
+</div>
+<div class="flex items-center gap-4 px-5 py-4 border-t border-slate-50 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors">
+<div class="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-100 text-emerald-600">
+<span class="material-symbols-outlined" style="">biotech</span>
+</div>
+<div class="flex flex-1 flex-col">
+<p class="text-sm font-semibold" style="">Micronutrients</p>
+<p class="text-xs text-slate-500" style="">Track vitamins &amp; minerals</p>
+</div>
+<div class="flex items-center">
+<div class="relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none bg-slate-200 dark:bg-slate-700">
+<span class="translate-x-0 pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"></span>
+</div>
+</div>
+</div></div>
+</section><section class="mt-8">
+<h3 class="px-5 mb-2 text-xs font-bold uppercase tracking-widest text-slate-400" style="">APPLE HEALTH</h3>
+<div class="bg-white dark:bg-slate-900">
+<!-- Apple Health Main Row -->
+<div class="flex items-center gap-4 px-5 py-4 border-b border-slate-50 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors">
+<div class="flex h-10 w-10 items-center justify-center rounded-lg bg-red-50 text-red-500">
+<span class="material-symbols-outlined" style="">favorite</span>
+</div>
+<div class="flex flex-1 flex-col">
+<p class="text-sm font-semibold" style="">Apple Health</p>
+</div>
+<span class="material-symbols-outlined text-slate-300 text-sm" style="">chevron_right</span>
+</div>
+<!-- Send Calories to Health -->
+<div class="flex items-center gap-4 px-5 py-4 border-b border-slate-50 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors">
+<div class="flex h-10 w-10 items-center justify-center rounded-lg bg-orange-50 text-orange-500">
+<span class="material-symbols-outlined" style="">arrow_upward</span>
+</div>
+<div class="flex flex-1 flex-col"><p class="text-sm font-semibold">Send Calories to Health</p></div>
+<div class="relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none bg-slate-200 dark:bg-slate-700">
+<span class="translate-x-0 pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"></span>
+</div>
+</div>
+<!-- Send Macros to Health -->
+<div class="flex items-center gap-4 px-5 py-4 border-b border-slate-50 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors">
+<div class="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-50 text-blue-500">
+<span class="material-symbols-outlined" style="">arrow_upward</span>
+</div>
+<div class="flex flex-1 flex-col"><p class="text-sm font-semibold">Send Macros to Health</p></div>
+<div class="relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none bg-slate-200 dark:bg-slate-700">
+<span class="translate-x-0 pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"></span>
+</div>
+</div>
+<!-- Read Burned Calories -->
+<div class="flex items-center gap-4 px-5 py-4 border-b border-slate-50 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors">
+<div class="flex h-10 w-10 items-center justify-center rounded-lg bg-orange-50 text-orange-600">
+<span class="material-symbols-outlined" style="">local_fire_department</span>
+</div>
+<div class="flex flex-1 flex-col"><p class="text-sm font-semibold">Read Burned Calories</p></div>
+<div class="relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none bg-slate-200 dark:bg-slate-700">
+<span class="translate-x-0 pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"></span>
+</div>
+</div>
+<!-- Read Resting Energy -->
+<div class="flex items-center gap-4 px-5 py-4 border-b border-slate-50 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors">
+<div class="flex h-10 w-10 items-center justify-center rounded-lg bg-purple-100 text-purple-600">
+<span class="material-symbols-outlined" style="">bed</span>
+</div>
+<div class="flex flex-1 flex-col">
+<p class="text-sm font-semibold" style="">Read Resting Energy</p>
+<p class="text-xs text-slate-500" style="">Base calories your body burns</p>
+</div>
+<div class="relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none bg-slate-200 dark:bg-slate-700">
+<span class="translate-x-0 pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"></span>
+</div>
+</div>
+<!-- Read Steps -->
+<div class="flex items-center gap-4 px-5 py-4 border-b border-slate-50 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors">
+<div class="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-100 text-blue-600">
+<span class="material-symbols-outlined" style="">directions_walk</span>
+</div>
+<div class="flex flex-1 flex-col"><p class="text-sm font-semibold">Read Steps</p></div>
+<div class="relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none bg-slate-200 dark:bg-slate-700">
+<span class="translate-x-0 pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"></span>
+</div>
+</div>
+<!-- Read Workouts -->
+<div class="flex items-center gap-4 px-5 py-4 hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors">
+<div class="flex h-10 w-10 items-center justify-center rounded-lg bg-green-100 text-green-600">
+<span class="material-symbols-outlined" style="">fitness_center</span>
+</div>
+<div class="flex flex-1 flex-col"><p class="text-sm font-semibold">Read Workouts</p></div>
+<div class="relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none bg-slate-200 dark:bg-slate-700">
+<span class="translate-x-0 pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"></span>
+</div>
+</div>
+</div>
+</section><section class="mt-8">
+<h3 class="px-5 mb-2 text-xs font-bold uppercase tracking-widest text-slate-400" style="">APPLICATIONS</h3>
+<div class="bg-white dark:bg-slate-900"><div class="flex items-center gap-4 px-5 py-4 border-b border-slate-50 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors">
+<div class="flex h-10 w-10 items-center justify-center rounded-lg bg-pink-100 text-pink-600">
+<span class="material-symbols-outlined" style="">vibration</span>
+</div>
+<div class="flex flex-1 flex-col">
+<p class="text-sm font-semibold" style="">Haptic feedback</p>
+<p class="text-xs text-slate-500" style="">System vibrations</p>
+</div>
+<div class="flex items-center">
+<div class="relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none bg-primary">
+<span class="translate-x-5 pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"></span>
+</div>
+</div>
+</div>
+<!-- Daily Reminders -->
+<div class="flex items-center gap-4 px-5 py-4 border-b border-slate-50 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors">
+<div class="flex h-10 w-10 items-center justify-center rounded-lg bg-indigo-100 text-indigo-600">
+<span class="material-symbols-outlined" style="">notifications</span>
+</div>
+<div class="flex flex-1 flex-col">
+<p class="text-sm font-semibold" style="">Daily reminders</p>
+<p class="text-xs text-slate-500" style="">Stay on track</p>
+</div>
+<div class="flex items-center">
+<div class="relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none bg-primary">
+<span class="translate-x-5 pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"></span>
+</div>
+</div>
+</div>
+<!-- Language -->
+<div class="flex items-center gap-4 px-5 py-4 hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors">
+<div class="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
+<span class="material-symbols-outlined" style="">language</span>
+</div>
+<div class="flex flex-1 flex-col">
+<p class="text-sm font-semibold" style="">Language</p>
+<p class="text-xs text-slate-500" style="">App interface</p>
+</div>
+<div class="flex items-center gap-2">
+<span class="text-sm font-medium text-slate-900 dark:text-slate-100" style="">English</span>
+<span class="material-symbols-outlined text-slate-300 text-sm" style="">chevron_right</span>
+</div>
+</div>
+</div>
+</section><section class="mt-8">
+<h3 class="px-5 mb-2 text-xs font-bold uppercase tracking-widest text-slate-400" style="">Community</h3>
+<div class="bg-white dark:bg-slate-900">
+<!-- Discord -->
+<div class="flex items-center gap-4 px-5 py-4 border-b border-slate-50 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors">
+<div class="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+<span class="material-symbols-outlined" style="">forum</span>
+</div>
+<div class="flex flex-1 flex-col">
+<p class="text-sm font-semibold" style="">Discord</p>
+<p class="text-xs text-slate-500" style="">Join our community</p>
+</div>
+<span class="material-symbols-outlined text-slate-300 text-sm" style="">chevron_right</span>
+</div>
+<!-- Instagram -->
+<div class="flex items-center gap-4 px-5 py-4 border-b border-slate-50 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors">
+<div class="flex h-10 w-10 items-center justify-center rounded-lg bg-purple-50 text-purple-600">
+<span class="material-symbols-outlined" style="">photo_camera</span>
+</div>
+<div class="flex flex-1 flex-col">
+<p class="text-sm font-semibold" style="">Instagram</p>
+<p class="text-xs text-slate-500" style="">Follow us for tips</p>
+</div>
+<span class="material-symbols-outlined text-slate-300 text-sm" style="">chevron_right</span>
+</div>
+<!-- Report a bug -->
+<div class="flex items-center gap-4 px-5 py-4 border-b border-slate-50 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors">
+<div class="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-50 text-amber-600">
+<span class="material-symbols-outlined" style="">bug_report</span>
+</div>
+<div class="flex flex-1 flex-col">
+<p class="text-sm font-semibold" style="">Report a bug</p>
+<p class="text-xs text-slate-500" style="">Help us improve</p>
+</div>
+<span class="material-symbols-outlined text-slate-300 text-sm" style="">chevron_right</span>
+</div>
+<!-- Feature requests -->
+<div class="flex items-center gap-4 px-5 py-4 hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors">
+<div class="flex h-10 w-10 items-center justify-center rounded-lg bg-cyan-50 text-cyan-600">
+<span class="material-symbols-outlined" style="">lightbulb</span>
+</div>
+<div class="flex flex-1 flex-col">
+<p class="text-sm font-semibold" style="">Feature requests</p>
+<p class="text-xs text-slate-500" style="">What should we build next?</p>
+</div>
+<span class="material-symbols-outlined text-slate-300 text-sm" style="">chevron_right</span>
+</div>
+</div>
+</section><section class="mt-8">
+<h3 class="px-5 mb-2 text-xs font-bold uppercase tracking-widest text-slate-400" style="">Account</h3>
+<div class="bg-white dark:bg-slate-900"><!-- Profile -->
+<div class="flex items-center gap-4 px-5 py-4 border-b border-slate-50 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors">
+<div class="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
+<span class="material-symbols-outlined" style="">person</span>
+</div>
+<div class="flex flex-1 flex-col">
+<p class="text-sm font-semibold" style="">Profile</p>
+<p class="text-xs text-slate-500" style="">Personal details</p>
+</div>
+<span class="material-symbols-outlined text-slate-300 text-sm" style="">chevron_right</span>
+</div>
+<!-- Email -->
+<div class="flex items-center gap-4 px-5 py-4 border-b border-slate-50 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors">
+<div class="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
+<span class="material-symbols-outlined" style="">mail</span>
+</div>
+<div class="flex flex-1 flex-col">
+<p class="text-sm font-semibold" style="">Email</p>
+<p class="text-xs text-slate-500" style="">Manage your contact info</p>
+</div>
+<span class="material-symbols-outlined text-slate-300 text-sm" style="">chevron_right</span>
+</div>
+<!-- Sign out -->
+<div class="flex items-center gap-4 px-5 py-4 hover:bg-red-50 dark:hover:bg-red-900/10 cursor-pointer transition-colors">
+<div class="flex h-10 w-10 items-center justify-center rounded-lg bg-red-100 text-red-600">
+<span class="material-symbols-outlined" style="">logout</span>
+</div>
+<div class="flex flex-1 flex-col">
+<p class="text-sm font-semibold text-red-600" style="">Sign out</p>
+<p class="text-xs text-slate-500" style="">Logout from your account</p>
+</div>
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-slate-300 text-sm" style="">chevron_right</span>
+</div>
+</div>
+<div class="flex items-center gap-4 px-5 py-4 border-t border-slate-50 dark:border-slate-800 hover:bg-red-50 dark:hover:bg-red-900/10 cursor-pointer transition-colors">
+<div class="flex h-10 w-10 items-center justify-center rounded-lg bg-red-100 text-red-600">
+<span class="material-symbols-outlined" style="">delete</span>
+</div>
+<div class="flex flex-1 flex-col">
+<p class="text-sm font-semibold text-red-600" style="">Delete Data</p>
+<p class="text-xs text-slate-500" style="">Permanently erase your data</p>
+</div>
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-slate-300 text-sm" style="">chevron_right</span>
+</div>
+</div></div>
+</section>
+</main>
+<!-- Bottom Navigation Bar -->
+</div>
+</body></html>

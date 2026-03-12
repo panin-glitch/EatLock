@@ -186,3 +186,42 @@ export function buildRollingDailyBuckets(
 
   return points;
 }
+
+export function buildRollingMonthlyBuckets(
+  sessions: MealSession[],
+  monthCount: number,
+  locale = 'en-US',
+  today = new Date(),
+): StatsBucketPoint[] {
+  const end = endOfLocalDay(today);
+  const startMonth = new Date(today.getFullYear(), today.getMonth() - (monthCount - 1), 1, 0, 0, 0, 0);
+
+  const points: StatsBucketPoint[] = Array.from({ length: monthCount }, (_, index) => {
+    const monthDate = new Date(startMonth.getFullYear(), startMonth.getMonth() + index, 1);
+    const monthKey = `${monthDate.getFullYear()}-${String(monthDate.getMonth() + 1).padStart(2, '0')}`;
+    return {
+      key: monthKey,
+      label: monthDate.toLocaleDateString(locale, { month: 'short' }),
+      meals: 0,
+      calories: 0,
+      focusMinutes: 0,
+      lowDistraction: 0,
+    };
+  });
+
+  const byMonth = new Map(points.map((point) => [point.key, point]));
+
+  for (const session of sessions) {
+    if (!isCompletedMeal(session)) continue;
+    const eventDate = getMealEventDate(session);
+    if (!eventDate) continue;
+    if (eventDate < startMonth || eventDate > end) continue;
+
+    const key = `${eventDate.getFullYear()}-${String(eventDate.getMonth() + 1).padStart(2, '0')}`;
+    const target = byMonth.get(key);
+    if (!target) continue;
+    addSessionToBucket(session, target);
+  }
+
+  return points;
+}

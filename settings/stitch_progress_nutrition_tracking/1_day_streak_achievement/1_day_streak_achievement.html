@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#a855f7",
+                        "background-light": "#f7f5f8",
+                        "background-dark": "#0D0D0D",
+                        "card-dark": "#1C1C1E",
+                        "border-dark": "#2C2C2C",
+                    },
+                    fontFamily: {
+                        "display": ["Manrope", "sans-serif"]
+                    },
+                    borderRadius: {"DEFAULT": "1rem", "lg": "2rem", "xl": "3rem", "full": "9999px"},
+                },
+            },
+        }
+    </script>
+<style>
+        .spotlight-effect {
+            background: radial-gradient(circle at center, rgba(168, 85, 247, 0.15) 0%, rgba(13, 13, 13, 0) 70%);
+        }
+        .flame-glow {
+            filter: drop-shadow(0 0 15px rgba(168, 85, 247, 0.6));
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background-light dark:bg-background-dark font-display text-slate-900 dark:text-slate-100 antialiased">
+<div class="relative flex h-screen w-full flex-col overflow-hidden">
+<!-- Top App Bar -->
+<div class="flex items-center p-4 justify-between z-10">
+<button class="text-slate-400 hover:text-white transition-colors">
+<span class="material-symbols-outlined">close</span>
+</button>
+<h2 class="text-lg font-bold leading-tight tracking-tight flex-1 text-center pr-8">Achievement</h2>
+</div>
+<div class="flex-1 flex flex-col items-center justify-center px-6 relative">
+<!-- Spotlight Background -->
+<div class="absolute inset-0 spotlight-effect pointer-events-none"></div>
+<!-- Achievement Visual -->
+<div class="relative flex flex-col items-center mb-8">
+<div class="w-48 h-48 rounded-full bg-primary/10 flex items-center justify-center relative mb-4">
+<div class="absolute inset-0 bg-primary/5 rounded-full animate-pulse"></div>
+<span class="material-symbols-outlined text-[120px] text-primary flame-glow" style="font-variation-settings: 'FILL' 1, 'wght' 700;">
+                        local_fire_department
+                    </span>
+</div>
+<h1 class="text-7xl font-extrabold text-slate-100 tracking-tighter mb-2">1</h1>
+<div class="px-4 py-1 bg-primary/20 border border-primary/30 rounded-full">
+<span class="text-primary font-bold text-sm uppercase tracking-widest">Day Streak</span>
+</div>
+</div>
+<!-- Text Content -->
+<div class="text-center max-w-sm mb-12">
+<h3 class="text-2xl font-bold mb-3">1 day streak!</h3>
+<p class="text-slate-400 leading-relaxed">Incredible work! You're building a powerful habit. Keep it up!</p>
+</div>
+<!-- Weekly Progress Indicators -->
+<div class="w-full max-w-xs grid grid-cols-7 gap-2 mb-12">
+<div class="flex flex-col items-center gap-2">
+<span class="text-[10px] text-slate-500 font-bold">M</span>
+<div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center shadow-lg shadow-primary/20">
+<span class="material-symbols-outlined text-sm text-white font-bold">check</span>
+</div>
+</div>
+<div class="flex flex-col items-center gap-2">
+<span class="text-[10px] text-slate-500 font-bold uppercase">T</span>
+<div class="w-8 h-8 rounded-full border-2 border-border-dark bg-card-dark flex items-center justify-center"></div>
+</div>
+<div class="flex flex-col items-center gap-2">
+<span class="text-[10px] text-slate-500 font-bold uppercase">W</span>
+<div class="w-8 h-8 rounded-full border-2 border-border-dark bg-card-dark flex items-center justify-center"></div>
+</div>
+<div class="flex flex-col items-center gap-2">
+<span class="text-[10px] text-slate-500 font-bold uppercase">T</span>
+<div class="w-8 h-8 rounded-full border-2 border-border-dark bg-card-dark flex items-center justify-center"></div>
+</div>
+<div class="flex flex-col items-center gap-2">
+<span class="text-[10px] text-slate-500 font-bold uppercase">F</span>
+<div class="w-8 h-8 rounded-full border-2 border-border-dark bg-card-dark flex items-center justify-center"></div>
+</div>
+<div class="flex flex-col items-center gap-2">
+<span class="text-[10px] text-slate-500 font-bold uppercase">S</span>
+<div class="w-8 h-8 rounded-full border-2 border-border-dark bg-card-dark flex items-center justify-center"></div>
+</div>
+<div class="flex flex-col items-center gap-2">
+<span class="text-[10px] text-slate-500 font-bold uppercase">S</span>
+<div class="w-8 h-8 rounded-full border-2 border-border-dark bg-card-dark flex items-center justify-center"></div>
+</div>
+</div>
+</div>
+<!-- Action Area -->
+<div class="p-6 bg-gradient-to-t from-background-dark via-background-dark to-transparent">
+<button class="w-full bg-primary hover:bg-primary/90 text-white font-bold py-5 rounded-xl transition-all active:scale-[0.98] shadow-xl shadow-primary/20">
+                Continue
+            </button>
+</div>
+</div>
+</body></html>

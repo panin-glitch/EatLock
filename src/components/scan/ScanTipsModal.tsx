@@ -29,7 +29,7 @@ export function ScanTipsModal({ visible, onClose, theme }: Props) {
           </View>
 
           <TouchableOpacity style={[styles.closeBtn, { backgroundColor: theme.primary }]} onPress={onClose}>
-            <Text style={styles.closeText}>Got it</Text>
+            <Text style={[styles.closeText, { color: theme.onPrimary }]}>Got it</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -74,7 +74,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   closeText: {
-    color: '#FFF',
     fontSize: 14,
     fontWeight: '700',
   },

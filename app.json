@@ -5,18 +5,18 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "dark",
+    "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "scheme": "tadlock",
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#0D0D0D"
+      "backgroundColor": "#F5F8F6"
     },
-    "backgroundColor": "#0D0D0D",
+    "backgroundColor": "#F5F8F6",
     "androidStatusBar": {
-      "backgroundColor": "#0D0D0D",
-      "barStyle": "light-content",
+      "backgroundColor": "#F5F8F6",
+      "barStyle": "dark-content",
       "translucent": false
     },
     "ios": {
@@ -25,7 +25,7 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#0D0D0D"
+        "backgroundColor": "#F5F8F6"
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
@@ -46,7 +46,10 @@
               "scheme": "tadlock"
             }
           ],
-          "category": ["BROWSABLE", "DEFAULT"]
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         }
       ]
     },
@@ -54,7 +57,13 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "@react-native-community/datetimepicker"
-    ]
+      "@react-native-community/datetimepicker",
+      "expo-secure-store"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "6fc4ce7e-b6c2-4ed4-be3d-f58887047036"
+      }
+    }
   }
 }

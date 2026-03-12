@@ -335,7 +335,7 @@ export default function PostScanCameraScreen({ navigation, route }: Props) {
         <MaterialIcons name="camera-alt" size={46} color="#AAA" />
         <Text style={styles.permissionText}>Camera permission is required.</Text>
         <TouchableOpacity style={[styles.permissionBtn, { backgroundColor: theme.primary }]} onPress={requestPermission}>
-          <Text style={styles.permissionBtnText}>Grant access</Text>
+          <Text style={[styles.permissionBtnText, { color: theme.onPrimary }]}>Grant access</Text>
         </TouchableOpacity>
       </View>
     );
@@ -343,6 +343,9 @@ export default function PostScanCameraScreen({ navigation, route }: Props) {
 
   const resultVerdict = String(result?.verdict || '').toUpperCase();
   const isFinishedResult = resultVerdict === 'FINISHED' || resultVerdict === 'EATEN';
+  const successCard = !!(result && isFinishedResult && !errorMsg && !softError);
+  const postNutrition = activeSession?.preNutrition ?? null;
+  const successMealTitle = activeSession?.foodName || postNutrition?.food_label || 'Meal logged';
   const verdictColor = result
     ? isFinishedResult
       ? theme.success
@@ -438,27 +441,41 @@ export default function PostScanCameraScreen({ navigation, route }: Props) {
                 ? errorMsg.toLowerCase().includes('daily limit')
                 ? 'Daily limit reached'
                 : 'Retake after photo'
-                : isFinishedResult
-                  ? 'Meal finished'
+                : successCard
+                  ? successMealTitle
                   : 'Not finished yet'}
             accentColor={(errorMsg || softError) ? theme.warning : verdictColor}
+            confidencePercent={successCard ? undefined : result ? Math.round((result.confidence ?? 0) * 100) : undefined}
             roast={
-              feedbackRoast
+              successCard
+                ? undefined
+                : feedbackRoast
                 ? feedbackRoast
                 : errorMsg
                   ? undefined
                   : (result ? result.roastLine || getPostScanRoast(result.verdict as any) : undefined)
             }
-            subtext={softError?.subtitle || errorMsg || result?.retakeHint || undefined}
+            subtext={successCard ? undefined : softError?.subtitle || errorMsg || result?.retakeHint || undefined}
+            calories={
+              successCard
+                ? {
+                    nutrition: postNutrition,
+                    loading: false,
+                    error: false,
+                  }
+                : undefined
+            }
+            mealTypeLabel={successCard ? activeSession?.mealType || 'Meal' : undefined}
+            variant={successCard ? 'meal-detail' : 'default'}
             buttons={[
+              ...(successCard ? [{ label: 'LOG MEAL', onPress: handleContinue }] : []),
               ...(softError?.code === 'SESSION_EXPIRED'
                 ? [{ label: 'Sign in again', onPress: () => navigation.navigate('Auth') }]
                 : []),
-              ...(result && isFinishedResult ? [{ label: 'See Summary', onPress: handleContinue }] : []),
               ...(softError?.code === 'SESSION_EXPIRED'
                 ? [{ label: 'Cancel', onPress: handleRetake, secondary: true }]
                 : []),
-              ...(!(result && isFinishedResult)
+              ...(!successCard
                 ? [{ label: 'Retake', onPress: handleRetake }]
                 : []),
             ]}
@@ -476,7 +493,7 @@ const styles = StyleSheet.create({
   permissionWrap: { justifyContent: 'center', alignItems: 'center', gap: 10 },
   permissionText: { color: '#CCC', fontSize: 14 },
   permissionBtn: { borderRadius: 18, paddingHorizontal: 20, paddingVertical: 10 },
-  permissionBtnText: { color: '#FFF', fontSize: 14, fontWeight: '700' },
+  permissionBtnText: { fontSize: 14, fontWeight: '700' },
 
   topBar: {
     position: 'absolute',

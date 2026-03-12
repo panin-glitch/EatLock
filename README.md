@@ -8,7 +8,10 @@ Create a local `.env` file in repo root:
 EXPO_PUBLIC_SUPABASE_URL=
 EXPO_PUBLIC_SUPABASE_ANON_KEY=
 EXPO_PUBLIC_WORKER_API_URL=
+EXPO_PUBLIC_PASSWORD_RESET_URL=
 ```
+
+`EXPO_PUBLIC_PASSWORD_RESET_URL` is optional, but if you set it, it must be an HTTPS URL for your secure web password reset flow.
 
 Run the app:
 

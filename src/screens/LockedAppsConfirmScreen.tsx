@@ -154,7 +154,7 @@ export default function LockedAppsConfirmScreen() {
           activeOpacity={0.7}
         >
           <View style={[styles.checkbox, confirmed && styles.checkboxChecked]}>
-            {confirmed && <MaterialIcons name="check" size={16} color="#FFF" />}
+            {confirmed && <MaterialIcons name="check" size={16} color={theme.onPrimary} />}
           </View>
           <Text style={styles.confirmText}>
             {support?.canEnforce
@@ -174,7 +174,7 @@ export default function LockedAppsConfirmScreen() {
           <MaterialIcons
             name="lock"
             size={20}
-            color={confirmed && !starting ? '#FFF' : theme.textMuted}
+            color={confirmed && !starting ? theme.onPrimary : theme.textMuted}
           />
           <Text
             style={[
@@ -347,7 +347,7 @@ const makeStyles = (theme: any) =>
       backgroundColor: theme.surfaceElevated,
     },
     startBtnText: {
-      color: '#FFF',
+      color: theme.onPrimary,
       fontSize: 17,
       fontWeight: '600',
     },

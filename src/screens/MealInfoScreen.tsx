@@ -11,10 +11,11 @@ import {
   ScrollView,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import * as Haptics from 'expo-haptics';
 import { useTheme } from '../theme/ThemeProvider';
 import { useNavigation } from '@react-navigation/native';
 import { MealType } from '../types/models';
+import { useAppState } from '../state/AppStateContext';
+import { triggerLightHaptic } from '../services/haptics';
 
 const MEAL_TYPES: { type: MealType; icon: string; label: string }[] = [
   { type: 'Breakfast', icon: 'free-breakfast', label: 'Breakfast' },
@@ -26,12 +27,13 @@ const MEAL_TYPES: { type: MealType; icon: string; label: string }[] = [
 export default function MealInfoScreen() {
   const { theme } = useTheme();
   const navigation = useNavigation<any>();
+  const { settings } = useAppState();
 
   const [mealType, setMealType] = useState<MealType>('Lunch');
   const [foodName, setFoodName] = useState('');
 
   const handleContinue = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    triggerLightHaptic(settings.app.hapticsEnabled);
     navigation.navigate('PreScanCamera');
   };
 
@@ -109,7 +111,7 @@ export default function MealInfoScreen() {
             activeOpacity={0.8}
           >
             <Text style={styles.continueBtnText}>Continue</Text>
-            <MaterialIcons name="arrow-forward" size={20} color="#FFF" />
+            <MaterialIcons name="arrow-forward" size={20} color={theme.onPrimary} />
           </TouchableOpacity>
 
           <Text style={styles.hintText}>
@@ -199,7 +201,7 @@ const makeStyles = (theme: any) =>
       opacity: 0.7,
     },
     continueBtnText: {
-      color: '#FFF',
+      color: theme.onPrimary,
       fontSize: 17,
       fontWeight: '600',
     },

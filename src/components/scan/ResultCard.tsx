@@ -1,27 +1,12 @@
-/**
- * ResultCard — BiteWise-style floating card for scan results.
- *
- * Used in both PreScanCamera and PostScanCamera.
- * Supports Light/Dark themes via tokens.
- * Layout: Header (food+confidence | calories) → Roast → Macros → Buttons
- */
-
-import React from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-} from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
 import type { ThemeColors } from '../../theme/colors';
 import type { NutritionEstimate } from '../../services/vision/types';
-
-// ── Types ────────────────────────────────────
 
 export interface ResultCardButton {
   label: string;
   onPress: () => void;
-  /** If true, shown as secondary (dimmer bg) */
   secondary?: boolean;
 }
 
@@ -33,25 +18,33 @@ export interface CaloriesRowData {
 }
 
 export interface ResultCardProps {
-  /** Theme tokens */
   theme: ThemeColors;
-  /** Main title text, e.g. "Grilled chicken", "Not food", "AI unavailable" */
   title: string;
-  /** Icon + title colour (verdict colour) */
   accentColor: string;
-  /** The roast / praise line */
   roast?: string;
-  /** Smaller sub-text (reason, retake hint, etc.) */
   subtext?: string;
-  /** Calorie + macro data (only on BEFORE scan success) */
   calories?: CaloriesRowData;
-  /** Action buttons (up to 2) */
   buttons: ResultCardButton[];
-  /** Bottom inset from safe-area (default 24) */
   bottomInset?: number;
+  confidencePercent?: number;
+  mealTypeLabel?: string;
+  variant?: 'default' | 'meal-detail';
 }
 
-// ── Component ────────────────────────────────
+function clampPercent(value?: number): number | null {
+  if (typeof value !== 'number' || Number.isNaN(value)) return null;
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function getConfidencePercent(
+  explicit: number | undefined,
+  nutrition: NutritionEstimate | null | undefined,
+): number | null {
+  const provided = clampPercent(explicit);
+  if (provided != null) return provided;
+  if (nutrition?.confidence == null) return null;
+  return clampPercent(nutrition.confidence * 100);
+}
 
 export function ResultCard({
   theme,
@@ -62,253 +55,591 @@ export function ResultCard({
   calories,
   buttons,
   bottomInset = 24,
+  confidencePercent,
+  mealTypeLabel,
+  variant = 'default',
 }: ResultCardProps) {
-  const isDark = theme.background === '#000' || theme.background.startsWith('#0') || theme.background.startsWith('#1');
-  const s = makeStyles(theme, isDark, bottomInset);
-  const n = calories?.nutrition;
+  const isDark =
+    theme.background === '#000' || theme.background.startsWith('#0') || theme.background.startsWith('#1');
+  const styles = makeStyles(theme, isDark, bottomInset);
+  const nutrition = calories?.nutrition;
+  const confidence = getConfidencePercent(confidencePercent, nutrition);
 
-  // Determine source label
-  const sourceLabel = n?.source === 'barcode' ? 'From barcode' : n?.source === 'user' ? 'Edited' : 'Estimate';
+  if (variant === 'meal-detail') {
+    const primaryAction = buttons.find((button) => !button.secondary) || buttons[0];
+    const [portion, setPortion] = useState(1);
+
+    const scale = (value?: number | null) => Math.round((value ?? 0) * portion);
+    const calorieValue = scale(nutrition?.estimated_calories);
+    const proteinValue = scale(nutrition?.protein_g);
+    const carbsValue = scale(nutrition?.carbs_g);
+    const fatValue = scale(nutrition?.fat_g);
+
+    return (
+      <View style={styles.mealDetailCard}>
+        <View style={styles.mealDetailHandleWrap}>
+          <View style={styles.mealDetailHandle} />
+        </View>
+
+        <View style={styles.mealDetailContent}>
+          <View style={styles.mealInfoCenter}>
+            <Text style={styles.mealTypeText}>{mealTypeLabel || 'Meal'}</Text>
+            <Text style={styles.mealTitleText}>{title}</Text>
+          </View>
+
+          <View style={styles.portionCard}>
+            <View style={styles.portionLeft}>
+              <View style={styles.portionIconWrap}>
+                <MaterialIcons name="restaurant" size={17} color={theme.success} />
+              </View>
+              <Text style={styles.portionLabel}>Portion Size</Text>
+            </View>
+
+            <View style={styles.portionRight}>
+              <TouchableOpacity
+                style={styles.portionMinus}
+                onPress={() => setPortion((prev) => Math.max(1, prev - 1))}
+                activeOpacity={0.8}
+              >
+                <MaterialIcons name="remove" size={18} color="#64748B" />
+              </TouchableOpacity>
+
+              <Text style={styles.portionCount}>{portion}</Text>
+
+              <TouchableOpacity
+                style={styles.portionPlus}
+                onPress={() => setPortion((prev) => prev + 1)}
+                activeOpacity={0.8}
+              >
+                <MaterialIcons name="add" size={18} color={theme.onPrimary} />
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <View style={styles.detailNutritionGrid}>
+            <DetailMetricTile label="CALORIES" value={String(calorieValue)} unit="cal" onEdit={calories?.onEdit} />
+            <DetailMetricTile label="PROTEIN" value={String(proteinValue)} unit="g" onEdit={calories?.onEdit} />
+            <DetailMetricTile label="CARBS" value={String(carbsValue)} unit="g" onEdit={calories?.onEdit} />
+            <DetailMetricTile label="FAT" value={String(fatValue)} unit="g" onEdit={calories?.onEdit} />
+          </View>
+
+          {primaryAction ? (
+            <TouchableOpacity style={styles.logMealBtn} onPress={primaryAction.onPress} activeOpacity={0.9}>
+              <MaterialIcons name="check-circle" size={18} color={theme.onPrimary} />
+              <Text style={styles.logMealBtnText}>{primaryAction.label}</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
+      </View>
+    );
+  }
+
+  const hasNutrition = !!(calories && !calories.loading && !calories.error && nutrition);
 
   return (
-    <View style={s.card}>
-      {/* ── Header: two columns ── */}
-      <View style={s.headerRow}>
-        <View style={s.headerLeft}>
-          <Text style={[s.titleText, { color: accentColor }]} numberOfLines={1}>
+    <View style={styles.card}>
+      <View style={styles.handle} />
+
+      <View style={styles.headerRow}>
+        <View style={styles.headerLeft}>
+          {hasNutrition ? <Text style={styles.headerLabel}>Meal details</Text> : null}
+          <Text style={[styles.titleText, { color: accentColor }]} numberOfLines={1}>
             {title}
           </Text>
         </View>
-
-        {calories ? (
-          <View style={s.headerRight}>
-            {calories.loading ? (
-              <Text style={s.calNumber}>…</Text>
-            ) : calories.error || !n ? (
-              <Text style={s.calNumber}>—</Text>
-            ) : (
-              <View style={s.calRow}>
-                <Text style={s.calNumber}>{n.estimated_calories}</Text>
-                <Text style={s.calUnit}>cal</Text>
-              </View>
-            )}
-            {n && !calories.loading ? (
-              <Text style={s.sourceLabel}>{sourceLabel}</Text>
-            ) : null}
-            {n && !calories.loading && calories.onEdit ? (
-              <TouchableOpacity onPress={calories.onEdit} hitSlop={8}>
-                <Text style={[s.editLink, { color: theme.primary }]}>Edit</Text>
-              </TouchableOpacity>
-            ) : null}
+        {confidence != null ? (
+          <View
+            style={[
+              styles.percentBadge,
+              { backgroundColor: `${theme.primary}1A`, borderColor: `${theme.primary}40` },
+            ]}
+          >
+            <Text style={[styles.percentText, { color: theme.primary }]}>{confidence}%</Text>
           </View>
         ) : null}
       </View>
 
-      {/* ── Roast line ── */}
       {roast ? (
-        <Text style={s.roast} numberOfLines={2}>{roast}</Text>
+        <Text style={styles.roast} numberOfLines={2}>
+          {roast}
+        </Text>
       ) : null}
 
-      {/* ── Subtext / hint ── */}
       {subtext ? (
-        <Text style={s.subtext} numberOfLines={2}>{subtext}</Text>
+        <Text style={styles.subtext} numberOfLines={2}>
+          {subtext}
+        </Text>
       ) : null}
 
-      {/* ── Macro chips row ── */}
-      {calories && !calories.loading && n ? (
-        <View style={s.macroRow}>
-          <MacroChip label="Protein" value={n.protein_g} unit="g" theme={theme} isDark={isDark} />
-          <MacroChip label="Carbs"   value={n.carbs_g}   unit="g" theme={theme} isDark={isDark} />
-          <MacroChip label="Fat"     value={n.fat_g}     unit="g" theme={theme} isDark={isDark} />
+      {calories ? (
+        <View style={styles.nutritionWrap}>
+          {calories.loading ? (
+            <View style={styles.loadingRow}>
+              <Text style={styles.loadingText}>Estimating nutrition…</Text>
+            </View>
+          ) : calories.error || !nutrition ? (
+            <View style={styles.loadingRow}>
+              <Text style={styles.loadingText}>Nutrition details unavailable</Text>
+            </View>
+          ) : (
+            <>
+              <View style={styles.nutritionGrid}>
+                <NutrientCell
+                  label="Calories"
+                  value={String(Math.round(nutrition.estimated_calories))}
+                  unit="kcal"
+                  theme={theme}
+                />
+                <NutrientCell
+                  label="Protein"
+                  value={String(Math.round(nutrition.protein_g ?? 0))}
+                  unit="g"
+                  theme={theme}
+                />
+                <NutrientCell
+                  label="Carbs"
+                  value={String(Math.round(nutrition.carbs_g ?? 0))}
+                  unit="g"
+                  theme={theme}
+                />
+                <NutrientCell
+                  label="Fat"
+                  value={String(Math.round(nutrition.fat_g ?? 0))}
+                  unit="g"
+                  theme={theme}
+                />
+              </View>
+
+              {calories.onEdit ? (
+                <TouchableOpacity style={styles.editPill} onPress={calories.onEdit}>
+                  <Text style={styles.editPillText}>Edit nutrition</Text>
+                </TouchableOpacity>
+              ) : null}
+            </>
+          )}
         </View>
       ) : null}
 
-      {/* ── Footer Buttons ── */}
-      {buttons.length > 0 && (
-        <View style={s.buttonsRow}>
-          {buttons.map((btn, i) => (
+      {buttons.length > 0 ? (
+        <View style={styles.buttonsRow}>
+          {buttons.map((button, index) => (
             <TouchableOpacity
-              key={i}
+              key={index}
               style={[
-                s.button,
-                btn.secondary
-                  ? { backgroundColor: isDark ? '#2a2a2a' : '#f0f0f0' }
-                  : { backgroundColor: '#111' },
+                styles.button,
+                button.secondary
+                  ? {
+                      backgroundColor: isDark ? '#2A2A2A' : '#EEF2F1',
+                      borderColor: theme.border,
+                    }
+                  : {
+                      backgroundColor: theme.primary,
+                      borderColor: theme.primary,
+                    },
               ]}
-              onPress={btn.onPress}
+              onPress={button.onPress}
               activeOpacity={0.7}
             >
               <Text
                 style={[
-                  s.buttonText,
-                  btn.secondary && { color: isDark ? '#bbb' : '#555' },
+                  styles.buttonText,
+                  button.secondary && { color: theme.textSecondary },
+                  !button.secondary && { color: '#0F172A' },
                 ]}
               >
-                {btn.label}
+                {button.label}
               </Text>
             </TouchableOpacity>
           ))}
         </View>
-      )}
+      ) : null}
     </View>
   );
 }
 
-// ── Macro Chip ──
+function DetailMetricTile({
+  label,
+  value,
+  unit,
+  onEdit,
+}: {
+  label: string;
+  value: string;
+  unit: string;
+  onEdit?: () => void;
+}) {
+  return (
+    <View style={detailTileStyles.card}>
+      <View style={detailTileStyles.headerRow}>
+        <Text style={detailTileStyles.label}>{label}</Text>
+        <TouchableOpacity disabled={!onEdit} onPress={onEdit} activeOpacity={0.7}>
+          <Text style={detailTileStyles.edit}>EDIT</Text>
+        </TouchableOpacity>
+      </View>
+      <View style={detailTileStyles.valueRow}>
+        <Text style={detailTileStyles.value}>{value}</Text>
+        <Text style={detailTileStyles.unit}>{unit}</Text>
+      </View>
+    </View>
+  );
+}
 
-function MacroChip({
+function NutrientCell({
   label,
   value,
   unit,
   theme,
-  isDark,
 }: {
   label: string;
-  value?: number | null;
+  value: string;
   unit: string;
   theme: ThemeColors;
-  isDark: boolean;
 }) {
-  const bg = isDark ? '#2a2a2a' : '#f0f0f0';
-  const valText = value != null ? `${Math.round(value)}${unit}` : '—';
   return (
-    <View style={[chipStyles.chip, { backgroundColor: bg }]}>
-      <Text style={[chipStyles.chipVal, { color: theme.text }]}>{valText}</Text>
-      <Text style={[chipStyles.chipLabel, { color: theme.textSecondary }]}>{label}</Text>
+    <View style={[cellStyles.cell, { backgroundColor: theme.background, borderColor: theme.border }]}>
+      <Text style={[cellStyles.label, { color: theme.textMuted }]}>{label}</Text>
+      <View style={cellStyles.valueRow}>
+        <Text style={[cellStyles.value, { color: theme.text }]}>{value}</Text>
+        <Text style={[cellStyles.unit, { color: theme.textSecondary }]}>{unit}</Text>
+      </View>
     </View>
   );
 }
 
-const chipStyles = StyleSheet.create({
-  chip: {
-    flex: 1,
-    borderRadius: 10,
-    paddingVertical: 6,
-    paddingHorizontal: 8,
+const detailTileStyles = StyleSheet.create({
+  card: {
+    width: '48.4%',
+    borderRadius: 12,
+    backgroundColor: '#FFFBEB',
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    marginBottom: 10,
+  },
+  headerRow: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginHorizontal: 3,
+    justifyContent: 'space-between',
+    marginBottom: 3,
   },
-  chipVal: {
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  chipLabel: {
+  label: {
+    color: '#64748B',
     fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+  },
+  edit: {
+    color: '#CA8A04',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  valueRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+  },
+  value: {
+    color: '#0F172A',
+    fontSize: 28,
+    fontWeight: '800',
+    marginRight: 4,
+    lineHeight: 32,
+  },
+  unit: {
+    color: '#64748B',
+    fontSize: 12,
     fontWeight: '500',
-    marginTop: 1,
   },
 });
 
-// ── Styles ───────────────────────────────────
+const cellStyles = StyleSheet.create({
+  cell: {
+    flex: 1,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+  },
+  label: {
+    fontSize: 10,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 3,
+  },
+  valueRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 3,
+  },
+  value: {
+    fontSize: 22,
+    fontWeight: '800',
+  },
+  unit: {
+    fontSize: 11,
+    fontWeight: '500',
+  },
+});
 
-const makeStyles = (c: ThemeColors, isDark: boolean, bottomInset: number) =>
+const makeStyles = (colors: ThemeColors, isDark: boolean, bottomInset: number) =>
   StyleSheet.create({
     card: {
       position: 'absolute',
       left: 16,
       right: 16,
-      bottom: Math.max(bottomInset, 22),
-      backgroundColor: c.card,
+      bottom: Math.max(bottomInset, 18),
+      backgroundColor: colors.card,
       borderRadius: 24,
-      paddingHorizontal: 16,
-      paddingTop: 16,
+      paddingHorizontal: 14,
+      paddingTop: 8,
       paddingBottom: 14,
-      // Shadow for light, border for dark
       ...(isDark
         ? { borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' }
         : {
             shadowColor: '#000',
-            shadowOffset: { width: 0, height: 6 },
-            shadowOpacity: 0.22,
-            shadowRadius: 18,
+            shadowOffset: { width: 0, height: 10 },
+            shadowOpacity: 0.14,
+            shadowRadius: 20,
             elevation: 12,
           }),
       zIndex: 30,
     },
-    // Header
+    handle: {
+      alignSelf: 'center',
+      width: 42,
+      height: 4,
+      borderRadius: 3,
+      backgroundColor: colors.border,
+      marginTop: 4,
+      marginBottom: 10,
+    },
     headerRow: {
       flexDirection: 'row',
-      alignItems: 'flex-start',
+      alignItems: 'center',
       justifyContent: 'space-between',
-      marginBottom: 8,
+      marginBottom: 6,
     },
     headerLeft: {
       flex: 1,
-      marginRight: 12,
+      marginRight: 10,
     },
-    titleText: {
-      fontSize: 19,
+    headerLabel: {
+      color: colors.textMuted,
+      fontSize: 10,
       fontWeight: '700',
+      textTransform: 'uppercase',
+      letterSpacing: 0.7,
       marginBottom: 2,
     },
-    headerRight: {
-      alignItems: 'flex-end',
+    titleText: {
+      fontSize: 22,
+      fontWeight: '800',
+      lineHeight: 28,
     },
-    calRow: {
-      flexDirection: 'row',
-      alignItems: 'baseline',
-      gap: 3,
+    percentBadge: {
+      borderRadius: 999,
+      borderWidth: 1,
+      paddingHorizontal: 10,
+      paddingVertical: 5,
     },
-    calNumber: {
-      color: c.text,
-      fontSize: 26,
-      fontWeight: '700',
-      lineHeight: 30,
-    },
-    calUnit: {
-      color: c.textSecondary,
-      fontSize: 13,
-      fontWeight: '600',
-    },
-    sourceLabel: {
-      fontSize: 11,
-      fontWeight: '500',
-      color: c.textSecondary,
-      marginTop: 1,
-    },
-    editLink: {
+    percentText: {
       fontSize: 12,
-      fontWeight: '600',
-      marginTop: 2,
+      fontWeight: '700',
     },
-    // Roast
     roast: {
-      color: c.text,
-      fontSize: 17,
-      fontWeight: '500',
-      lineHeight: 22,
-      marginBottom: 4,
+      color: colors.text,
+      fontSize: 15,
+      fontWeight: '600',
+      lineHeight: 20,
+      marginBottom: 2,
     },
-    // Subtext
     subtext: {
-      color: c.textSecondary,
-      fontSize: 13,
+      color: colors.textSecondary,
+      fontSize: 12,
       lineHeight: 17,
-      marginBottom: 4,
+      marginBottom: 6,
     },
-    // Macros
-    macroRow: {
-      flexDirection: 'row',
+    nutritionWrap: {
       marginTop: 6,
       marginBottom: 10,
-      marginHorizontal: -3,
     },
-    // Buttons
-    buttonsRow: {
+    nutritionGrid: {
       flexDirection: 'row',
-      gap: 10,
+      flexWrap: 'wrap',
+      gap: 8,
+    },
+    loadingRow: {
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.background,
+      paddingHorizontal: 12,
+      paddingVertical: 12,
+      alignItems: 'center',
+    },
+    loadingText: {
+      color: colors.textSecondary,
+      fontSize: 13,
+      fontWeight: '600',
+    },
+    editPill: {
+      alignSelf: 'flex-end',
       marginTop: 8,
+      borderRadius: 999,
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+      backgroundColor: colors.surfaceElevated,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    editPillText: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: '#64748B',
+    },
+    buttonsRow: {
+      gap: 8,
+      marginTop: 2,
     },
     button: {
-      flex: 1,
-      height: 44,
-      borderRadius: 14,
+      width: '100%',
+      height: 48,
+      borderRadius: 12,
+      borderWidth: 1,
       justifyContent: 'center',
       alignItems: 'center',
     },
     buttonText: {
-      color: '#FFF',
+      fontSize: 15,
+      fontWeight: '700',
+    },
+
+    mealDetailCard: {
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: '#FFFFFF',
+      borderTopLeftRadius: 20,
+      borderTopRightRadius: 20,
+      shadowColor: '#000',
+      shadowOpacity: 0.15,
+      shadowRadius: 12,
+      shadowOffset: { width: 0, height: -2 },
+      elevation: 16,
+      paddingBottom: Math.max(bottomInset, 16),
+      zIndex: 32,
+    },
+    mealDetailHandleWrap: {
+      height: 24,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    mealDetailHandle: {
+      width: 48,
+      height: 6,
+      borderRadius: 999,
+      backgroundColor: '#E2E8F0',
+    },
+    mealDetailContent: {
+      paddingHorizontal: 20,
+      paddingTop: 6,
+    },
+    mealInfoCenter: {
+      alignItems: 'center',
+      marginBottom: 18,
+    },
+    mealTypeText: {
+      color: '#CA8A04',
+      fontSize: 12,
+      fontWeight: '800',
+      textTransform: 'uppercase',
+      letterSpacing: 1,
+    },
+    mealTitleText: {
+      marginTop: 8,
+      color: '#0F172A',
+      fontSize: 31,
+      lineHeight: 38,
+      fontWeight: '800',
+      textAlign: 'center',
+    },
+    portionCard: {
+      borderRadius: 12,
+      backgroundColor: '#FFFBEB',
+      paddingHorizontal: 14,
+      paddingVertical: 14,
+      marginBottom: 16,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    portionLeft: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    portionIconWrap: {
+      width: 34,
+      height: 34,
+      borderRadius: 10,
+      backgroundColor: 'rgba(250,204,21,0.16)',
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginRight: 10,
+    },
+    portionLabel: {
+      color: '#0F172A',
       fontSize: 15,
       fontWeight: '600',
+    },
+    portionRight: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    portionMinus: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: '#CBD5E1',
+      backgroundColor: '#FFFFFF',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    portionPlus: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      backgroundColor: '#FACC15',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    portionCount: {
+      color: '#0F172A',
+      fontSize: 20,
+      fontWeight: '800',
+      marginHorizontal: 16,
+    },
+    detailNutritionGrid: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      justifyContent: 'space-between',
+      marginBottom: 12,
+    },
+    logMealBtn: {
+      marginTop: 2,
+      height: 56,
+      borderRadius: 14,
+      backgroundColor: '#FACC15',
+      alignItems: 'center',
+      justifyContent: 'center',
+      flexDirection: 'row',
+      gap: 7,
+    },
+    logMealBtnText: {
+      color: '#0F172A',
+      fontSize: 17,
+      fontWeight: '800',
+      letterSpacing: 0.3,
+      textTransform: 'uppercase',
     },
   });

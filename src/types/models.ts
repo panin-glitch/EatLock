@@ -139,12 +139,27 @@ export interface NutritionGoalsSettings {
   };
 }
 
+export interface AppPreferencesSettings {
+  hapticsEnabled: boolean;
+  dailyRemindersEnabled: boolean;
+}
+
+export type LanguageOption =
+  | 'English'
+  | 'Deutsch'
+  | 'Español'
+  | 'Français'
+  | 'Italiano'
+  | 'Português';
+
 export interface UserSettings {
+  language: LanguageOption;
+  app: AppPreferencesSettings;
   truthBomb: TruthBombSettings;
   homeWidgets: HomeWidgetSettings;
   nutritionGoals: NutritionGoalsSettings;
-  developer?: {
-    disableQuotasDev: boolean;
+  streak: {
+    firstAchievementShown: boolean;
   };
 }
 
@@ -223,6 +238,11 @@ export const DEFAULT_MEAL_SCHEDULES: MealSchedule[] = [
 ];
 
 export const DEFAULT_USER_SETTINGS: UserSettings = {
+  language: 'English',
+  app: {
+    hapticsEnabled: true,
+    dailyRemindersEnabled: true,
+  },
   truthBomb: {
     enabled: true,
     categories: {
@@ -245,8 +265,8 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
       fatPct: DEFAULT_MACRO_SPLIT.fatPct,
     },
   },
-  developer: {
-    disableQuotasDev: false,
+  streak: {
+    firstAchievementShown: false,
   },
 };
 

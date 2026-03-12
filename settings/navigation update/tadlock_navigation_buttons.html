@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Tadlock Navigation Bar</title>
+<!-- Tailwind CSS v3 CDN -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            'tadlock-green': '#34C759',
+            'dark-bg': '#0D0D0D',
+            'surface-dark': '#1C1C1E',
+            'surface-accent': '#2C2C2E',
+          }
+        }
+      }
+    }
+  </script>
+<style data-purpose="layout-styles">
+    body {
+      background-color: #0D0D0D;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    /* Custom shadow for the pill and floating action button */
+    .nav-shadow {
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+    }
+  </style>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/></head>
+<body>
+<!-- BEGIN: NavigationContainer -->
+<div class="flex items-center gap-4 p-4 w-full max-w-[580px]" data-purpose="navigation-wrapper">
+<!-- BEGIN: MainNavbarPill -->
+<nav class="flex-grow h-[84px] bg-surface-dark rounded-full flex items-center px-2 nav-shadow border border-white/5" data-purpose="main-nav-pill">
+<!-- Log Tab (Active State) -->
+<a class="flex flex-col items-center justify-center flex-1 h-[70px] bg-surface-accent rounded-full transition-all duration-200" data-purpose="nav-item-active" href="#">
+<div class="w-8 h-8 flex items-center justify-center mb-1"><span class="material-symbols-outlined text-tadlock-green" style="font-size: 24px;">home</span></div>
+<span class="text-tadlock-green text-xs font-semibold">Home</span>
+</a>
+<!-- Meals Tab -->
+<a class="flex flex-col items-center justify-center flex-1 h-full group" data-purpose="nav-item" href="#">
+<div class="w-8 h-8 flex items-center justify-center mb-1"><span class="material-symbols-outlined text-[#636366]" style="font-size: 24px;">bar_chart</span></div>
+<span class="text-[#636366] text-xs font-medium">Progress</span>
+</a>
+<!-- Top Tab -->
+<a class="flex flex-col items-center justify-center flex-1 h-full group" data-purpose="nav-item" href="#">
+<div class="w-8 h-8 flex items-center justify-center mb-1"><span class="material-symbols-outlined text-[#636366]" style="font-size: 24px;">grid_view</span></div>
+<span class="text-[#636366] text-xs font-medium">Blocks</span>
+</a>
+</nav>
+<!-- END: MainNavbarPill -->
+<!-- BEGIN: FloatingActionButton -->
+<button class="w-[84px] h-[84px] bg-tadlock-green rounded-full flex flex-col items-center justify-center nav-shadow active:scale-95 transition-transform" data-purpose="chat-action-button"><span class="material-symbols-outlined text-black" style="font-size: 36px; font-variation-settings: 'FILL' 1;">lock</span></button>
+<!-- END: FloatingActionButton -->
+</div>
+<!-- END: NavigationContainer -->
+</body></html>

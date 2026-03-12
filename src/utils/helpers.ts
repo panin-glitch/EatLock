@@ -89,7 +89,10 @@ export function formatDurationMinutes(ms: number): string {
 
 export function getSessionDuration(session: MealSession): number {
   if (!session.endedAt) return 0;
-  return new Date(session.endedAt).getTime() - new Date(session.startedAt).getTime();
+  const rawDurationMs = new Date(session.endedAt).getTime() - new Date(session.startedAt).getTime();
+  const distractionMinutes = Math.max(0, Number(session.estimatedDistractionMinutes ?? 0));
+  const distractionMs = distractionMinutes * 60000;
+  return Math.max(0, rawDurationMs - distractionMs);
 }
 
 export function getSessionsForDate(sessions: MealSession[], date: Date): MealSession[] {

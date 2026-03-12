@@ -142,7 +142,7 @@ export default function PermissionsOnboardingScreen() {
               <MaterialIcons
                 name={step.icon as any}
                 size={24}
-                color={granted[step.key] ? '#FFF' : theme.primary}
+                color={granted[step.key] ? theme.onPrimary : theme.primary}
               />
             </View>
             <View style={styles.stepContent}>
@@ -164,7 +164,7 @@ export default function PermissionsOnboardingScreen() {
           style={[styles.doneBtn, !allGranted && styles.doneBtnMuted]}
           onPress={() => navigation.goBack()}
         >
-          <Text style={styles.doneBtnText}>
+          <Text style={[styles.doneBtnText, { color: allGranted || steps.length === 0 ? theme.onPrimary : theme.text }]}>
             {steps.length === 0 ? 'Back' : allGranted ? "All Set — Let's Go!" : 'Skip for Now'}
           </Text>
         </TouchableOpacity>
@@ -254,5 +254,5 @@ const makeStyles = (theme: any) =>
       alignItems: 'center',
     },
     doneBtnMuted: { backgroundColor: theme.surfaceElevated },
-    doneBtnText: { color: '#FFF', fontSize: 17, fontWeight: '600' },
+    doneBtnText: { fontSize: 17, fontWeight: '600' },
   });

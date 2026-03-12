@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#33c758",
+                        "background-light": "#f6f8f6",
+                        "background-dark": "#131f16",
+                        "border-subtle": "#e5e7eb",
+                        "card-border": "#2C2C2C",
+                    },
+                    fontFamily: {
+                        "display": ["Inter"]
+                    },
+                    borderRadius: {"DEFAULT": "0.5rem", "lg": "1rem", "xl": "1.5rem", "full": "9999px"},
+                },
+            },
+        }
+    </script>
+<style>
+        body { font-family: 'Inter', sans-serif; }
+        .glass-card {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(10px);
+            border: 1px solid #e5e7eb;
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark font-display text-slate-900 dark:text-slate-100 min-h-screen flex flex-col">
+<!-- Header Section -->
+<header class="flex items-center justify-between px-6 pt-8 pb-4 bg-white dark:bg-background-dark">
+<button class="p-2 hover:bg-primary/10 rounded-full transition-colors">
+<span class="material-symbols-outlined text-slate-900 dark:text-slate-100">arrow_back</span>
+</button>
+<div class="text-center">
+<h1 class="text-xl font-bold tracking-tight">Breakfast</h1>
+</div>
+<button class="p-2 hover:bg-primary/10 rounded-full transition-colors">
+<span class="material-symbols-outlined text-slate-900 dark:text-slate-100">more_horiz</span>
+</button>
+</header>
+<!-- Content Wrapper -->
+<main class="flex-1 px-6 pb-24 overflow-y-auto space-y-6 pt-12">
+<!-- Status Badge -->
+<div class="flex justify-center">
+<div class="flex items-center gap-2 bg-primary/15 px-4 py-1.5 rounded-full border border-primary/20">
+<span class="material-symbols-outlined text-primary text-sm font-bold">check_circle</span>
+<p class="text-primary text-xs font-bold uppercase tracking-wider">Blocking Active</p>
+</div>
+</div>
+<!-- Meal Image Card -->
+<!-- Timer Display -->
+<div class="flex flex-col items-center justify-center py-12">
+<div class="relative flex items-center justify-center w-64 h-64">
+<!-- Background Circle -->
+<svg class="absolute inset-0 w-full h-full -rotate-90">
+<circle class="text-slate-100 dark:text-slate-800" cx="128" cy="128" fill="transparent" r="120" stroke="currentColor" stroke-width="8"></circle>
+<!-- Progress Circle -->
+<circle class="text-primary" cx="128" cy="128" fill="transparent" r="120" stroke="currentColor" stroke-dasharray="754" stroke-dashoffset="251" stroke-linecap="round" stroke-width="8"></circle>
+</svg>
+<!-- Time Text -->
+<div class="flex flex-col items-center z-10">
+<div class="flex items-center gap-1">
+<span class="text-6xl font-black tracking-tighter text-slate-900 dark:text-slate-100">05</span>
+<span class="text-5xl font-black text-primary">:</span>
+<span class="text-6xl font-black tracking-tighter text-slate-900 dark:text-slate-100">12</span>
+</div>
+<div class="flex gap-8 mt-1">
+<span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Min</span>
+<span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Sec</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Blocking Apps Card -->
+<div class="bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
+<div class="flex items-center justify-between mb-4">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-slate-400">lock</span>
+<h3 class="font-semibold text-sm">Blocking 4 apps</h3>
+</div>
+<span class="text-xs text-primary font-bold">Manage</span>
+</div>
+<div class="flex gap-4"><div class="w-14 h-14 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 flex items-center justify-center">
+<img alt="Instagram Icon" class="w-10 h-10 opacity-40 grayscale" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCyPf-2iD3a-RGrVLby6oPNqysOqT3dC0iF0qLmr7ce7kYR8-5OHorFn4F-182b5n2UKP9Ttq2YdNMp8-O17LUMWf4na4m-TfFGrthOhDeXjhDPzP3hhgLnhTf5TOkapNlUK562v-5hLRJrgI-fpv5EypJ3jSC5VjJcCu7L-MMZi38H-9ZZKCTDqotcD2ZMpnl883Nb9jkWafC1hGNVrBFI8bUq551NFRDOZWQ6Uv8lKwcCAh7Zht9o6dwm_mWsUZVAp66AxJoGLQSt"/>
+</div>
+<div class="w-14 h-14 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 flex items-center justify-center">
+<img alt="YouTube Icon" class="w-10 h-10 opacity-40 grayscale" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDJRBkMkpLcy9DykQRBZx_-MNx3Aj55dNVj-sNZCala6AbeejjLINg9QtVjPbb11xFIAdSkLcEGhD2kmYJOgVpye4dQnlqUUG8jhZWzeY0qVsLaj96X98enqb_yQtqEDvUVROBev1hB4IKAXz_CrfDbVv_3QkT7MhqhzATWhMCCtqeJyNxY5mqJzw7-wpEYesputa0LQHqFAHQ-A145ZnlwfbMwu5LCvGaStZEsQbwcFJP1Ep60idx4Zww_syYHCJ9Tz1thE1fFQiCP"/>
+</div>
+<div class="w-14 h-14 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 flex items-center justify-center">
+<img alt="Snapchat Icon" class="w-10 h-10 opacity-40 grayscale" src="https://lh3.googleusercontent.com/aida-public/AB6AXuA85iLUH36nd0Zh8bL73g8JXX9XuYcdTydFqHWWQa5v5GIk8DeI4Qml474h8DVflTTWnueB1QykEtgYpR_IXfACL6oPtEYgnrbMgCHg16mOw4EXMI2X442N3qfIPE4y1HnlD0fpaTu5OQZhAzQ7vo_4wNn7ZUzIhfFagvd0_lbLafbYercduRkpLoi58QlJes-SE6eM2HxTHq0WJEfpdQXh1W3CO7fX-CT0RxuMgKWIWeM66-Ooi2T0Wzv8epaEVtDR_7X3OK0WvYcF"/>
+</div>
+<div class="w-14 h-14 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 flex items-center justify-center">
+<img alt="X Icon" class="w-9 h-9 opacity-40 grayscale dark:invert" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAP8_qEdYZvuIRefWR8uoIALcpEmnOwbEBnNrttfO5lEbDP1HvbcCUdycXxozo4adGSVUE_jMSCCpPdo5p7YzAHEUqtLWiZZk23oBu_qDOxdQeUmBhCknOpqwtTVqkvAyBzo1LJvkguU_inUN9RLQCo8BrRytDI25dW6m4Z5XFykWpZfr40jFn7-O6QfoTSQkAmmg7YPGN6Djp6dW-RK_szlVKnv6eDC97whTp1CBsTHiK1M2vviFoWBN6C0m2A1CK1_yK6lbkLMAi5"/>
+</div></div>
+</div>
+<!-- Action Button -->
+<div class="pt-4">
+<button class="w-full text-white font-bold py-4 rounded-xl shadow-lg transition-all active:scale-[0.98] bg-sky-400 hover:bg-sky-500 shadow-sky-400/20">
+                I'm Done Eating
+            </button>
+</div>
+</main>
+<!-- Bottom Navigation -->
+<div class="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 px-6 py-4 z-50">
+<button class="w-full bg-slate-100 text-slate-400 font-semibold py-4 rounded-xl cursor-not-allowed" disabled="">
+    button will be available in 5 minutes
+  </button>
+</div>
+</body></html>

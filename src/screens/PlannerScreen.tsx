@@ -32,7 +32,7 @@ const MONTH_NAMES = [
 const DAY_LETTERS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
 export default function PlannerScreen() {
-  const { theme } = useTheme();
+  const { theme, themeName } = useTheme();
   const { schedules, sessions, toggleSchedule, deleteSchedule } = useAppState();
   const navigation = useNavigation<any>();
 
@@ -84,7 +84,10 @@ export default function PlannerScreen() {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor={theme.background} />
+      <StatusBar
+        barStyle={themeName === 'Light' ? 'dark-content' : 'light-content'}
+        backgroundColor={theme.background}
+      />
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.monthTitle}>
@@ -249,7 +252,7 @@ export default function PlannerScreen() {
           style={styles.addButton}
           onPress={() => navigation.navigate('EditSchedule', {})}
         >
-          <MaterialIcons name="add" size={20} color="#FFF" />
+          <MaterialIcons name="add" size={20} color={theme.onPrimary} />
           <Text style={styles.addButtonText}>New Meal</Text>
         </TouchableOpacity>
       </View>
@@ -263,20 +266,25 @@ const makeStyles = (theme: any) =>
     header: {
       paddingHorizontal: 20,
       paddingTop: 56,
-      paddingBottom: 8,
+      paddingBottom: 10,
     },
-    monthTitle: { fontSize: 24, fontWeight: '700', color: theme.text },
+    monthTitle: { fontSize: 31, fontWeight: '800', color: theme.text },
     weekStrip: {
       flexDirection: 'row',
       justifyContent: 'space-between',
-      paddingHorizontal: 16,
-      paddingVertical: 12,
+      paddingHorizontal: 20,
+      paddingVertical: 8,
+      marginHorizontal: 20,
+      backgroundColor: theme.chipBg,
+      borderRadius: 999,
+      borderWidth: 1,
+      borderColor: theme.border,
     },
     dayPill: {
       alignItems: 'center',
-      paddingVertical: 10,
+      paddingVertical: 9,
       paddingHorizontal: 12,
-      borderRadius: 16,
+      borderRadius: 999,
     },
     dayPillSelected: {
       backgroundColor: theme.primary,
@@ -287,19 +295,20 @@ const makeStyles = (theme: any) =>
       marginBottom: 4,
       fontWeight: '500',
     },
-    dayLetterSelected: { color: '#FFF' },
+    dayLetterSelected: { color: theme.onPrimary },
     dayNumber: {
       fontSize: 16,
       fontWeight: '600',
       color: theme.text,
     },
-    dayNumberSelected: { color: '#FFF' },
+    dayNumberSelected: { color: theme.onPrimary },
     dayNumberToday: { color: theme.primary },
     statRow: {
       flexDirection: 'row',
-      paddingHorizontal: 16,
+      paddingHorizontal: 20,
       gap: 12,
-      marginBottom: 8,
+      marginBottom: 10,
+      marginTop: 12,
     },
     miniStat: {
       flex: 1,
@@ -307,22 +316,27 @@ const makeStyles = (theme: any) =>
       alignItems: 'center',
       gap: 10,
       backgroundColor: theme.card,
-      borderRadius: 14,
-      padding: 14,
+      borderRadius: 22,
+      padding: 16,
       borderWidth: 1,
       borderColor: theme.border,
+      shadowColor: '#0F172A',
+      shadowOpacity: 0.05,
+      shadowRadius: 10,
+      shadowOffset: { width: 0, height: 4 },
+      elevation: 1,
     },
-    miniStatLabel: { fontSize: 12, color: theme.textSecondary },
-    miniStatValue: { fontSize: 18, fontWeight: '700', color: theme.text },
+    miniStatLabel: { fontSize: 12, color: theme.textSecondary, fontWeight: '600' },
+    miniStatValue: { fontSize: 24, fontWeight: '800', color: theme.text },
     miniStatHint: { fontSize: 10, color: theme.textMuted },
     sectionHeader: {
       paddingHorizontal: 20,
-      paddingTop: 16,
+      paddingTop: 14,
       paddingBottom: 8,
     },
-    sectionTitle: { fontSize: 16, fontWeight: '600', color: theme.text },
+    sectionTitle: { fontSize: 17, fontWeight: '600', color: theme.text },
     listContainer: { flex: 1 },
-    listContent: { paddingHorizontal: 16, paddingBottom: 100 },
+    listContent: { paddingHorizontal: 20, paddingBottom: 100 },
     mealRow: {
       flexDirection: 'row',
       justifyContent: 'space-between',
@@ -378,5 +392,5 @@ const makeStyles = (theme: any) =>
       shadowRadius: 8,
       elevation: 6,
     },
-    addButtonText: { color: '#FFF', fontSize: 16, fontWeight: '600' },
+    addButtonText: { color: theme.onPrimary, fontSize: 16, fontWeight: '600' },
   });

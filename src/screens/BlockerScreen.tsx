@@ -71,7 +71,7 @@ export default function BlockerScreen() {
             BackHandler.exitApp();
           }}
         >
-          <MaterialIcons name="arrow-back" size={20} color="#FFF" />
+          <MaterialIcons name="arrow-back" size={20} color={theme.onPrimary} />
           <Text style={styles.goBackBtnText}>Return to EatLock</Text>
         </TouchableOpacity>
       </View>
@@ -147,5 +147,5 @@ const makeStyles = (theme: any) =>
       paddingVertical: 16,
       paddingHorizontal: 32,
     },
-    goBackBtnText: { color: '#FFF', fontSize: 17, fontWeight: '600' },
+    goBackBtnText: { color: theme.onPrimary, fontSize: 17, fontWeight: '600' },
   });

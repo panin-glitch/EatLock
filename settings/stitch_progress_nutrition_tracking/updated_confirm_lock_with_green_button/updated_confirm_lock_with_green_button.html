@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>EatLock - Confirm &amp; Lock</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght@300;400;500;600;700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#33c758",
+                        "background-light": "#f6f8f6",
+                        "background-dark": "#131f16",
+                    },
+                    fontFamily: {
+                        "display": ["Inter", "sans-serif"]
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.5rem",
+                        "lg": "1rem",
+                        "xl": "1.5rem",
+                        "full": "9999px"
+                    },
+                },
+            },
+        }
+    </script>
+<style>
+        .glass-card {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(51, 199, 88, 0.1);
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark font-display text-slate-900 dark:text-slate-100 min-h-screen flex flex-col items-center">
+<div class="relative flex h-full min-h-screen w-full max-w-md flex-col bg-white dark:bg-background-dark shadow-2xl overflow-x-hidden">
+<!-- Header -->
+<div class="flex items-center bg-white/80 backdrop-blur-md sticky top-0 z-10 px-4 py-4 justify-between border-b border-primary/5">
+<div class="text-slate-900 flex size-10 shrink-0 items-center justify-center rounded-full hover:bg-primary/10 transition-colors">
+<span class="material-symbols-outlined">arrow_back</span>
+</div>
+<h2 class="text-slate-900 text-lg font-bold leading-tight tracking-tight flex-1 text-center pr-10">Confirm &amp; Lock</h2>
+</div>
+<!-- Content Area -->
+<div class="flex-1 overflow-y-auto px-4 py-6 space-y-6">
+<!-- Before Photo Card -->
+<div class="glass-card rounded-xl p-4 shadow-sm">
+<div class="flex flex-col gap-4">
+<div class="relative w-full aspect-video rounded-lg overflow-hidden bg-slate-100">
+<img alt="Pancake breakfast plate" class="w-full h-full object-cover" data-alt="Fluffy pancakes with syrup and berries on a white plate" src="https://lh3.googleusercontent.com/aida-public/AB6AXuB3-3hcm7vpunrIcwuYwaUhH0RXS8yBXkGVKbcHdDnmSl9GgeNWXRcUjdN_jhj_HwsU6XnzhqET8k5hGI_x1KZppoj6O3cDbnM6mHkHsIjMYS5d0dx4v8MqMYkm-ujbiSxbDd6StP215-i59HvkJ9fFLbldSqfm6pgNfwJEHnwUOk_7fmZoQMFGEwKysVdUGdnP06K33OQmHmpOxeGL5xwL-pP4zhKgDoULSH0DdJ-G493X9DjgLHPR-qlhfkWLrwxN2FWlahkCOuY-"/>
+<div class="absolute top-3 right-3 bg-primary text-white rounded-full p-1 shadow-lg flex items-center justify-center">
+<span class="material-symbols-outlined text-sm">check</span>
+</div>
+</div>
+<div class="flex justify-between items-center">
+<div>
+<p class="text-slate-900 text-lg font-bold leading-tight">Before Photo</p>
+<p class="text-slate-500 text-sm">Pancake breakfast captured</p>
+</div>
+<button class="bg-primary/20 text-primary px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-tight">
+                            Verified
+                        </button>
+</div>
+</div>
+</div>
+<!-- Meal Type Selector -->
+<div>
+<h3 class="text-slate-900 text-sm font-bold leading-tight mb-3 px-1">Meal Type</h3>
+<div class="flex flex-wrap gap-2">
+<div class="flex items-center gap-2 rounded-full bg-primary text-white px-4 py-2 shadow-sm">
+<span class="material-symbols-outlined text-lg">check</span>
+<span class="text-sm font-semibold">Breakfast</span>
+</div>
+<div class="flex items-center gap-2 rounded-full bg-slate-100 text-slate-600 px-4 py-2 border border-slate-200">
+<span class="text-sm font-medium">Lunch</span>
+</div>
+<div class="flex items-center gap-2 rounded-full bg-slate-100 text-slate-600 px-4 py-2 border border-slate-200">
+<span class="text-sm font-medium">Dinner</span>
+</div>
+<div class="flex items-center gap-2 rounded-full bg-slate-100 text-slate-600 px-4 py-2 border border-slate-200">
+<span class="text-sm font-medium">Snack</span>
+</div>
+<div class="flex items-center gap-2 rounded-full bg-slate-100 text-slate-600 px-4 py-2 border border-slate-200">
+<span class="text-sm font-medium">Custom</span>
+</div>
+</div>
+</div>
+<!-- Blocked Apps Section -->
+<div class="space-y-4">
+<div class="flex items-center justify-between px-1">
+<h3 class="text-slate-900 text-sm font-bold">App Restrictions</h3>
+<span class="bg-primary/10 text-primary px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide">4 apps will be blocked</span>
+</div>
+<div class="grid grid-cols-4 gap-4 p-4 bg-slate-50 rounded-xl border border-slate-100">
+<div class="flex flex-col items-center gap-1.5">
+<div class="w-14 h-14 rounded-2xl bg-gradient-to-tr from-[#f09433] via-[#e6683c] via-[#dc2743] via-[#cc2366] to-[#bc1888] flex items-center justify-center shadow-md">
+<span class="text-white text-2xl font-bold">I</span>
+</div>
+<span class="text-[10px] font-medium text-slate-500">Instagram</span>
+</div>
+<div class="flex flex-col items-center gap-1.5">
+<div class="w-14 h-14 rounded-2xl bg-[#FF0000] flex items-center justify-center shadow-md">
+<span class="text-white text-2xl font-bold">Y</span>
+</div>
+<span class="text-[10px] font-medium text-slate-500">YouTube</span>
+</div>
+<div class="flex flex-col items-center gap-1.5">
+<div class="w-14 h-14 rounded-2xl bg-[#FFFC00] flex items-center justify-center shadow-md">
+<span class="text-black text-2xl font-bold">S</span>
+</div>
+<span class="text-[10px] font-medium text-slate-500">Snapchat</span>
+</div>
+<div class="flex flex-col items-center gap-1.5">
+<div class="w-14 h-14 rounded-2xl bg-black flex items-center justify-center shadow-md">
+<span class="text-white text-2xl font-bold">X</span>
+</div>
+<span class="text-[10px] font-medium text-slate-500">X</span>
+</div>
+</div>
+<!-- Acknowledge Checkbox -->
+<label class="flex items-start gap-3 p-3 bg-primary/5 rounded-lg border border-primary/10 cursor-pointer">
+<div class="flex items-center h-5 mt-0.5">
+<input checked="" class="w-4 h-4 text-primary bg-white border-slate-300 rounded focus:ring-primary focus:ring-2" type="checkbox"/>
+</div>
+<p class="text-xs text-slate-600 leading-relaxed">
+                        I understand these apps will be blocked until I upload my <strong>Finished Plate</strong> photo.
+                    </p>
+</label>
+</div>
+</div>
+<!-- Action Button -->
+<div class="px-4 pb-4 pt-2">
+<button class="w-full text-white font-bold py-4 rounded-xl flex items-center justify-center gap-3 shadow-lg transition-all active:scale-[0.98] bg-primary hover:bg-primary/90 shadow-primary/20">
+<span class="material-symbols-outlined">restaurant</span>
+<span>Start Meal</span>
+</button>
+</div>
+<!-- Bottom Navigation -->
+</div>
+</body></html>

@@ -150,7 +150,7 @@ export default function LockSetupConfirmScreen({ navigation, route }: Props) {
             )}
 
             <View style={styles.verifiedBadgeIcon}>
-              <MaterialIcons name="check" size={14} color="#FFFFFF" />
+              <MaterialIcons name="check" size={14} color="#0F172A" />
             </View>
           </View>
 
@@ -181,7 +181,7 @@ export default function LockSetupConfirmScreen({ navigation, route }: Props) {
                   onPress={() => setSelectedMealType(type)}
                   activeOpacity={0.8}
                 >
-                  {selected ? <MaterialIcons name="check" size={16} color="#FFFFFF" /> : null}
+                  {selected ? <MaterialIcons name="check" size={16} color="#0F172A" /> : null}
                   <Text style={[styles.mealTypeText, selected && styles.mealTypeTextSelected]}>{type}</Text>
                 </TouchableOpacity>
               );
@@ -227,7 +227,7 @@ export default function LockSetupConfirmScreen({ navigation, route }: Props) {
             activeOpacity={0.85}
           >
             <View style={[styles.checkbox, confirmed && styles.checkboxChecked]}>
-              {confirmed ? <MaterialIcons name="check" size={14} color="#FFFFFF" /> : null}
+              {confirmed ? <MaterialIcons name="check" size={14} color="#0F172A" /> : null}
             </View>
             <Text style={styles.confirmText}>
               {support?.canEnforce
@@ -245,7 +245,7 @@ export default function LockSetupConfirmScreen({ navigation, route }: Props) {
           disabled={!confirmed || starting}
           activeOpacity={0.9}
         >
-          <MaterialIcons name="restaurant" size={18} color="#FFFFFF" />
+          <MaterialIcons name="restaurant" size={18} color="#0F172A" />
           <Text style={styles.startBtnText}>{starting ? 'Starting…' : 'Start Meal'}</Text>
         </TouchableOpacity>
       </View>
@@ -267,7 +267,7 @@ const styles = StyleSheet.create({
     paddingBottom: 14,
     backgroundColor: 'rgba(255,255,255,0.9)',
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(51,199,88,0.12)',
+    borderBottomColor: 'rgba(250,204,21,0.16)',
   },
   headerIconBtn: {
     width: 40,
@@ -293,7 +293,7 @@ const styles = StyleSheet.create({
   beforeCard: {
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: 'rgba(51,199,88,0.15)',
+    borderColor: 'rgba(250,204,21,0.2)',
     backgroundColor: 'rgba(255,255,255,0.78)',
     padding: 12,
   },
@@ -319,7 +319,7 @@ const styles = StyleSheet.create({
     width: 24,
     height: 24,
     borderRadius: 12,
-    backgroundColor: '#33C758',
+    backgroundColor: '#FACC15',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -336,10 +336,10 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     paddingHorizontal: 12,
     paddingVertical: 6,
-    backgroundColor: 'rgba(51,199,88,0.18)',
+    backgroundColor: 'rgba(250,204,21,0.2)',
   },
   verifiedPillText: {
-    color: '#1EA84B',
+    color: '#CA8A04',
     fontSize: 10,
     fontWeight: '800',
     textTransform: 'uppercase',
@@ -368,11 +368,11 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   mealTypeChipSelected: {
-    backgroundColor: '#33C758',
-    borderColor: '#33C758',
+    backgroundColor: '#FACC15',
+    borderColor: '#FACC15',
   },
   mealTypeText: { color: '#64748B', fontSize: 13, fontWeight: '700' },
-  mealTypeTextSelected: { color: '#FFFFFF' },
+  mealTypeTextSelected: { color: '#0F172A' },
   restrictionsWrap: {
     marginTop: 18,
   },
@@ -386,10 +386,10 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 5,
-    backgroundColor: 'rgba(51,199,88,0.12)',
+    backgroundColor: 'rgba(250,204,21,0.16)',
   },
   countPillText: {
-    color: '#1EA84B',
+    color: '#CA8A04',
     fontSize: 9,
     fontWeight: '800',
     textTransform: 'uppercase',
@@ -434,8 +434,8 @@ const styles = StyleSheet.create({
   confirmRow: {
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: 'rgba(51,199,88,0.16)',
-    backgroundColor: 'rgba(51,199,88,0.07)',
+    borderColor: 'rgba(250,204,21,0.2)',
+    backgroundColor: 'rgba(250,204,21,0.08)',
     paddingHorizontal: 10,
     paddingVertical: 10,
     flexDirection: 'row',
@@ -454,8 +454,8 @@ const styles = StyleSheet.create({
     marginTop: 1,
   },
   checkboxChecked: {
-    borderColor: '#33C758',
-    backgroundColor: '#33C758',
+    borderColor: '#FACC15',
+    backgroundColor: '#FACC15',
   },
   confirmText: {
     flex: 1,
@@ -473,12 +473,12 @@ const styles = StyleSheet.create({
   startBtn: {
     height: 56,
     borderRadius: 14,
-    backgroundColor: '#33C758',
+    backgroundColor: '#FACC15',
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
     gap: 8,
-    shadowColor: '#33C758',
+    shadowColor: '#FACC15',
     shadowOpacity: 0.28,
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 5 },
@@ -488,7 +488,7 @@ const styles = StyleSheet.create({
     opacity: 0.55,
   },
   startBtnText: {
-    color: '#FFFFFF',
+    color: '#0F172A',
     fontSize: 17,
     fontWeight: '800',
   },

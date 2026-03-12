@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#33c758",
+                        "background-light": "#f6f8f6",
+                        "background-dark": "#131f16",
+                    },
+                    fontFamily: {
+                        "display": ["Inter", "sans-serif"]
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.5rem",
+                        "lg": "1rem",
+                        "xl": "1.5rem",
+                        "full": "9999px"
+                    },
+                },
+            },
+        }
+    </script>
+<title>Calories Entry - Tadlock</title>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark font-display text-slate-900 dark:text-slate-100 antialiased">
+<div class="relative flex h-screen w-full max-w-md mx-auto flex-col bg-white dark:bg-background-dark shadow-xl overflow-hidden">
+<!-- Header -->
+<header class="flex items-center px-4 py-4 justify-between bg-white dark:bg-background-dark">
+<button class="flex size-10 shrink-0 items-center justify-center rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+<span class="material-symbols-outlined text-slate-900 dark:text-slate-100">arrow_back</span>
+</button>
+<h2 class="text-slate-900 dark:text-slate-100 text-lg font-bold leading-tight tracking-tight flex-1 text-center pr-10">Calories</h2>
+</header>
+<!-- Main Content -->
+<main class="flex-1 flex flex-col items-center justify-center px-6">
+<div class="w-full text-center space-y-2">
+<span class="text-slate-500 dark:text-slate-400 text-sm font-medium uppercase tracking-widest" style="">ENTER KCAL AMOUNT</span>
+<div class="relative pt-4">
+<h1 class="text-slate-900 dark:text-slate-100 text-[64px] font-extrabold leading-none tracking-tighter" style="">
+                        2,275
+                    </h1>
+</div>
+</div>
+<!-- Custom Input Field Simulation -->
+<div class="mt-12 w-full grid grid-cols-3 gap-4 text-center">
+<!-- Visual representation of keypad or input state -->
+<div class="col-span-3 h-px bg-slate-50 dark:bg-slate-800/50 mb-4"></div>
+<div class="text-2xl font-semibold p-4 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg cursor-pointer transition-colors">1</div>
+<div class="text-2xl font-semibold p-4 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg cursor-pointer transition-colors">2</div>
+<div class="text-2xl font-semibold p-4 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg cursor-pointer transition-colors">3</div>
+<div class="text-2xl font-semibold p-4 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg cursor-pointer transition-colors">4</div>
+<div class="text-2xl font-semibold p-4 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg cursor-pointer transition-colors">5</div>
+<div class="text-2xl font-semibold p-4 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg cursor-pointer transition-colors">6</div>
+<div class="text-2xl font-semibold p-4 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg cursor-pointer transition-colors">7</div>
+<div class="text-2xl font-semibold p-4 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg cursor-pointer transition-colors">8</div>
+<div class="text-2xl font-semibold p-4 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg cursor-pointer transition-colors">9</div>
+<div class="text-2xl font-semibold p-4 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg cursor-pointer transition-colors">.</div>
+<div class="text-2xl font-semibold p-4 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg cursor-pointer transition-colors">0</div>
+<div class="flex items-center justify-center p-4 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg cursor-pointer transition-colors">
+<span class="material-symbols-outlined text-slate-500 font-bold" style="font-variation-settings: 'FILL' 1">backspace</span>
+</div>
+</div>
+</main>
+<!-- Footer Action -->
+<footer class="p-6 bg-white dark:bg-background-dark">
+<button class="flex w-full cursor-pointer items-center justify-center rounded-2xl h-16 px-6 bg-primary text-slate-900 gap-3 hover:opacity-90 active:scale-[0.98] transition-all shadow-xl shadow-primary/20">
+<span class="material-symbols-outlined font-bold" style="font-variation-settings: 'FILL' 1">lock</span>
+<span class="text-lg font-bold leading-none">Update calories</span>
+</button>
+<!-- Safe area spacer -->
+<div class="h-6"></div>
+</footer>
+</div>
+</body></html>

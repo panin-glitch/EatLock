@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Tadlock - Streak Details</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#33c758",
+                        "background-light": "#f6f8f6",
+                        "background-dark": "#131f16",
+                    },
+                    fontFamily: {
+                        "display": ["Inter", "sans-serif"]
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.5rem",
+                        "lg": "1rem",
+                        "xl": "1.5rem",
+                        "full": "9999px"
+                    },
+                },
+            },
+        }
+    </script>
+<style>
+        body { font-family: 'Inter', sans-serif; }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .filled-icon {
+            font-variation-settings: 'FILL' 1;
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark font-display text-slate-900 dark:text-slate-100">
+<!-- Main Container -->
+<div class="relative flex h-auto min-h-screen w-full max-w-md mx-auto flex-col bg-white dark:bg-background-dark overflow-x-hidden">
+<!-- Header -->
+<header class="flex items-center justify-between px-4 py-4 sticky top-0 bg-white/80 dark:bg-background-dark/80 backdrop-blur-md z-10">
+<button class="flex size-10 items-center justify-center rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+<span class="material-symbols-outlined text-slate-900 dark:text-slate-100">arrow_back</span>
+</button>
+<h2 class="text-lg font-bold tracking-tight">Streak</h2>
+</header>
+<!-- Hero Section -->
+<section class="flex flex-col items-center px-6 pt-8 pb-10 relative"><div class="absolute inset-0 -z-10 bg-gradient-to-b from-orange-400/20 via-orange-500/10 to-transparent rounded-b-[4rem] blur-3xl"></div>
+<div class="flex items-center gap-2">
+<h1 class="text-8xl font-black text-slate-900 dark:text-white tracking-tighter drop-shadow-sm">12</h1>
+<div class="bg-orange-100 dark:bg-orange-900/30 p-3 rounded-2xl rotate-12 flex items-center justify-center">
+<span class="material-symbols-outlined text-orange-500 text-5xl filled-icon">local_fire_department</span>
+</div>
+</div>
+<h2 class="text-2xl font-bold mt-2">Streak Days</h2>
+<p class="text-slate-500 dark:text-slate-400 text-center mt-2 max-w-[280px]">
+                This is the longest Streak you've ever had!
+            </p>
+</section><section class="px-6 py-8 flex items-center justify-center border-t border-b border-slate-100 dark:border-slate-800 my-4">
+<p class="text-xs font-bold tracking-widest text-[#A0A0A0] uppercase text-center">
+        Coming Soon: Achievements
+    </p>
+</section>
+<!-- Achievement Badges -->
+<!-- Streak Calendar -->
+<section class="px-6 mb-12">
+<div class="flex items-center justify-between mb-6">
+<h3 class="text-xl font-bold">November 2023</h3>
+<div class="flex gap-2">
+<button class="size-8 flex items-center justify-center rounded-lg bg-slate-100 dark:bg-slate-800"><span class="material-symbols-outlined text-sm">chevron_left</span></button>
+<button class="size-8 flex items-center justify-center rounded-lg bg-slate-100 dark:bg-slate-800"><span class="material-symbols-outlined text-sm">chevron_right</span></button>
+</div>
+</div>
+<div class="grid grid-cols-7 gap-y-4 text-center">
+<!-- Days of week -->
+<div class="text-[10px] font-bold text-slate-400 uppercase">Mon</div>
+<div class="text-[10px] font-bold text-slate-400 uppercase">Tue</div>
+<div class="text-[10px] font-bold text-slate-400 uppercase">Wed</div>
+<div class="text-[10px] font-bold text-slate-400 uppercase">Thu</div>
+<div class="text-[10px] font-bold text-slate-400 uppercase">Fri</div>
+<div class="text-[10px] font-bold text-slate-400 uppercase">Sat</div>
+<div class="text-[10px] font-bold text-slate-400 uppercase">Sun</div>
+<!-- Calendar Days (Mocking November) -->
+<!-- Empty spaces for start of month -->
+<div class="h-10"></div>
+<div class="h-10"></div>
+<div class="h-10 flex items-center justify-center text-sm font-medium">1</div>
+<div class="h-10 flex items-center justify-center text-sm font-medium">2</div>
+<div class="h-10 flex items-center justify-center text-sm font-medium">3</div>
+<div class="h-10 flex items-center justify-center text-sm font-medium">4</div>
+<div class="h-10 flex items-center justify-center text-sm font-medium">5</div>
+<!-- Streak Days -->
+<div class="h-10 flex items-center justify-center text-sm font-medium">6</div>
+<div class="h-10 flex items-center justify-center text-sm font-medium">7</div>
+<div class="h-10 flex items-center justify-center text-sm font-medium">8</div>
+<div class="h-10 flex items-center justify-center relative">
+<div class="absolute inset-0 m-1 bg-primary rounded-full"></div>
+<span class="relative z-1 text-white text-sm font-bold">9</span>
+</div>
+<div class="h-10 flex items-center justify-center relative">
+<div class="absolute inset-0 m-1 bg-primary rounded-full"></div>
+<span class="relative z-1 text-white text-sm font-bold">10</span>
+</div>
+<div class="h-10 flex items-center justify-center relative">
+<div class="absolute inset-0 m-1 bg-primary rounded-full"></div>
+<span class="relative z-1 text-white text-sm font-bold">11</span>
+</div>
+<div class="h-10 flex items-center justify-center relative">
+<div class="absolute inset-0 m-1 bg-primary rounded-full"></div>
+<span class="relative z-1 text-white text-sm font-bold">12</span>
+</div>
+<div class="h-10 flex items-center justify-center relative">
+<div class="absolute inset-0 m-1 bg-primary rounded-full"></div>
+<span class="relative z-1 text-white text-sm font-bold">13</span>
+</div>
+<div class="h-10 flex items-center justify-center relative">
+<div class="absolute inset-0 m-1 bg-primary rounded-full"></div>
+<span class="relative z-1 text-white text-sm font-bold">14</span>
+</div>
+<div class="h-10 flex items-center justify-center relative">
+<div class="absolute inset-0 m-1 bg-primary rounded-full"></div>
+<span class="relative z-1 text-white text-sm font-bold">15</span>
+</div>
+<div class="h-10 flex items-center justify-center relative">
+<div class="absolute inset-0 m-1 bg-primary rounded-full"></div>
+<span class="relative z-1 text-white text-sm font-bold">16</span>
+</div>
+<div class="h-10 flex items-center justify-center relative">
+<div class="absolute inset-0 m-1 bg-primary rounded-full"></div>
+<span class="relative z-1 text-white text-sm font-bold">17</span>
+</div>
+<div class="h-10 flex items-center justify-center relative">
+<div class="absolute inset-0 m-1 bg-primary rounded-full"></div>
+<span class="relative z-1 text-white text-sm font-bold">18</span>
+</div>
+<div class="h-10 flex items-center justify-center relative">
+<div class="absolute inset-0 m-1 bg-primary rounded-full"></div>
+<span class="relative z-1 text-white text-sm font-bold">19</span>
+</div>
+<!-- Current Date Highlight (assuming 20th) -->
+<div class="h-10 flex items-center justify-center relative">
+<div class="absolute inset-0 m-1 border-2 border-primary rounded-full"></div>
+<span class="relative z-1 text-primary text-sm font-bold">20</span>
+</div>
+<div class="h-10 flex items-center justify-center text-sm font-medium text-slate-400">21</div>
+<div class="h-10 flex items-center justify-center text-sm font-medium text-slate-400">22</div>
+<div class="h-10 flex items-center justify-center text-sm font-medium text-slate-400">23</div>
+<div class="h-10 flex items-center justify-center text-sm font-medium text-slate-400">24</div>
+<div class="h-10 flex items-center justify-center text-sm font-medium text-slate-400">25</div>
+<div class="h-10 flex items-center justify-center text-sm font-medium text-slate-400">26</div>
+<div class="h-10 flex items-center justify-center text-sm font-medium text-slate-400">27</div>
+<div class="h-10 flex items-center justify-center text-sm font-medium text-slate-400">28</div>
+<div class="h-10 flex items-center justify-center text-sm font-medium text-slate-400">29</div>
+<div class="h-10 flex items-center justify-center text-sm font-medium text-slate-400">30</div>
+</div>
+</section>
+<!-- Bottom Navigation -->
+</div>
+</body></html>

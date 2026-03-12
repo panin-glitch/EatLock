@@ -1,37 +1,40 @@
-/**
- * TodaysMealsList — vertical list of meal sessions for the selected date.
- * Shows time, meal type, status pill, and food name.
- * Tap a row to see full detail modal with calories, macros, roast, distraction.
- * Empty-state when no sessions exist.
- */
-import React, { useRef, useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Modal, Pressable, Animated, Easing, Image, Alert, ActivityIndicator, TextInput } from 'react-native';
+import React, { useRef, useState } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
+  TouchableOpacity,
+  Modal,
+  Pressable,
+  Animated,
+  Easing,
+  Alert,
+  ScrollView,
+} from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import * as Haptics from 'expo-haptics';
 import { useTheme } from '../../theme/ThemeProvider';
 import { useAppState } from '../../state/AppStateContext';
 import type { MealSession } from '../../types/models';
-import type { MicrosEnrichResult } from '../../services/vision/types';
 import { SwipeableRow } from '../SwipeableRow';
-import { fetchRemoteUserSettings } from '../../services/userSettingsService';
-import { enrichMicros, updateFoodLabel } from '../../services/microsService';
+import { triggerLightHaptic } from '../../services/haptics';
 
 interface Props {
   sessions: MealSession[];
 }
 
 const statusConfig: Record<string, { color: string; label: string }> = {
-  ACTIVE:     { color: '#FF9500', label: 'Active' },
-  VERIFIED:   { color: '#34C759', label: 'Verified' },
-  PARTIAL:    { color: '#FFCC00', label: 'Partial' },
-  FAILED:     { color: '#FF3B30', label: 'Failed' },
+  ACTIVE: { color: '#FF9500', label: 'Active' },
+  VERIFIED: { color: '#CA8A04', label: 'Verified' },
+  PARTIAL: { color: '#FFCC00', label: 'Partial' },
+  FAILED: { color: '#FF3B30', label: 'Failed' },
   INCOMPLETE: { color: '#FF9500', label: 'Active' },
 };
 
 function formatSessionTime(iso: string): string {
-  const d = new Date(iso);
-  const h = d.getHours();
-  const m = d.getMinutes();
+  const date = new Date(iso);
+  const h = date.getHours();
+  const m = date.getMinutes();
   const ampm = h >= 12 ? 'PM' : 'AM';
   const hour = h % 12 || 12;
   return `${hour}:${m.toString().padStart(2, '0')} ${ampm}`;
@@ -39,74 +42,62 @@ function formatSessionTime(iso: string): string {
 
 function mealIcon(type: string): keyof typeof MaterialIcons.glyphMap {
   switch (type) {
-    case 'Breakfast': return 'free-breakfast';
-    case 'Lunch': return 'lunch-dining';
-    case 'Dinner': return 'dinner-dining';
-    case 'Snack': return 'cookie';
-    default: return 'restaurant';
+    case 'Breakfast':
+      return 'free-breakfast';
+    case 'Lunch':
+      return 'lunch-dining';
+    case 'Dinner':
+      return 'dinner-dining';
+    case 'Snack':
+      return 'cookie';
+    default:
+      return 'restaurant';
   }
+}
+
+function MetricTile({
+  label,
+  value,
+  unit,
+}: {
+  label: string;
+  value: string;
+  unit: string;
+}) {
+  return (
+    <View style={styles.metricTile}>
+      <View style={styles.metricHeaderRow}>
+        <Text style={styles.metricLabel}>{label}</Text>
+        <Text style={styles.metricEdit}>EDIT</Text>
+      </View>
+      <View style={styles.metricValueRow}>
+        <Text style={styles.metricValue}>{value}</Text>
+        <Text style={styles.metricUnit}>{unit}</Text>
+      </View>
+    </View>
+  );
 }
 
 export default function TodaysMealsList({ sessions }: Props) {
   const { theme } = useTheme();
-  const { deleteSession, updateActiveSession } = useAppState();
+  const { deleteSession, settings } = useAppState();
+  const lightHaptic = () => triggerLightHaptic(settings.app.hapticsEnabled);
+
   const [selected, setSelected] = useState<MealSession | null>(null);
   const [detailVisible, setDetailVisible] = useState(false);
+  const [portion, setPortion] = useState(1);
+
   const backdropOpacity = useRef(new Animated.Value(0)).current;
-  const sheetTranslateY = useRef(new Animated.Value(36)).current;
-  const lightHaptic = () => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-
-  // Micros toggle state
-  const [microsEnabled, setMicrosEnabled] = useState(false);
-  const [microsData, setMicrosData] = useState<MicrosEnrichResult | null>(null);
-  const [microsLoading, setMicrosLoading] = useState(false);
-
-  // Edit food label state
-  const [editingLabel, setEditingLabel] = useState(false);
-  const [editLabelText, setEditLabelText] = useState('');
-  const [editLabelSaving, setEditLabelSaving] = useState(false);
-
-  useEffect(() => {
-    fetchRemoteUserSettings().then((s) => setMicrosEnabled(s.micronutrients_enabled)).catch(() => {});
-  }, []);
-
-  const handleEnrichMicros = useCallback(async (mealId: string) => {
-    setMicrosLoading(true);
-    try {
-      const result = await enrichMicros(mealId);
-      setMicrosData(result);
-    } catch (e: any) {
-      Alert.alert('Error', e?.message || 'Could not enrich micros');
-    } finally {
-      setMicrosLoading(false);
-    }
-  }, []);
-
-  const handleSaveFoodLabel = useCallback(async () => {
-    if (!selected || !editLabelText.trim()) return;
-    setEditLabelSaving(true);
-    try {
-      await updateFoodLabel(selected.id, editLabelText.trim());
-      // Update local session
-      setSelected((prev) => prev ? { ...prev, foodName: editLabelText.trim() } : prev);
-      setEditingLabel(false);
-    } catch (e: any) {
-      Alert.alert('Error', e?.message || 'Could not update food label');
-    } finally {
-      setEditLabelSaving(false);
-    }
-  }, [selected, editLabelText]);
+  const sheetTranslateY = useRef(new Animated.Value(34)).current;
 
   const openDetail = (session: MealSession) => {
     lightHaptic();
     setSelected(session);
+    setPortion(1);
     setDetailVisible(true);
-    setMicrosData(null);
-    setMicrosLoading(false);
-    setEditingLabel(false);
-    setEditLabelText(session.foodName || session.preNutrition?.food_label || '');
     backdropOpacity.setValue(0);
-    sheetTranslateY.setValue(36);
+    sheetTranslateY.setValue(34);
+
     Animated.parallel([
       Animated.timing(backdropOpacity, {
         toValue: 1,
@@ -116,7 +107,7 @@ export default function TodaysMealsList({ sessions }: Props) {
       }),
       Animated.timing(sheetTranslateY, {
         toValue: 0,
-        duration: 220,
+        duration: 210,
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
@@ -132,7 +123,7 @@ export default function TodaysMealsList({ sessions }: Props) {
         useNativeDriver: true,
       }),
       Animated.timing(sheetTranslateY, {
-        toValue: 28,
+        toValue: 26,
         duration: 160,
         easing: Easing.in(Easing.quad),
         useNativeDriver: true,
@@ -148,9 +139,7 @@ export default function TodaysMealsList({ sessions }: Props) {
       <View style={styles.emptyContainer}>
         <MaterialIcons name="restaurant-menu" size={40} color={theme.textSecondary + '66'} />
         <Text style={[styles.emptyTitle, { color: theme.textSecondary }]}>No meals logged yet</Text>
-        <Text style={[styles.emptyHint, { color: theme.textSecondary + 'AA' }]}>
-          Tap + to scan a meal
-        </Text>
+        <Text style={[styles.emptyHint, { color: theme.textSecondary + 'AA' }]}>Tap + to scan a meal</Text>
       </View>
     );
   }
@@ -161,12 +150,25 @@ export default function TodaysMealsList({ sessions }: Props) {
 
   const renderDetail = () => {
     if (!selected) return null;
-    const sc = statusConfig[selected.status] ?? statusConfig.INCOMPLETE;
-    const nut = selected.preNutrition;
-    const stars = selected.distractionRating;
+
+    const selectedTitle = selected.foodName || selected.preNutrition?.food_label || selected.mealType;
+    const nutrition = selected.preNutrition;
     const timeSpentMin = selected.endedAt
-      ? Math.max(0, Math.round((new Date(selected.endedAt).getTime() - new Date(selected.startedAt).getTime()) / 60000))
+      ? Math.max(
+          0,
+          Math.round((new Date(selected.endedAt).getTime() - new Date(selected.startedAt).getTime()) / 60000),
+        )
       : null;
+
+    const scaled = (value?: number | null) => Math.round((value ?? 0) * portion);
+    const calories = scaled(nutrition?.estimated_calories);
+    const protein = scaled(nutrition?.protein_g);
+    const carbs = scaled(nutrition?.carbs_g);
+    const fat = scaled(nutrition?.fat_g);
+
+    const isVerified = selected.status === 'VERIFIED';
+    const stars = Math.max(0, Math.min(5, selected.distractionRating ?? 0));
+
     return (
       <Modal
         visible={detailVisible}
@@ -176,227 +178,139 @@ export default function TodaysMealsList({ sessions }: Props) {
         onRequestClose={closeDetail}
       >
         <View style={styles.modalRoot}>
-          <Animated.View
-            pointerEvents="none"
-            style={[styles.modalOverlay, { opacity: backdropOpacity }]}
-          />
+          <Animated.View pointerEvents="none" style={[styles.modalOverlay, { opacity: backdropOpacity }]} />
           <Pressable style={styles.modalBackdropTap} onPress={closeDetail} />
 
           <Animated.View
             style={[
               styles.modalSheet,
-              { backgroundColor: theme.surface, transform: [{ translateY: sheetTranslateY }] },
+              { transform: [{ translateY: sheetTranslateY }] },
             ]}
           >
-            {/* Header */}
-            <View style={styles.modalHeader}>
-              <View style={[styles.iconWrap, { backgroundColor: theme.primary + '18' }]}>
-                <MaterialIcons name={mealIcon(selected.mealType)} size={22} color={theme.primary} />
-              </View>
-              <View style={{ flex: 1, marginLeft: 12 }}>
-                <Text style={[styles.modalTitle, { color: theme.text }]}>
-                  {selected.foodName || selected.mealType}
-                </Text>
-                <Text style={[styles.time, { color: theme.textSecondary }]}>
-                  {formatSessionTime(selected.startedAt)}
-                  {selected.endedAt ? ` – ${formatSessionTime(selected.endedAt)}` : ''}
-                </Text>
-              </View>
-              <View style={[styles.pill, { backgroundColor: sc.color + '22' }]}>
-                <Text style={[styles.pillText, { color: sc.color }]}>{sc.label}</Text>
-              </View>
+            <View style={styles.pullHandleWrap}>
+              <View style={styles.pullHandle} />
             </View>
 
-            {/* Food label (editable) */}
-            <View style={styles.detailSection}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>Food</Text>
-                {!editingLabel && (
-                  <TouchableOpacity onPress={() => { setEditingLabel(true); setEditLabelText(selected.foodName || selected.preNutrition?.food_label || ''); }}>
-                    <MaterialIcons name="edit" size={16} color={theme.textMuted} />
-                  </TouchableOpacity>
-                )}
-              </View>
-              {editingLabel ? (
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <TextInput
-                    style={[styles.editInput, { color: theme.text, borderColor: theme.border, backgroundColor: theme.inputBg }]}
-                    value={editLabelText}
-                    onChangeText={setEditLabelText}
-                    maxLength={80}
-                    autoFocus
-                    returnKeyType="done"
-                    onSubmitEditing={handleSaveFoodLabel}
-                    editable={!editLabelSaving}
-                  />
-                  {editLabelSaving ? (
-                    <ActivityIndicator size="small" color={theme.primary} />
-                  ) : (
-                    <TouchableOpacity onPress={handleSaveFoodLabel}>
-                      <MaterialIcons name="check" size={22} color={theme.primary} />
-                    </TouchableOpacity>
-                  )}
+            <ScrollView contentContainerStyle={styles.modalScroll} showsVerticalScrollIndicator={false}>
+              <View style={styles.centerInfo}>
+                <Text style={styles.mealTypePillText}>{selected.mealType}</Text>
+                <View style={styles.titleRow}>
+                  <Text style={styles.modalTitleText}>{selectedTitle}</Text>
+                  <MaterialIcons name="edit" size={18} color="#CA8A04" />
                 </View>
-              ) : (
-                <Text style={[styles.detailText, { color: theme.text }]}>
-                  {selected.foodName || selected.preNutrition?.food_label || selected.mealType}
-                </Text>
-              )}
-            </View>
+              </View>
 
-            {/* Calories & Macros */}
-            {nut && (
-              <View style={styles.detailSection}>
-                <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>Nutrition</Text>
-                <View style={styles.macroRow}>
-                  <View style={[styles.macroPill, { backgroundColor: '#FF9500' + '22' }]}>
-                    <Text style={[styles.macroVal, { color: '#FF9500' }]}>{nut.estimated_calories}</Text>
-                    <Text style={[styles.macroUnit, { color: '#FF9500' }]}>cal</Text>
+              <View style={styles.portionCard}>
+                <View style={styles.portionLeft}>
+                  <View style={styles.portionIconWrap}>
+                    <MaterialIcons name="restaurant" size={18} color="#CA8A04" />
                   </View>
-                  {nut.protein_g != null && (
-                    <View style={[styles.macroPill, { backgroundColor: '#FF3B30' + '22' }]}>
-                      <Text style={[styles.macroVal, { color: '#FF3B30' }]}>{nut.protein_g}g</Text>
-                      <Text style={[styles.macroUnit, { color: '#FF3B30' }]}>Protein</Text>
-                    </View>
-                  )}
-                  {nut.carbs_g != null && (
-                    <View style={[styles.macroPill, { backgroundColor: '#007AFF' + '22' }]}>
-                      <Text style={[styles.macroVal, { color: '#007AFF' }]}>{nut.carbs_g}g</Text>
-                      <Text style={[styles.macroUnit, { color: '#007AFF' }]}>Carbs</Text>
-                    </View>
-                  )}
-                  {nut.fat_g != null && (
-                    <View style={[styles.macroPill, { backgroundColor: '#FFCC00' + '22' }]}>
-                      <Text style={[styles.macroVal, { color: '#FFCC00' }]}>{nut.fat_g}g</Text>
-                      <Text style={[styles.macroUnit, { color: '#FFCC00' }]}>Fat</Text>
-                    </View>
-                  )}
+                  <Text style={styles.portionText}>Portion Size</Text>
+                </View>
+
+                <View style={styles.portionRight}>
+                  <TouchableOpacity
+                    style={styles.portionCircleBtn}
+                    onPress={() => {
+                      lightHaptic();
+                      setPortion((prev) => Math.max(1, prev - 1));
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <MaterialIcons name="remove" size={18} color="#64748B" />
+                  </TouchableOpacity>
+
+                  <Text style={styles.portionCount}>{portion}</Text>
+
+                  <TouchableOpacity
+                    style={styles.portionCircleBtnActive}
+                    onPress={() => {
+                      lightHaptic();
+                      setPortion((prev) => prev + 1);
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <MaterialIcons name="add" size={18} color="#0F172A" />
+                  </TouchableOpacity>
                 </View>
               </View>
-            )}
 
-            {/* Micronutrients section */}
-            {microsEnabled && nut && (() => {
-              const hasMicros = nut.fiber_g != null || nut.sugar_g != null || nut.sodium_mg != null || nut.saturated_fat_g != null || microsData?.enriched;
-              const displayData = microsData?.enriched ? microsData : null;
-              const fib = displayData?.fiber_g ?? nut.fiber_g;
-              const sug = displayData?.sugar_g ?? nut.sugar_g;
-              const sod = displayData?.sodium_mg ?? nut.sodium_mg;
-              const sat = displayData?.saturated_fat_g ?? nut.saturated_fat_g;
-              const anyMicro = fib != null || sug != null || sod != null || sat != null;
+              <View style={styles.metricsGrid}>
+                <MetricTile label="CALORIES" value={String(calories)} unit="cal" />
+                <MetricTile label="PROTEIN" value={String(protein)} unit="g" />
+                <MetricTile label="CARBS" value={String(carbs)} unit="g" />
+                <MetricTile label="FAT" value={String(fat)} unit="g" />
+              </View>
 
-              return (
-                <View style={styles.detailSection}>
-                  <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>Micronutrients</Text>
-                  {anyMicro ? (
-                    <View style={styles.macroRow}>
-                      {fib != null && (
-                        <View style={[styles.macroPill, { backgroundColor: '#34C759' + '22' }]}>
-                          <Text style={[styles.macroVal, { color: '#34C759' }]}>{fib}g</Text>
-                          <Text style={[styles.macroUnit, { color: '#34C759' }]}>Fiber</Text>
-                        </View>
-                      )}
-                      {sug != null && (
-                        <View style={[styles.macroPill, { backgroundColor: '#AF52DE' + '22' }]}>
-                          <Text style={[styles.macroVal, { color: '#AF52DE' }]}>{sug}g</Text>
-                          <Text style={[styles.macroUnit, { color: '#AF52DE' }]}>Sugar</Text>
-                        </View>
-                      )}
-                      {sod != null && (
-                        <View style={[styles.macroPill, { backgroundColor: '#5AC8FA' + '22' }]}>
-                          <Text style={[styles.macroVal, { color: '#5AC8FA' }]}>{Math.round(sod)}mg</Text>
-                          <Text style={[styles.macroUnit, { color: '#5AC8FA' }]}>Sodium</Text>
-                        </View>
-                      )}
-                      {sat != null && (
-                        <View style={[styles.macroPill, { backgroundColor: '#FF6482' + '22' }]}>
-                          <Text style={[styles.macroVal, { color: '#FF6482' }]}>{sat}g</Text>
-                          <Text style={[styles.macroUnit, { color: '#FF6482' }]}>Sat Fat</Text>
-                        </View>
-                      )}
+              <View style={styles.contextWrap}>
+                <View style={styles.verdictCard}>
+                  <View style={styles.metricHeaderRow}>
+                    <Text style={styles.metricLabel}>VERDICT</Text>
+                    <Text style={styles.metricEdit}>EDIT</Text>
+                  </View>
+
+                  <View style={styles.verdictButtonsRow}>
+                    <View style={[styles.verdictBtn, isVerified ? styles.verdictBtnActive : styles.verdictBtnInactive]}>
+                      <MaterialIcons
+                        name="check-circle"
+                        size={18}
+                        color={isVerified ? '#CA8A04' : '#94A3B8'}
+                      />
+                      <Text style={[styles.verdictBtnText, isVerified && styles.verdictBtnTextActive]}>Verified</Text>
                     </View>
-                  ) : microsLoading ? (
-                    <ActivityIndicator size="small" color={theme.primary} style={{ alignSelf: 'flex-start', marginTop: 4 }} />
-                  ) : (
-                    <TouchableOpacity
-                      style={[styles.enrichBtn, { borderColor: theme.primary }]}
-                      onPress={() => handleEnrichMicros(selected.id)}
-                    >
-                      <MaterialIcons name="auto-fix-high" size={16} color={theme.primary} />
-                      <Text style={[styles.enrichBtnText, { color: theme.primary }]}>Compute micros</Text>
-                    </TouchableOpacity>
-                  )}
+                    <View style={[styles.verdictBtn, !isVerified ? styles.verdictBtnActive : styles.verdictBtnInactive]}>
+                      <MaterialIcons
+                        name="cancel"
+                        size={18}
+                        color={!isVerified ? '#CA8A04' : '#94A3B8'}
+                      />
+                      <Text style={[styles.verdictBtnText, !isVerified && styles.verdictBtnTextActive]}>Not Verified</Text>
+                    </View>
+                  </View>
                 </View>
-              );
-            })()}
 
-            {(selected.preImageUri || selected.postImageUri) && (
-              <View style={styles.detailSection}>
-                <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>Photos</Text>
-                <View style={styles.thumbRow}>
-                  {selected.preImageUri ? (
-                    <View style={styles.thumbItem}>
-                      <Image source={{ uri: selected.preImageUri }} style={styles.thumb} />
-                      <Text style={[styles.thumbLabel, { color: theme.textSecondary }]}>Before</Text>
+                <View style={styles.secondaryGrid}>
+                  <View style={styles.secondaryCard}>
+                    <View style={styles.metricHeaderRow}>
+                      <Text style={styles.metricLabel}>RATING</Text>
+                      <Text style={styles.metricEdit}>EDIT</Text>
                     </View>
-                  ) : null}
-                  {selected.postImageUri ? (
-                    <View style={styles.thumbItem}>
-                      <Image source={{ uri: selected.postImageUri }} style={styles.thumb} />
-                      <Text style={[styles.thumbLabel, { color: theme.textSecondary }]}>After</Text>
+                    <View style={styles.starsRow}>
+                      {[1, 2, 3, 4, 5].map((value) => (
+                        <MaterialIcons
+                          key={value}
+                          name={value <= stars ? 'star' : 'star-border'}
+                          size={18}
+                          color="#FACC15"
+                        />
+                      ))}
                     </View>
-                  ) : null}
+                  </View>
+
+                  <View style={styles.secondaryCard}>
+                    <View style={styles.metricHeaderRow}>
+                      <Text style={styles.metricLabel}>TIME SPENT</Text>
+                      <Text style={styles.metricEdit}>EDIT</Text>
+                    </View>
+                    <View style={styles.timeRow}>
+                      <MaterialIcons name="timer" size={18} color="#0F172A" />
+                      <Text style={styles.timeText}>{timeSpentMin != null ? `${timeSpentMin} min` : '—'}</Text>
+                    </View>
+                  </View>
                 </View>
               </View>
-            )}
 
-            {/* Roast */}
-            {selected.roastMessage ? (
-              <View style={styles.detailSection}>
-                <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>Verdict</Text>
-                <Text style={[styles.detailText, { color: theme.text }]}>{selected.roastMessage}</Text>
-              </View>
-            ) : null}
-
-            {/* Distraction */}
-            {stars != null && (
-              <View style={styles.detailSection}>
-                <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>Distraction</Text>
-                <View style={styles.starsRow}>
-                  {[1, 2, 3, 4, 5].map((n) => (
-                    <MaterialIcons
-                      key={n}
-                      name={n <= stars ? 'star' : 'star-border'}
-                      size={22}
-                      color="#FF9500"
-                    />
-                  ))}
-                  {selected.estimatedDistractionMinutes != null && (
-                    <Text style={[styles.distractMin, { color: theme.textSecondary }]}>
-                      ~{selected.estimatedDistractionMinutes} min
-                    </Text>
-                  )}
-                </View>
-              </View>
-            )}
-
-            {timeSpentMin != null && (
-              <View style={styles.detailSection}>
-                <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>Time spent</Text>
-                <Text style={[styles.detailText, { color: theme.text }]}>{timeSpentMin} min</Text>
-              </View>
-            )}
-
-            {/* Close */}
-            <TouchableOpacity
-              style={[styles.closeBtn, { backgroundColor: theme.text }]}
-              onPress={() => {
-                lightHaptic();
-                closeDetail();
-              }}
-            >
-              <Text style={[styles.closeBtnText, { color: theme.background }]}>Close</Text>
-            </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.closeBtn}
+                onPress={() => {
+                  lightHaptic();
+                  closeDetail();
+                }}
+                activeOpacity={0.9}
+              >
+                <Text style={styles.closeBtnText}>CLOSE</Text>
+              </TouchableOpacity>
+            </ScrollView>
           </Animated.View>
         </View>
       </Modal>
@@ -411,7 +325,8 @@ export default function TodaysMealsList({ sessions }: Props) {
         scrollEnabled={false}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => {
-          const sc = statusConfig[item.status] ?? statusConfig.INCOMPLETE;
+          const status = statusConfig[item.status] ?? statusConfig.INCOMPLETE;
+
           const onDelete = () => {
             Alert.alert('Delete meal', 'Remove this tracked meal from today?', [
               { text: 'Cancel', style: 'cancel' },
@@ -428,47 +343,53 @@ export default function TodaysMealsList({ sessions }: Props) {
               },
             ]);
           };
+
           return (
-            <SwipeableRow
-              onDelete={onDelete}
-              deleteColor={theme.danger}
-              rowBackgroundColor={theme.surface}
-            >
+            <SwipeableRow onDelete={onDelete} deleteColor={theme.danger} rowBackgroundColor={theme.surface}>
               <TouchableOpacity
-                activeOpacity={0.7}
+                activeOpacity={0.72}
                 onPress={() => openDetail(item)}
                 style={[styles.row, { backgroundColor: theme.surface }]}
               >
                 <View style={[styles.iconWrap, { backgroundColor: theme.primary + '18' }]}>
                   <MaterialIcons name={mealIcon(item.mealType)} size={18} color={theme.primary} />
                 </View>
+
                 <View style={styles.info}>
                   <Text style={[styles.food, { color: theme.text }]} numberOfLines={1}>
                     {item.foodName || item.mealType}
                   </Text>
                   <Text style={[styles.time, { color: theme.textSecondary }]}>
                     {formatSessionTime(item.startedAt)}
-                    {item.preNutrition
-                      ? ` · ${item.preNutrition.estimated_calories} cal`
-                      : ''}
+                    {item.preNutrition ? ` · ${item.preNutrition.estimated_calories} cal` : ''}
                   </Text>
                 </View>
-                <View style={[styles.pill, { backgroundColor: sc.color + '22' }]}>
-                  <Text style={[styles.pillText, { color: sc.color }]}>{sc.label}</Text>
+
+                <View style={[styles.pill, { backgroundColor: status.color + '22' }]}>
+                  <Text style={[styles.pillText, { color: status.color }]}>{status.label}</Text>
                 </View>
               </TouchableOpacity>
             </SwipeableRow>
           );
         }}
       />
+
       {renderDetail()}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { paddingHorizontal: 20, marginTop: 14, paddingBottom: 80 },
-  heading: { fontSize: 16, fontWeight: '700', marginBottom: 12 },
+  container: {
+    paddingHorizontal: 20,
+    marginTop: 14,
+    paddingBottom: 80,
+  },
+  heading: {
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 12,
+  },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -487,74 +408,292 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  info: { flex: 1, marginLeft: 12 },
-  food: { fontSize: 14, fontWeight: '600' },
-  time: { fontSize: 12, marginTop: 2 },
-  pill: { borderRadius: 10, paddingHorizontal: 10, paddingVertical: 4 },
-  pillText: { fontSize: 11, fontWeight: '700' },
+  info: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  food: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  time: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  pill: {
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  pillText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
   emptyContainer: {
     alignItems: 'center',
     paddingVertical: 40,
     paddingBottom: 80,
   },
-  emptyTitle: { fontSize: 15, fontWeight: '600', marginTop: 12 },
-  emptyHint: { fontSize: 13, marginTop: 4 },
-  // ── Detail modal ──
+  emptyTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    marginTop: 12,
+  },
+  emptyHint: {
+    fontSize: 13,
+    marginTop: 4,
+  },
   modalRoot: {
     flex: 1,
     justifyContent: 'flex-end',
   },
   modalOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.30)',
+    backgroundColor: 'rgba(0,0,0,0.34)',
   },
   modalBackdropTap: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 1,
   },
   modalSheet: {
-    borderTopLeftRadius: 22,
-    borderTopRightRadius: 22,
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 36,
     zIndex: 2,
+    maxHeight: '90%',
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 14,
+    elevation: 12,
   },
-  modalHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 18 },
-  modalTitle: { fontSize: 17, fontWeight: '700' },
-  detailSection: { marginBottom: 14 },
-  detailLabel: { fontSize: 12, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 },
-  detailText: { fontSize: 14, lineHeight: 20 },
-  thumbRow: { flexDirection: 'row', gap: 10 },
-  thumbItem: { alignItems: 'center' },
-  thumb: { width: 112, height: 112, borderRadius: 12, backgroundColor: '#111' },
-  thumbLabel: { fontSize: 12, marginTop: 5, fontWeight: '600' },
-  macroRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  macroPill: { borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8, alignItems: 'center' },
-  macroVal: { fontSize: 15, fontWeight: '700' },
-  macroUnit: { fontSize: 10, fontWeight: '500', marginTop: 1 },
-  starsRow: { flexDirection: 'row', alignItems: 'center', gap: 2 },
-  distractMin: { fontSize: 12, marginLeft: 8 },
-  closeBtn: { borderRadius: 14, paddingVertical: 14, alignItems: 'center', marginTop: 8 },
-  closeBtnText: { fontSize: 15, fontWeight: '700' },
-  enrichBtn: {
+  pullHandleWrap: {
+    height: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pullHandle: {
+    width: 48,
+    height: 6,
+    borderRadius: 999,
+    backgroundColor: '#E2E8F0',
+  },
+  modalScroll: {
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    paddingBottom: 26,
+  },
+  centerInfo: {
+    alignItems: 'center',
+    marginBottom: 18,
+  },
+  mealTypePillText: {
+    color: '#CA8A04',
+    fontSize: 12,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  titleRow: {
+    marginTop: 7,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    alignSelf: 'flex-start',
-    borderWidth: 1,
+    justifyContent: 'center',
+  },
+  modalTitleText: {
+    color: '#0F172A',
+    fontSize: 27,
+    fontWeight: '800',
+    lineHeight: 33,
+    textAlign: 'center',
+    marginRight: 6,
+    maxWidth: '92%',
+  },
+  portionCard: {
+    borderRadius: 12,
+    backgroundColor: '#FFFBEB',
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    marginBottom: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  portionLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  portionIconWrap: {
+    width: 34,
+    height: 34,
     borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(250,204,21,0.16)',
+    marginRight: 10,
+  },
+  portionText: {
+    color: '#0F172A',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  portionRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  portionCircleBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+  },
+  portionCircleBtnActive: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FACC15',
+  },
+  portionCount: {
+    marginHorizontal: 16,
+    color: '#0F172A',
+    fontSize: 20,
+    fontWeight: '800',
+  },
+  metricsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+  },
+  metricTile: {
+    width: '48.5%',
+    borderRadius: 12,
+    backgroundColor: '#FFFBEB',
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingVertical: 12,
+    marginBottom: 10,
+  },
+  metricHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 3,
+  },
+  metricLabel: {
+    color: '#64748B',
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+  },
+  metricEdit: {
+    color: '#CA8A04',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  metricValueRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+  },
+  metricValue: {
+    color: '#0F172A',
+    fontSize: 28,
+    fontWeight: '800',
+    lineHeight: 33,
+    marginRight: 4,
+  },
+  metricUnit: {
+    color: '#64748B',
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  contextWrap: {
+    marginBottom: 14,
+  },
+  verdictCard: {
+    borderRadius: 12,
+    backgroundColor: '#F6F8F6',
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    marginBottom: 10,
+  },
+  verdictButtonsRow: {
+    flexDirection: 'row',
+    marginTop: 8,
+    justifyContent: 'space-between',
+  },
+  verdictBtn: {
+    width: '48%',
+    height: 40,
+    borderRadius: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  verdictBtnActive: {
+    backgroundColor: 'rgba(250,204,21,0.16)',
+    borderWidth: 1,
+    borderColor: 'rgba(250,204,21,0.28)',
+  },
+  verdictBtnInactive: {
+    backgroundColor: '#F1F5F9',
+  },
+  verdictBtnText: {
+    marginLeft: 6,
+    color: '#94A3B8',
+    fontSize: 11,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+  verdictBtnTextActive: {
+    color: '#CA8A04',
+  },
+  secondaryGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  secondaryCard: {
+    width: '48.5%',
+    borderRadius: 12,
+    backgroundColor: '#FFFBEB',
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+  },
+  starsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     marginTop: 4,
   },
-  enrichBtnText: { fontSize: 13, fontWeight: '600' },
-  editInput: {
-    flex: 1,
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    fontSize: 14,
+  timeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 6,
+  },
+  timeText: {
+    marginLeft: 6,
+    color: '#0F172A',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  closeBtn: {
+    height: 56,
+    borderRadius: 14,
+    backgroundColor: '#000000',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 4,
+    marginBottom: 4,
+  },
+  closeBtnText: {
+    color: '#FFFFFF',
+    fontSize: 17,
+    fontWeight: '800',
+    letterSpacing: 0.4,
   },
 });

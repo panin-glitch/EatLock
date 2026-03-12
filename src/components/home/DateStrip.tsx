@@ -46,7 +46,7 @@ export default function DateStrip({ dates, selectedDate, onSelect, dotDates }: P
             <Text
               style={[
                 styles.dayLabel,
-                { color: isSelected ? '#FFF' : theme.textMuted },
+                { color: isSelected ? theme.onPrimary : theme.textMuted },
               ]}
             >
               {DAY_LABELS[d.getDay()]}
@@ -54,7 +54,7 @@ export default function DateStrip({ dates, selectedDate, onSelect, dotDates }: P
             <Text
               style={[
                 styles.dayNum,
-                { color: isSelected ? '#FFF' : theme.text },
+                { color: isSelected ? theme.onPrimary : theme.text },
                 isToday && !isSelected && { color: theme.primary },
               ]}
             >

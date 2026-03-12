@@ -30,6 +30,27 @@ function isVisionSoftError(value: unknown): value is VisionSoftError {
   return !!value && typeof value === 'object' && (value as VisionSoftError).kind === 'soft_error';
 }
 
+function preScanFailureTitle(check: FoodCheckResult | null): string {
+  if (!check || check.isFood) return 'Retake photo';
+
+  switch (check.reasonCode) {
+    case 'HAND_SELFIE':
+      return 'Hand in frame';
+    case 'TOO_DARK':
+      return 'Too dark';
+    case 'TOO_BLURRY':
+      return 'Too blurry';
+    case 'NO_PLATE':
+      return 'Center your meal';
+    case 'BAD_FRAMING':
+      return 'Reframe meal';
+    case 'NOT_FOOD':
+      return 'Retake meal photo';
+    default:
+      return 'Retake photo';
+  }
+}
+
 export default function PreScanCameraScreen({ navigation }: Props) {
   const { theme } = useTheme();
   const [permission, requestPermission] = useCameraPermissions();
@@ -284,13 +305,14 @@ export default function PreScanCameraScreen({ navigation }: Props) {
 
   const handleContinue = () => {
     if (barcodeResult) {
+      if (barcodeResult.source === 'not_found') return;
       // Barcode flow: navigate with barcode nutrition
       const barcodeNutrition: NutritionEstimate = {
         food_label: barcodeResult.name,
         estimated_calories: barcodeResult.calories ?? 0,
         min_calories: barcodeResult.calories ?? 0,
         max_calories: barcodeResult.calories ?? 0,
-        confidence: barcodeResult.source === 'not_found' ? 0 : 0.8,
+        confidence: 0.8,
         notes: barcodeResult.per_100g
           ? `Per 100 g${barcodeResult.serving_hint ? ' · ' + barcodeResult.serving_hint : ''}`
           : (barcodeResult.serving_hint || ''),
@@ -309,12 +331,12 @@ export default function PreScanCameraScreen({ navigation }: Props) {
       });
       return;
     }
-    if (!photoUri || !result?.isFood) return;
+    if (!photoUri || !result || !result.isFood) return;
     navigation.navigate('LockSetupConfirm', {
       preImageUri: photoUri,
       preCheck: result,
-      preNutrition: nutrition,
-      foodName: nutrition?.food_label || result?.roastLine,
+      preNutrition: result.isFood ? nutrition : undefined,
+      foodName: result.isFood ? (nutrition?.food_label || result?.roastLine) : undefined,
     });
   };
 
@@ -329,7 +351,7 @@ export default function PreScanCameraScreen({ navigation }: Props) {
         <MaterialIcons name="camera-alt" size={46} color="#AAA" />
         <Text style={styles.permissionText}>Camera permission is required.</Text>
         <TouchableOpacity style={[styles.permissionBtn, { backgroundColor: theme.primary }]} onPress={requestPermission}>
-          <Text style={styles.permissionBtnText}>Grant access</Text>
+          <Text style={[styles.permissionBtnText, { color: theme.onPrimary }]}>Grant access</Text>
         </TouchableOpacity>
       </View>
     );
@@ -435,6 +457,7 @@ export default function PreScanCameraScreen({ navigation }: Props) {
             theme={theme}
             title={barcodeResult.name}
             accentColor={barcodeResult.source === 'not_found' ? theme.warning : theme.success}
+            confidencePercent={barcodeResult.source === 'not_found' ? undefined : 80}
             roast={barcodeResult.source === 'not_found' ? 'No nutrition data found for this barcode' : undefined}
             calories={{
               nutrition: barcodeResult.calories != null ? {
@@ -465,8 +488,8 @@ export default function PreScanCameraScreen({ navigation }: Props) {
                     : undefined
             }
             buttons={[
-              { label: 'Confirm & Start', onPress: handleContinue },
-              ...(!barcodeBeforePhotoUri
+              ...(barcodeResult.source !== 'not_found' ? [{ label: 'Confirm & Start', onPress: handleContinue }] : []),
+              ...(barcodeResult.source !== 'not_found' && !barcodeBeforePhotoUri
                 ? [{ label: '\ud83d\udcf7 Add before photo', onPress: () => setBarcodeBeforePhotoMode(true), secondary: true }]
                 : []),
               { label: 'Scan again', onPress: handleRetake, secondary: true },
@@ -522,9 +545,10 @@ export default function PreScanCameraScreen({ navigation }: Props) {
                   : 'AI unavailable'
                   : result?.isFood
                   ? (nutrition?.food_label || 'Meal detected')
-                  : 'Not food'
+                  : preScanFailureTitle(result)
             }
             accentColor={(aiError || softError) ? theme.warning : result?.isFood ? theme.success : theme.danger}
+            confidencePercent={result ? Math.round((result.confidence ?? 0) * 100) : undefined}
             roast={aiError ? undefined : roast || undefined}
             subtext={softError?.subtitle || aiError || (!result?.isFood ? result?.retakeHint : undefined) || undefined}
             calories={result?.isFood ? {
@@ -589,7 +613,7 @@ const styles = StyleSheet.create({
   permissionWrap: { justifyContent: 'center', alignItems: 'center', gap: 10 },
   permissionText: { color: '#CCC', fontSize: 14 },
   permissionBtn: { borderRadius: 18, paddingHorizontal: 20, paddingVertical: 10 },
-  permissionBtnText: { color: '#FFF', fontSize: 14, fontWeight: '700' },
+  permissionBtnText: { fontSize: 14, fontWeight: '700' },
 
   topBar: {
     position: 'absolute',

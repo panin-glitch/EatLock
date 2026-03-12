@@ -14,7 +14,6 @@ import * as ImagePicker from 'expo-image-picker';
 import { useTheme } from '../theme/ThemeProvider';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { runVisionScan, VisionVerdict } from '../services/visionApi';
-import { useAuth } from '../state/AuthContext';
 
 type ScanStatus = 'idle' | 'scanning' | 'error';
 
@@ -22,7 +21,6 @@ export default function ScanMealScreen() {
   const { theme } = useTheme();
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
-  const { isAuthenticated } = useAuth();
   const {
     mealType,
     note,
@@ -77,12 +75,6 @@ export default function ScanMealScreen() {
 
   const handleUsePhoto = async () => {
     if (!photoUri) return;
-
-    // If not authenticated, fall back to local-only flow (skip vision)
-    if (!isAuthenticated) {
-      navigateLocal(photoUri);
-      return;
-    }
 
     setScanStatus('scanning');
     setScanError('');
@@ -166,20 +158,6 @@ export default function ScanMealScreen() {
     }
   };
 
-  /** Fallback when offline / not authenticated */
-  const navigateLocal = (uri: string) => {
-    if (isAfterPhoto) {
-      navigation.navigate('SessionSummary', { mealType, note, afterPhotoPath: uri });
-    } else {
-      navigation.navigate('LockedAppsConfirm', {
-        mealType,
-        note,
-        beforePhotoPath: uri,
-        foodName,
-      });
-    }
-  };
-
   const styles = makeStyles(theme);
   const titleText = isAfterPhoto ? 'Scan Meal (After)' : 'Scan Meal (Before)';
   const subtitleText = isAfterPhoto
@@ -245,10 +223,10 @@ export default function ScanMealScreen() {
                 disabled={scanStatus === 'scanning'}
               >
                 {scanStatus === 'scanning' ? (
-                  <ActivityIndicator color="#FFF" size="small" />
+                  <ActivityIndicator color={theme.onPrimary} size="small" />
                 ) : (
                   <>
-                    <MaterialIcons name="check" size={20} color="#FFF" />
+                    <MaterialIcons name="check" size={20} color={theme.onPrimary} />
                     <Text style={styles.usePhotoBtnText}>
                       {scanStatus === 'error' ? 'Retry Scan' : 'Scan & Continue'}
                     </Text>
@@ -262,7 +240,7 @@ export default function ScanMealScreen() {
             <MaterialIcons name="camera-alt" size={64} color={theme.textMuted} />
             <Text style={styles.loadingText}>{subtitleText}</Text>
             <TouchableOpacity style={styles.openCameraBtn} onPress={openCamera}>
-              <MaterialIcons name="camera-alt" size={22} color="#FFF" />
+              <MaterialIcons name="camera-alt" size={22} color={theme.onPrimary} />
               <Text style={styles.openCameraBtnText}>Open Camera</Text>
             </TouchableOpacity>
           </View>
@@ -347,7 +325,7 @@ const makeStyles = (theme: any) =>
       borderRadius: 16,
       paddingVertical: 16,
     },
-    usePhotoBtnText: { color: '#FFF', fontSize: 16, fontWeight: '600' },
+    usePhotoBtnText: { color: theme.onPrimary, fontSize: 16, fontWeight: '600' },
     btnDisabled: { opacity: 0.6 },
     loadingContainer: { alignItems: 'center', gap: 16 },
     loadingText: { fontSize: 16, color: theme.textSecondary, textAlign: 'center' },
@@ -362,5 +340,5 @@ const makeStyles = (theme: any) =>
       paddingHorizontal: 32,
       marginTop: 12,
     },
-    openCameraBtnText: { color: '#FFF', fontSize: 16, fontWeight: '600' },
+    openCameraBtnText: { color: theme.onPrimary, fontSize: 16, fontWeight: '600' },
   });

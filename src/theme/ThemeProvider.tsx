@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { ThemeColors, ThemeName, themes, DarkGreenTheme } from './colors';
+import { ThemeColors, ThemeName, themes, LightTheme } from './colors';
 
 interface ThemeContextType {
   theme: ThemeColors;
@@ -9,23 +9,23 @@ interface ThemeContextType {
 }
 
 const ThemeContext = createContext<ThemeContextType>({
-  theme: DarkGreenTheme,
-  themeName: 'Dark',
+  theme: LightTheme,
+  themeName: 'Light',
   setThemeName: () => {},
 });
 
 export const useTheme = () => useContext(ThemeContext);
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [themeName, setThemeNameState] = useState<ThemeName>('Dark');
+  const [themeName, setThemeNameState] = useState<ThemeName>('Light');
 
   useEffect(() => {
     AsyncStorage.getItem('eatlock_theme').then((val) => {
-      if (val === 'Dark') {
-        setThemeNameState(val as ThemeName);
+      if (val === 'Light' || val === 'Dark' || val === 'Blue') {
+        setThemeNameState(val);
       } else {
-        setThemeNameState('Dark');
-        AsyncStorage.setItem('eatlock_theme', 'Dark');
+        setThemeNameState('Light');
+        AsyncStorage.setItem('eatlock_theme', 'Light');
       }
     });
   }, []);

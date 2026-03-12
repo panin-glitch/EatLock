@@ -20,7 +20,7 @@ import { signOut, updateEmail } from '../../services/authService';
 import { getDisplayName } from '../../utils/displayName';
 
 export default function ProfileScreen() {
-  const { theme } = useTheme();
+  const { theme, themeName } = useTheme();
   const { user, profile, displayName, refreshProfile } = useAuth();
   const navigation = useNavigation<any>();
 
@@ -61,24 +61,17 @@ export default function ProfileScreen() {
       }
 
       // Optional: refresh cached profile, but don't fail the save if read-back is slow/blocked
-await refreshProfile();
-
-setInitialUsername(result.username);
-setUsername(result.username);
-setSaveError(null);
-
-// Trust the saved value locally
-setInitialUsername(result.username);
-setUsername(result.username);
+      await refreshProfile().catch(() => undefined);
 
       setInitialUsername(result.username);
       setUsername(result.username);
+      setSaveError(null);
     } catch (error: any) {
       setSaveError(error?.message ?? 'Could not save profile changes.');
     } finally {
       setIsSaving(false);
     }
-  }, [loadProfile, user?.id, username]);
+  }, [refreshProfile, user?.id, username]);
 
   const handleEmailChange = useCallback(async () => {
     const trimmed = emailInput.trim();
@@ -108,7 +101,7 @@ setUsername(result.username);
         },
       },
     ]);
-  }, [navigation]);
+  }, []);
 
   const hasChanges = username.trim() !== initialUsername.trim();
   const showUsernameHint = username.trim().length > 0 && !isValidUsername(username);
@@ -116,7 +109,10 @@ setUsername(result.username);
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor={theme.background} />
+      <StatusBar
+        barStyle={themeName === 'Light' ? 'dark-content' : 'light-content'}
+        backgroundColor={theme.background}
+      />
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <MaterialIcons name="arrow-back" size={26} color={theme.text} />
@@ -176,9 +172,9 @@ setUsername(result.username);
             disabled={!emailInput.trim() || emailSaving}
           >
             {emailSaving ? (
-              <ActivityIndicator size="small" color={theme.background} />
+              <ActivityIndicator size="small" color={theme.onPrimary} />
             ) : (
-              <Text style={[styles.emailBtnText, { color: emailInput.trim() ? theme.background : theme.textMuted }]}>
+              <Text style={[styles.emailBtnText, { color: emailInput.trim() ? theme.onPrimary : theme.textMuted }]}>
                 {isAnonymous ? 'Add email' : 'Change email'}
               </Text>
             )}
@@ -197,7 +193,7 @@ setUsername(result.username);
               style={styles.signInBtn}
               onPress={() => navigation.navigate('Auth')}
             >
-              <MaterialIcons name="login" size={18} color={theme.background} />
+              <MaterialIcons name="login" size={18} color={theme.onPrimary} />
               <Text style={styles.signInText}>Sign in / Create account</Text>
             </TouchableOpacity>
           ) : null}
@@ -211,9 +207,9 @@ setUsername(result.username);
             disabled={!hasChanges || isSaving || !isValidUsername(username)}
           >
             {isSaving ? (
-              <ActivityIndicator size="small" color={theme.background} />
+              <ActivityIndicator size="small" color={theme.onPrimary} />
             ) : (
-              <Text style={[styles.saveBtnText, { color: hasChanges && isValidUsername(username) ? theme.background : theme.textMuted }]}>Save changes</Text>
+              <Text style={[styles.saveBtnText, { color: hasChanges && isValidUsername(username) ? theme.onPrimary : theme.textMuted }]}>Save changes</Text>
             )}
           </TouchableOpacity>
 
@@ -288,7 +284,7 @@ const makeStyles = (theme: any) =>
       marginBottom: 10,
       backgroundColor: theme.primary,
     },
-    signInText: { fontSize: 14, fontWeight: '700', color: theme.background },
+    signInText: { fontSize: 14, fontWeight: '700', color: theme.onPrimary },
     emailBtn: {
       borderRadius: 12,
       paddingVertical: 11,

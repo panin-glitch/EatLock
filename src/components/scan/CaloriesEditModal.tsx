@@ -109,5 +109,5 @@ const makeStyles = (c: ThemeColors) =>
       justifyContent: 'center',
       alignItems: 'center',
     },
-    btnText: { color: '#FFF', fontSize: 14, fontWeight: '700' },
+    btnText: { color: c.onPrimary, fontSize: 14, fontWeight: '700' },
   });

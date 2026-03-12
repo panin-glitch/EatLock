@@ -139,7 +139,7 @@ export default function BlockScreen() {
                   <MaterialIcons name="close" size={14} color={theme.textMuted} />
                 </TouchableOpacity>
                 <View style={styles.appTileIconWrap}>
-                  <MaterialIcons name={app.icon as any} size={24} color="#FFFFFF" />
+                  <MaterialIcons name={app.icon as any} size={24} color={theme.onPrimary} />
                 </View>
                 <Text style={styles.appTileName} numberOfLines={1}>{app.name}</Text>
               </View>
@@ -536,5 +536,5 @@ const makeStyles = (theme: any) =>
       alignItems: 'center',
       marginTop: 20,
     },
-    helpBtnText: { color: '#FFF', fontSize: 15, fontWeight: '600' },
+    helpBtnText: { color: theme.onPrimary, fontSize: 15, fontWeight: '600' },
   });

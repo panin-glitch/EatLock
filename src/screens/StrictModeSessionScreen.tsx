@@ -191,7 +191,7 @@ export default function StrictModeSessionScreen() {
           <MaterialIcons
             name="check"
             size={22}
-            color={canFinish ? '#FFF' : theme.textMuted}
+            color={canFinish ? theme.onPrimary : theme.textMuted}
           />
           <Text style={[styles.finishBtnText, !canFinish && styles.finishBtnTextDisabled]}>
             I'm done
@@ -333,7 +333,7 @@ const makeStyles = (theme: any) =>
     finishBtnDisabled: {
       backgroundColor: theme.surfaceElevated,
     },
-    finishBtnText: { color: '#FFF', fontSize: 17, fontWeight: '600' },
+    finishBtnText: { color: theme.onPrimary, fontSize: 17, fontWeight: '600' },
     finishBtnTextDisabled: { color: theme.textMuted },
     finishHint: {
       fontSize: 12,

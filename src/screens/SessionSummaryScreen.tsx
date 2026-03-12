@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -12,286 +12,504 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../theme/ThemeProvider';
 import { useAppState } from '../state/AppStateContext';
 import { useNavigation } from '@react-navigation/native';
-import { formatDuration } from '../utils/helpers';
+
+function NutrientBox({
+  label,
+  value,
+  unit,
+}: {
+  label: string;
+  value: number;
+  unit: string;
+}) {
+  return (
+    <View style={styles.metricBox}>
+      <Text style={styles.metricLabel}>{label}</Text>
+      <View style={styles.metricValueRow}>
+        <Text style={styles.metricValue}>{Math.round(value)}</Text>
+        <Text style={styles.metricUnit}>{unit}</Text>
+      </View>
+    </View>
+  );
+}
 
 export default function SessionSummaryScreen() {
-  const { theme } = useTheme();
+  const { themeName } = useTheme();
   const { sessions, updateCompletedSessionFeedback } = useAppState();
   const navigation = useNavigation<any>();
 
-  // Grab the most recently completed session
   const session = sessions.length > 0 ? sessions[sessions.length - 1] : null;
 
-  const duration = session
-    ? new Date(session.endedAt ?? session.startedAt).getTime() - new Date(session.startedAt).getTime()
-    : 0;
-
-  const verdict = session?.verification?.compareResult?.verdict;
-  const roast = session?.roastMessage;
-  const foodChangeScore = session?.verification?.compareResult?.foodChangeScore;
-
-  const verdictIcon =
-    verdict === 'EATEN' ? 'emoji-events' :
-    verdict === 'PARTIAL' ? 'pie-chart' :
-    verdict === 'UNCHANGED' ? 'sentiment-dissatisfied' :
-    'help-outline';
-
-  const verdictColor =
-    verdict === 'EATEN' ? theme.success :
-    verdict === 'PARTIAL' ? theme.warning :
-    verdict === 'UNCHANGED' ? theme.danger :
-    theme.textSecondary;
-
-  const verdictLabel =
-    verdict === 'EATEN' ? 'Meal Finished!' :
-    verdict === 'PARTIAL' ? 'Partially Eaten' :
-    verdict === 'UNCHANGED' ? 'Not Eaten' :
-    session?.status === 'INCOMPLETE' ? 'Session Ended' :
-    'Meal Complete';
-
-  const statusBadgeText =
-    session?.status === 'VERIFIED' ? 'Verified' :
-    session?.status === 'PARTIAL' ? 'Partial' :
-    session?.status === 'FAILED' ? 'Failed' :
-    session?.status === 'INCOMPLETE' ? 'Incomplete' :
-    'Done';
-
-  const [distractionRating, setDistractionRating] = useState<number>(session?.distractionRating ?? 0);
+  const [distractionRating, setDistractionRating] = useState<number>(session?.distractionRating ?? 3);
   const [distractionMinutes, setDistractionMinutes] = useState<number>(session?.estimatedDistractionMinutes ?? 0);
+  const [focusLevel, setFocusLevel] = useState<number>(() => {
+    const rating = session?.distractionRating ?? 3;
+    if (rating <= 2) return 0;
+    if (rating >= 4) return 2;
+    return 1;
+  });
 
-  const minuteOptions = useMemo(() => [0, 5, 10, 15, 20], []);
+  const nutrition = session?.preNutrition;
+  const mealTitle = session?.foodName || nutrition?.food_label || 'Meal logged';
+  const mealSubtitle = nutrition?.notes ? `Portion: ${nutrition.notes}` : 'Portion: 1 serving';
+  const distractionLabel = focusLevel === 0 ? 'Poor' : focusLevel === 1 ? 'Medium' : 'Great';
+
+  const onFocusChange = (level: number) => {
+    setFocusLevel(level);
+    if (level === 0) {
+      setDistractionRating(1);
+      if ((session?.estimatedDistractionMinutes ?? 0) === 0) setDistractionMinutes(15);
+    } else if (level === 1) {
+      setDistractionRating(3);
+      if ((session?.estimatedDistractionMinutes ?? 0) === 0) setDistractionMinutes(8);
+    } else {
+      setDistractionRating(5);
+      if ((session?.estimatedDistractionMinutes ?? 0) === 0) setDistractionMinutes(2);
+    }
+  };
 
   const handleDone = async () => {
-    if (session && distractionRating > 0) {
+    if (session) {
       await updateCompletedSessionFeedback(session.id, distractionRating, distractionMinutes);
     }
+
     navigation.reset({
       index: 0,
       routes: [{ name: 'Main' }],
     });
   };
 
-  const s = makeStyles(theme);
+  const sliderPercent = focusLevel * 50;
 
   return (
-    <View style={s.container}>
-      <StatusBar barStyle="light-content" backgroundColor={theme.background} />
+    <View style={styles.container}>
+      <StatusBar
+        barStyle={themeName === 'Light' ? 'dark-content' : 'light-content'}
+        backgroundColor="#F6F8F6"
+      />
 
-      <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
-        {/* Verdict icon */}
-        <MaterialIcons name={verdictIcon as any} size={72} color={verdictColor} />
-        <Text style={[s.title, { color: verdictColor }]}>{verdictLabel}</Text>
+      <View style={styles.header}>
+        <TouchableOpacity style={styles.headerIconBtn} onPress={() => navigation.goBack()}>
+          <MaterialIcons name="arrow-back" size={22} color="#0F172A" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Meal Summary</Text>
+        <View style={{ width: 40 }} />
+      </View>
 
-        {/* Status badge */}
-        <View style={[s.badge, { backgroundColor: verdictColor + '22' }]}>
-          <Text style={[s.badgeText, { color: verdictColor }]}>{statusBadgeText}</Text>
-          {foodChangeScore != null && (
-            <Text style={[s.badgeText, { color: verdictColor }]}> — {Math.round(foodChangeScore * 100)}% eaten</Text>
-          )}
-        </View>
-
-        {/* Roast / praise */}
-        {roast ? (
-          <View style={[s.roastCard, { borderColor: verdictColor + '44' }]}>
-            <Text style={s.roastText}>"{roast}"</Text>
-          </View>
-        ) : null}
-
-        {/* Before / After thumbnails */}
-        {(session?.preImageUri || session?.postImageUri) && (
-          <View style={s.photoRow}>
-            {session?.preImageUri && (
-              <View style={s.photoWrap}>
-                <Text style={s.photoLabel}>Before</Text>
-                <Image source={{ uri: session.preImageUri }} style={s.photoThumb} />
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <View style={styles.heroCard}>
+          <View style={styles.heroImageZone}>
+            <View style={styles.afterPhotoCard}>
+              {session?.postImageUri ? (
+                <Image source={{ uri: session.postImageUri }} style={styles.heroPhoto} />
+              ) : (
+                <View style={styles.heroPhotoPlaceholder} />
+              )}
+              <View style={styles.afterBadge}>
+                <Text style={styles.afterBadgeText}>After</Text>
               </View>
-            )}
-            {session?.postImageUri && (
-              <View style={s.photoWrap}>
-                <Text style={s.photoLabel}>After</Text>
-                <Image source={{ uri: session.postImageUri }} style={s.photoThumb} />
+            </View>
+
+            <View style={styles.beforePhotoCard}>
+              {session?.preImageUri ? (
+                <Image source={{ uri: session.preImageUri }} style={styles.heroPhoto} />
+              ) : (
+                <View style={styles.heroPhotoPlaceholder} />
+              )}
+              <View style={styles.beforeBadge}>
+                <Text style={styles.beforeBadgeText}>Before</Text>
               </View>
-            )}
-          </View>
-        )}
-
-        {/* Stats */}
-        <View style={s.statCard}>
-          <View style={s.statRow}>
-            <MaterialIcons name="timer" size={22} color={theme.primary} />
-            <View>
-              <Text style={s.statLabel}>Duration</Text>
-              <Text style={s.statValue}>{formatDuration(duration)}</Text>
             </View>
           </View>
-        </View>
 
-        <View style={s.statCard}>
-          <View style={s.statRow}>
-            <MaterialIcons name="lock" size={22} color={theme.primary} />
-            <View>
-              <Text style={s.statLabel}>Apps Blocked</Text>
-              <Text style={s.statValue}>{session?.blockedAppsAtTime?.length ?? 0}</Text>
-            </View>
-          </View>
-        </View>
+          <View style={styles.heroBody}>
+            <View style={styles.titleRow}>
+              <View style={{ flex: 1, paddingRight: 10 }}>
+                <Text style={styles.mealTitle}>{mealTitle}</Text>
+                <Text style={styles.mealSubtitle}>{mealSubtitle}</Text>
+              </View>
 
-        <View style={s.statCard}>
-          <View style={s.statRow}>
-            <MaterialIcons name="restaurant" size={22} color={theme.primary} />
-            <View>
-              <Text style={s.statLabel}>Meal Type</Text>
-              <Text style={s.statValue}>{session?.mealType ?? '—'}</Text>
-            </View>
-          </View>
-        </View>
-
-        <View style={s.statCard}>
-          <Text style={s.statLabel}>Distraction Rating</Text>
-          <View style={s.ratingRow}>
-            {[1, 2, 3, 4, 5].map((n) => (
-              <TouchableOpacity key={n} onPress={() => setDistractionRating(n)}>
-                <MaterialIcons
-                  name={n <= distractionRating ? 'star' : 'star-border'}
-                  size={26}
-                  color={n <= distractionRating ? '#FF9500' : theme.textMuted}
-                />
+              <TouchableOpacity style={styles.editButton}>
+                <MaterialIcons name="edit" size={18} color="#CA8A04" />
+                <Text style={styles.editButtonText}>Edit</Text>
               </TouchableOpacity>
-            ))}
-          </View>
-          <Text style={[s.statLabel, { marginTop: 12 }]}>Estimated distraction time</Text>
-          <View style={s.minutesRow}>
-            {minuteOptions.map((m) => {
-              const selectedMinutes = distractionMinutes === m;
-              return (
-                <TouchableOpacity
-                  key={m}
-                  onPress={() => setDistractionMinutes(m)}
-                  style={[
-                    s.minuteChip,
-                    {
-                      backgroundColor: selectedMinutes ? theme.primary + '22' : theme.surfaceElevated,
-                      borderColor: selectedMinutes ? theme.primary : theme.border,
-                    },
-                  ]}
-                >
-                  <Text
-                    style={{
-                      color: selectedMinutes ? theme.primary : theme.textSecondary,
-                      fontSize: 12,
-                      fontWeight: '700',
-                    }}
-                  >
-                    {m} min
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
+            </View>
+
+            <View style={styles.metricsGrid}>
+              <NutrientBox label="Calories" value={nutrition?.estimated_calories ?? 0} unit="kcal" />
+              <NutrientBox label="Protein" value={nutrition?.protein_g ?? 0} unit="g" />
+              <NutrientBox label="Carbs" value={nutrition?.carbs_g ?? 0} unit="g" />
+              <NutrientBox label="Fat" value={nutrition?.fat_g ?? 0} unit="g" />
+            </View>
           </View>
         </View>
 
-        {session?.overrideUsed && (
-          <View style={[s.overrideBadge, { backgroundColor: theme.warning + '22' }]}>
-            <MaterialIcons name="warning" size={16} color={theme.warning} />
-            <Text style={[s.overrideText, { color: theme.warning }]}>
-              Verification was skipped
-            </Text>
-          </View>
-        )}
+        <View style={styles.focusSection}>
+          <Text style={styles.focusTitle}>Were you distracted while eating?</Text>
 
-        {/* Done button */}
-        <TouchableOpacity style={[s.doneBtn, { backgroundColor: theme.primary }]} onPress={handleDone}>
-          <Text style={s.doneBtnText}>Done</Text>
+          <View style={styles.focusCard}>
+            <View style={styles.focusHeaderRow}>
+              <Text style={styles.focusLabel}>Distraction Level</Text>
+              <View style={styles.focusBadge}>
+                <Text style={styles.focusBadgeText}>{distractionLabel}</Text>
+              </View>
+            </View>
+
+            <View style={styles.sliderWrap}>
+              <View style={styles.sliderRail} />
+              <View style={[styles.sliderFill, { width: `${sliderPercent}%` }]} />
+              <View style={[styles.sliderThumb, { left: `${sliderPercent}%` }]} />
+
+              <View style={styles.sliderStopsRow}>
+                {[0, 1, 2].map((level) => (
+                  <TouchableOpacity
+                    key={level}
+                    style={styles.sliderStopTouch}
+                    onPress={() => onFocusChange(level)}
+                    activeOpacity={0.8}
+                  />
+                ))}
+              </View>
+            </View>
+
+            <View style={styles.sliderLabelsRow}>
+              <Text style={styles.sliderLabel}>Poor</Text>
+              <Text style={styles.sliderLabel}>Medium</Text>
+              <Text style={styles.sliderLabel}>Great</Text>
+            </View>
+          </View>
+        </View>
+
+        <TouchableOpacity style={styles.logMealBtn} onPress={handleDone} activeOpacity={0.9}>
+          <Text style={styles.logMealText}>LOG MEAL</Text>
+          <MaterialIcons name="chevron-right" size={20} color="#FFFFFF" />
         </TouchableOpacity>
       </ScrollView>
     </View>
   );
 }
 
-const makeStyles = (c: any) =>
-  StyleSheet.create({
-    container: { flex: 1, backgroundColor: c.background },
-    content: {
-      alignItems: 'center',
-      paddingHorizontal: 28,
-      paddingTop: 60,
-      paddingBottom: 40,
-    },
-    title: {
-      fontSize: 28,
-      fontWeight: '700',
-      marginTop: 16,
-      marginBottom: 8,
-    },
-    badge: {
-      flexDirection: 'row',
-      paddingHorizontal: 16,
-      paddingVertical: 6,
-      borderRadius: 16,
-      marginBottom: 20,
-    },
-    badgeText: { fontSize: 14, fontWeight: '600' },
-    roastCard: {
-      width: '100%',
-      backgroundColor: c.primaryDim,
-      borderRadius: 16,
-      padding: 16,
-      marginBottom: 20,
-      alignItems: 'center',
-      borderWidth: 1,
-    },
-    roastText: {
-      color: c.text,
-      fontSize: 15,
-      fontStyle: 'italic',
-      textAlign: 'center',
-      lineHeight: 22,
-    },
-    photoRow: {
-      flexDirection: 'row',
-      gap: 12,
-      marginBottom: 20,
-      width: '100%',
-      justifyContent: 'center',
-    },
-    photoWrap: { alignItems: 'center' },
-    photoLabel: { fontSize: 11, color: c.textMuted, fontWeight: '600', marginBottom: 4 },
-    photoThumb: { width: 100, height: 100, borderRadius: 12 },
-    statCard: {
-      width: '100%',
-      backgroundColor: c.card,
-      borderRadius: 16,
-      padding: 16,
-      marginBottom: 12,
-      borderWidth: 1,
-      borderColor: c.border,
-    },
-    statRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
-    ratingRow: { flexDirection: 'row', gap: 6, marginTop: 6 },
-    minutesRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },
-    minuteChip: {
-      borderRadius: 12,
-      borderWidth: 1,
-      paddingHorizontal: 10,
-      paddingVertical: 7,
-    },
-    statLabel: { fontSize: 13, color: c.textSecondary },
-    statValue: { fontSize: 20, fontWeight: '700', color: c.text },
-    overrideBadge: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 8,
-      paddingHorizontal: 14,
-      paddingVertical: 10,
-      borderRadius: 12,
-      marginBottom: 20,
-    },
-    overrideText: { fontSize: 13, fontWeight: '600' },
-    doneBtn: {
-      borderRadius: 16,
-      paddingVertical: 16,
-      paddingHorizontal: 56,
-      marginTop: 12,
-    },
-    doneBtnText: { color: '#FFF', fontSize: 17, fontWeight: '600' },
-  });
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#F6F8F6',
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: 54,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    backgroundColor: 'rgba(255,255,255,0.92)',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(250,204,21,0.14)',
+  },
+  headerIconBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerTitle: {
+    color: '#0F172A',
+    fontSize: 18,
+    fontWeight: '800',
+    letterSpacing: 0.1,
+  },
+  content: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 28,
+  },
+  heroCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(250,204,21,0.14)',
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  heroImageZone: {
+    height: 174,
+    backgroundColor: '#F8FAFC',
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'relative',
+  },
+  afterPhotoCard: {
+    position: 'absolute',
+    top: 30,
+    right: 28,
+    width: 160,
+    height: 112,
+    borderRadius: 10,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#E2E8F0',
+    transform: [{ rotate: '2deg' }],
+    opacity: 0.85,
+    zIndex: 1,
+  },
+  beforePhotoCard: {
+    position: 'absolute',
+    top: 18,
+    left: 26,
+    width: 160,
+    height: 112,
+    borderRadius: 10,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#E2E8F0',
+    transform: [{ rotate: '-1deg' }],
+    zIndex: 2,
+  },
+  heroPhoto: {
+    width: '100%',
+    height: '100%',
+  },
+  heroPhotoPlaceholder: {
+    flex: 1,
+    backgroundColor: '#CBD5E1',
+  },
+  beforeBadge: {
+    position: 'absolute',
+    right: 8,
+    bottom: 8,
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    backgroundColor: '#FACC15',
+  },
+  beforeBadgeText: {
+    color: '#0F172A',
+    fontSize: 10,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+  afterBadge: {
+    position: 'absolute',
+    right: 8,
+    bottom: 8,
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+  },
+  afterBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+  heroBody: {
+    paddingHorizontal: 14,
+    paddingBottom: 14,
+    paddingTop: 12,
+  },
+  titleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 12,
+  },
+  mealTitle: {
+    color: '#0F172A',
+    fontSize: 24,
+    lineHeight: 30,
+    fontWeight: '800',
+  },
+  mealSubtitle: {
+    marginTop: 2,
+    color: '#64748B',
+    fontSize: 13,
+  },
+  editButton: {
+    borderRadius: 10,
+    backgroundColor: 'rgba(250,204,21,0.16)',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  editButtonText: {
+    marginLeft: 4,
+    color: '#CA8A04',
+    fontSize: 11,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  metricsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  metricBox: {
+    width: '48.3%',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(250,204,21,0.12)',
+    backgroundColor: '#FFFBEB',
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    marginBottom: 10,
+  },
+  metricLabel: {
+    color: '#64748B',
+    fontSize: 11,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+  metricValueRow: {
+    marginTop: 3,
+    flexDirection: 'row',
+    alignItems: 'baseline',
+  },
+  metricValue: {
+    color: '#0F172A',
+    fontSize: 26,
+    fontWeight: '800',
+    lineHeight: 30,
+    marginRight: 3,
+  },
+  metricUnit: {
+    color: '#94A3B8',
+    fontSize: 11,
+    fontWeight: '500',
+  },
+  focusSection: {
+    marginTop: 12,
+  },
+  focusTitle: {
+    color: '#0F172A',
+    fontSize: 17,
+    fontWeight: '700',
+    marginBottom: 10,
+    paddingHorizontal: 2,
+  },
+  focusCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(250,204,21,0.14)',
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  focusHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  focusLabel: {
+    color: '#94A3B8',
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+  },
+  focusBadge: {
+    borderRadius: 999,
+    backgroundColor: 'rgba(250,204,21,0.16)',
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+  },
+  focusBadgeText: {
+    color: '#CA8A04',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  sliderWrap: {
+    marginTop: 16,
+    height: 24,
+    justifyContent: 'center',
+  },
+  sliderRail: {
+    position: 'absolute',
+    left: 2,
+    right: 2,
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: '#E2E8F0',
+  },
+  sliderFill: {
+    position: 'absolute',
+    left: 2,
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: '#FACC15',
+  },
+  sliderThumb: {
+    position: 'absolute',
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#FACC15',
+    transform: [{ translateX: -10 }],
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.12,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  sliderStopsRow: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  sliderStopTouch: {
+    width: 32,
+    height: 24,
+  },
+  sliderLabelsRow: {
+    marginTop: 8,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  sliderLabel: {
+    color: '#94A3B8',
+    fontSize: 10,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+  logMealBtn: {
+    marginTop: 18,
+    height: 56,
+    borderRadius: 14,
+    backgroundColor: '#0F172A',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 4,
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.16,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
+  },
+  logMealText: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '800',
+    letterSpacing: 0.4,
+  },
+});

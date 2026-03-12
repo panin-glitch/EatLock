@@ -1,7 +1,16 @@
-import React, { useMemo, useCallback, useRef, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, StatusBar, TouchableOpacity, Image, ImageBackground } from 'react-native';
+import React, { useMemo, useCallback, useRef, useState, useEffect } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  StatusBar,
+  TouchableOpacity,
+  Image,
+  ImageBackground,
+  Alert,
+} from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import * as Haptics from 'expo-haptics';
 import Svg, { Circle } from 'react-native-svg';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -9,22 +18,28 @@ import { useTheme } from '../theme/ThemeProvider';
 import { useAppState } from '../state/AppStateContext';
 import { useAuth } from '../state/AuthContext';
 import { computeMacroTargetsFromCalories, computeStreak, getSessionDuration, getSessionsForDate } from '../utils/helpers';
+import { MACRO_COLORS } from '../theme/macroColors';
 import TodaysMealsList from '../components/home/TodaysMealsList';
 import { HEADER_BOTTOM_PADDING, HEADER_HORIZONTAL_PADDING } from '../components/common/ScreenHeader';
 import { DEFAULT_DAILY_CALORIE_GOAL, DEFAULT_MACRO_SPLIT } from '../types/models';
+import { triggerLightHaptic } from '../services/haptics';
 
 const tadlockImg = require('../../assets/tadlock.gif');
+const MIN_MEAL_MS = 5 * 60 * 1000;
 
 export default function HomeScreen() {
-  const { theme } = useTheme();
+  const { theme, themeName } = useTheme();
   const insets = useSafeAreaInsets();
-  const { settings, activeSession, sessions } = useAppState();
+  const { settings, activeSession, sessions, updateSettings, isLoading } = useAppState();
   const { displayName, profile, refreshProfile } = useAuth();
   const navigation = useNavigation<any>();
   const dateStripRef = useRef<ScrollView>(null);
   const hasPositionedDateStrip = useRef(false);
+  const previousStreakRef = useRef<number | null>(null);
+  const firstAchievementTriggeredRef = useRef(false);
 
   const [selectedDate, setSelectedDate] = useState(new Date());
+  const [durationNowMs, setDurationNowMs] = useState(() => Date.now());
   const dateStripDates = useMemo(() => {
     const today = new Date();
     const daysBack = 12 * 7; // 12 weeks past
@@ -39,20 +54,48 @@ export default function HomeScreen() {
   const dayCellWidth = 50;
   const selectedSessions = useMemo(() => getSessionsForDate(sessions, selectedDate), [sessions, selectedDate]);
   const completedSelectedSessions = useMemo(() => selectedSessions.filter((s) => !!s.endedAt), [selectedSessions]);
+  const isSelectedDateToday = useMemo(() => {
+    const now = new Date();
+    return now.toDateString() === selectedDate.toDateString();
+  }, [selectedDate]);
+  const hasActiveSelectedSession = useMemo(
+    () => selectedSessions.some((session) => session.status === 'ACTIVE' && !session.endedAt),
+    [selectedSessions],
+  );
+  const hasActiveMealInProgress = !!activeSession && activeSession.status === 'ACTIVE' && !activeSession.endedAt;
+  const activeMealElapsedMs = useMemo(() => {
+    if (!activeSession) return 0;
+    const startedAtMs = new Date(activeSession.startedAt).getTime();
+    return Math.max(0, durationNowMs - startedAtMs);
+  }, [activeSession, durationNowMs]);
+  const activeMealCanFinish = hasActiveMealInProgress && activeMealElapsedMs >= MIN_MEAL_MS;
+  const activeMealRemainingMs = Math.max(0, MIN_MEAL_MS - activeMealElapsedMs);
+  const activeMealCardTextColor = activeMealCanFinish ? '#FFFFFF' : theme.onPrimary;
+  const activeMealCardSubtleTextColor = activeMealCanFinish ? 'rgba(255,255,255,0.92)' : 'rgba(15,23,42,0.72)';
+  const activeMealCardActionBg = activeMealCanFinish ? 'rgba(255,255,255,0.2)' : 'rgba(15,23,42,0.12)';
 
   const { current: streak } = useMemo(() => computeStreak(sessions), [sessions]);
   const unreadNotifications = !!activeSession;
+
+  useEffect(() => {
+    const shouldTick = hasActiveMealInProgress || (isSelectedDateToday && hasActiveSelectedSession);
+    if (!shouldTick) return;
+    const timerId = setInterval(() => {
+      setDurationNowMs(Date.now());
+    }, 1000);
+    return () => clearInterval(timerId);
+  }, [hasActiveMealInProgress, hasActiveSelectedSession, isSelectedDateToday]);
 
   const timeSpentMinutes = useMemo(() => {
     const totalMs = selectedSessions.reduce((sum, session) => {
       if (session.endedAt) return sum + getSessionDuration(session);
       if (session.status === 'ACTIVE') {
-        return sum + (Date.now() - new Date(session.startedAt).getTime());
+        return sum + Math.max(0, durationNowMs - new Date(session.startedAt).getTime());
       }
       return sum;
     }, 0);
     return Math.max(0, Math.round(totalMs / 60000));
-  }, [selectedSessions]);
+  }, [durationNowMs, selectedSessions]);
 
   const gaugeColor = timeSpentMinutes <= 30 ? '#3B82F6' : timeSpentMinutes <= 60 ? '#8B5CF6' : '#FF453A';
   const gaugeProgress = Math.min(timeSpentMinutes / 90, 1);
@@ -97,7 +140,7 @@ export default function HomeScreen() {
   const quips = ['Small bites, big wins 🐸', 'You got this 💪', 'Stay steady, Tadlock style 🐸'];
   const showQuips = settings.homeWidgets.showTruthBomb ?? true;
   const quip = quips[now.getDay() % quips.length];
-  const lightHaptic = () => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+  const lightHaptic = () => triggerLightHaptic(settings.app.hapticsEnabled);
 
   useFocusEffect(
     useCallback(() => {
@@ -105,10 +148,68 @@ export default function HomeScreen() {
     }, [refreshProfile]),
   );
 
+  useEffect(() => {
+    if (settings.streak?.firstAchievementShown) {
+      firstAchievementTriggeredRef.current = true;
+    }
+  }, [settings.streak?.firstAchievementShown]);
+
+  useEffect(() => {
+    if (isLoading) return;
+
+    const previousStreak = previousStreakRef.current;
+    if (previousStreak === null) {
+      previousStreakRef.current = streak;
+      return;
+    }
+
+    if (!firstAchievementTriggeredRef.current && previousStreak < 1 && streak >= 1) {
+      firstAchievementTriggeredRef.current = true;
+      updateSettings({
+        ...settings,
+        streak: {
+          ...(settings.streak ?? { firstAchievementShown: false }),
+          firstAchievementShown: true,
+        },
+      }).catch(() => {});
+      navigation.push('StreakAchievement', { days: 1 });
+    }
+
+    previousStreakRef.current = streak;
+  }, [isLoading, navigation, settings, streak, updateSettings]);
+
+  const openMealInProgress = useCallback(() => {
+    if (!activeSession) return;
+    lightHaptic();
+    navigation.push('MealSessionActive', {
+      mealType: activeSession.mealType,
+      preBarcodeData: activeSession.preBarcodeData,
+      barcode: activeSession.barcode,
+    });
+  }, [activeSession, navigation, settings.app.hapticsEnabled]);
+
+  const openPostMealCapture = useCallback(() => {
+    if (!activeSession) return;
+
+    const isBarcodeSession = !!(activeSession.preBarcodeData || activeSession.barcode);
+    if (!activeSession.preImageUri && !isBarcodeSession) {
+      Alert.alert('Before photo required', 'Return to your active meal to finish this session.');
+      openMealInProgress();
+      return;
+    }
+
+    lightHaptic();
+    navigation.push('PostScanCamera', {
+      preImageUri: activeSession.preImageUri,
+      isBarcodeSession,
+      previousBarcode: activeSession.barcode || activeSession.preBarcodeData?.data,
+    });
+  }, [activeSession, navigation, settings.app.hapticsEnabled, openMealInProgress]);
+
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       <StatusBar
-        barStyle={'light-content'}
+        barStyle={themeName === 'Light' ? 'dark-content' : 'light-content'}
         backgroundColor={theme.background}
       />
 
@@ -126,7 +227,7 @@ export default function HomeScreen() {
           style={[styles.avatar, { backgroundColor: theme.surface }]}
           onPress={() => {
             lightHaptic();
-            navigation.navigate('Settings');
+            navigation.push('Settings');
           }}
           activeOpacity={0.8}
         >
@@ -143,15 +244,22 @@ export default function HomeScreen() {
         </View>
 
         <View style={styles.headerIconsRow}>
-          <View style={[styles.streakPill, { backgroundColor: theme.surface }]}> 
+          <TouchableOpacity
+            style={[styles.streakPill, { backgroundColor: theme.surface }]}
+            onPress={() => {
+              lightHaptic();
+              navigation.push('StreakDetails');
+            }}
+            activeOpacity={0.8}
+          >
             <MaterialIcons name="local-fire-department" size={14} color={theme.warning} />
             <Text style={[styles.streakText, { color: theme.text }]}>Streak {streak}</Text>
-          </View>
+          </TouchableOpacity>
           <TouchableOpacity
             style={[styles.iconBtn, { backgroundColor: theme.surface }]}
             onPress={() => {
               lightHaptic();
-              navigation.navigate('Planner');
+              navigation.push('Planner');
             }}
           > 
             <MaterialIcons name="calendar-today" size={18} color={theme.textSecondary} />
@@ -160,7 +268,7 @@ export default function HomeScreen() {
             style={[styles.iconBtn, { backgroundColor: theme.surface }]}
             onPress={() => {
               lightHaptic();
-              navigation.navigate('NotificationHelp');
+              navigation.push('NotificationHelp');
             }}
           > 
             <MaterialIcons name="notifications-none" size={19} color={theme.textSecondary} />
@@ -193,14 +301,42 @@ export default function HomeScreen() {
                   { backgroundColor: isSelected ? theme.primary : theme.surface },
                 ]}
               >
-                <Text style={[styles.dayLetter, { color: isSelected ? theme.background : theme.textSecondary }]}>
+                <Text style={[styles.dayLetter, { color: isSelected ? '#0F172A' : theme.textSecondary }]}>
                   {['S', 'M', 'T', 'W', 'T', 'F', 'S'][date.getDay()]}
                 </Text>
-                <Text style={[styles.dayNum, { color: isSelected ? theme.background : theme.text }]}>{date.getDate()}</Text>
+                <Text style={[styles.dayNum, { color: isSelected ? '#0F172A' : theme.text }]}>{date.getDate()}</Text>
               </TouchableOpacity>
             );
           })}
         </ScrollView>
+
+        {hasActiveMealInProgress ? (
+          <View
+            style={[
+              styles.mealInProcessCard,
+              { backgroundColor: activeMealCanFinish ? '#3B82F6' : theme.primary },
+            ]}
+          >
+            <View style={styles.mealInProcessBody}>
+              <Text style={[styles.mealInProcessTitle, { color: activeMealCardTextColor }]}>Meal in process · {activeSession?.mealType}</Text>
+              <Text style={[styles.mealInProcessSubtitle, { color: activeMealCardSubtleTextColor }]}>
+                {activeMealCanFinish
+                  ? `${formatElapsed(activeMealElapsedMs)} elapsed`
+                  : `${formatElapsed(activeMealElapsedMs)} elapsed · ${formatRemaining(activeMealRemainingMs)} left`}
+              </Text>
+            </View>
+
+            {activeMealCanFinish ? (
+              <TouchableOpacity style={[styles.mealInProcessDone, { backgroundColor: activeMealCardActionBg }]} onPress={openPostMealCapture} activeOpacity={0.85}>
+                <Text style={[styles.mealInProcessDoneText, { color: activeMealCardTextColor }]}>I'm done</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity style={[styles.mealInProcessArrow, { backgroundColor: activeMealCardActionBg }]} onPress={openMealInProgress} activeOpacity={0.85}>
+                <MaterialIcons name="chevron-right" size={20} color={activeMealCardTextColor} />
+              </TouchableOpacity>
+            )}
+          </View>
+        ) : null}
 
         <View style={[styles.gaugeCard, { backgroundColor: theme.surface }]}> 
           <Text style={[styles.gaugeLabel, { color: theme.textSecondary }]}>Time spent eating today</Text>
@@ -209,7 +345,7 @@ export default function HomeScreen() {
               progress={gaugeProgress}
               color={gaugeColor}
               trackColor={theme.border}
-              overlayColor={theme.background === '#F2F2F7' ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.25)'}
+              overlayColor={themeName === 'Light' ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.25)'}
             />
             <View>
               <Text style={[styles.gaugeValue, { color: theme.text }]}>{timeSpentMinutes} min</Text>
@@ -223,7 +359,7 @@ export default function HomeScreen() {
             label="Calories today"
             value={macroStats.caloriesValue}
             progress={macroStats.caloriesProgress}
-            color="#FF9F0A"
+            color={MACRO_COLORS.fat}
             trackColor={theme.surfaceElevated}
             textColor={theme.text}
             labelColor={theme.textSecondary}
@@ -232,7 +368,7 @@ export default function HomeScreen() {
             label="Protein today"
             value={macroStats.proteinValue}
             progress={macroStats.proteinProgress}
-            color="#8B5CF6"
+            color={MACRO_COLORS.protein}
             trackColor={theme.surfaceElevated}
             textColor={theme.text}
             labelColor={theme.textSecondary}
@@ -241,7 +377,7 @@ export default function HomeScreen() {
             label="Carbs today"
             value={macroStats.carbsValue}
             progress={macroStats.carbsProgress}
-            color="#3B82F6"
+            color={MACRO_COLORS.carbs}
             trackColor={theme.surfaceElevated}
             textColor={theme.text}
             labelColor={theme.textSecondary}
@@ -250,7 +386,7 @@ export default function HomeScreen() {
             label="Fat today"
             value={macroStats.fatValue}
             progress={macroStats.fatProgress}
-            color="#FF453A"
+            color={MACRO_COLORS.fat}
             trackColor={theme.surfaceElevated}
             textColor={theme.text}
             labelColor={theme.textSecondary}
@@ -369,6 +505,22 @@ function MacroRing({
   );
 }
 
+function formatElapsed(ms: number): string {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const mins = Math.floor(totalSeconds / 60)
+    .toString()
+    .padStart(2, '0');
+  const secs = (totalSeconds % 60).toString().padStart(2, '0');
+  return `${mins}:${secs}`;
+}
+
+function formatRemaining(ms: number): string {
+  const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
+  const mins = Math.floor(totalSeconds / 60);
+  const secs = (totalSeconds % 60).toString().padStart(2, '0');
+  return `${mins}:${secs}`;
+}
+
 const styles = StyleSheet.create({
   container: { flex: 1 },
   headerRow: {
@@ -386,10 +538,10 @@ const styles = StyleSheet.create({
   iconBtn: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
   redDot: { position: 'absolute', top: 6, right: 6, width: 7, height: 7, borderRadius: 3.5, backgroundColor: '#FF3B30' },
   scroll: {
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
     paddingBottom: 32,
     paddingTop: 8,
-    gap: 12,
+    gap: 14,
   },
   weekStrip: {
     flexDirection: 'row',
@@ -398,17 +550,67 @@ const styles = StyleSheet.create({
   },
   dayCell: {
     width: 42,
-    borderRadius: 12,
-    paddingVertical: 7,
+    borderRadius: 16,
+    paddingVertical: 8,
     alignItems: 'center',
   },
   dayCellSpaced: { marginRight: 8 },
-  dayLetter: { fontSize: 11, fontWeight: '700' },
-  dayNum: { fontSize: 15, fontWeight: '800', marginTop: 1 },
-  gaugeCard: { borderRadius: 20, padding: 14, marginTop: 10 },
-  gaugeLabel: { fontSize: 14, fontWeight: '700' },
+  dayLetter: { fontSize: 11, fontWeight: '600' },
+  dayNum: { fontSize: 16, fontWeight: '700', marginTop: 1 },
+  mealInProcessCard: {
+    marginTop: 8,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  mealInProcessBody: {
+    flex: 1,
+    paddingRight: 10,
+  },
+  mealInProcessTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  mealInProcessSubtitle: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  mealInProcessArrow: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.2)',
+  },
+  mealInProcessDone: {
+    height: 34,
+    borderRadius: 17,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.2)',
+  },
+  mealInProcessDoneText: {
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  gaugeCard: {
+    borderRadius: 22,
+    padding: 16,
+    marginTop: 10,
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.06,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 2,
+  },
+  gaugeLabel: { fontSize: 12, fontWeight: '600' },
   gaugeInnerRow: { flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 8 },
-  gaugeValue: { fontSize: 32, fontWeight: '800' },
+  gaugeValue: { fontSize: 28, fontWeight: '800' },
   gaugeHint: { fontSize: 12, marginTop: 2, maxWidth: 180 },
   gaugeWrap: {
     width: 108,
@@ -433,7 +635,7 @@ const styles = StyleSheet.create({
   macrosRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: 4,
+    marginTop: 8,
     marginBottom: 4,
   },
   macroItem: { alignItems: 'center', width: '24%' },
