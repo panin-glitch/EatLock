@@ -8,10 +8,10 @@
 
 import type { Env } from './index';
 import { createClient } from '@supabase/supabase-js';
+import { consumeRateLimit, limitsEnforced, serviceKey } from './limits';
 
-function serviceKey(env: Env): string {
-  return env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SERVICE_KEY || '';
-}
+const SHORT_WINDOW_SECONDS = 60;
+const FOOD_LABEL_BURST_LIMIT = 30;
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -68,6 +68,26 @@ export async function handleUpdateFoodLabel(
 ): Promise<Response> {
   const auth = await getUser(request, env);
   if (auth instanceof Response) return auth;
+  const enforce = limitsEnforced(env);
+  const ip = request.headers.get('CF-Connecting-IP') || request.headers.get('x-forwarded-for') || 'unknown';
+
+  if (enforce) {
+    const userAllowed = await consumeRateLimit(
+      env,
+      `food-label:user:${auth.user_id}`,
+      FOOD_LABEL_BURST_LIMIT,
+      SHORT_WINDOW_SECONDS,
+    );
+    const ipAllowed = await consumeRateLimit(
+      env,
+      `food-label:ip:${ip}`,
+      FOOD_LABEL_BURST_LIMIT * 2,
+      SHORT_WINDOW_SECONDS,
+    );
+    if (!userAllowed.allowed || !ipAllowed.allowed) {
+      return err('Too many food label updates. Please slow down.', 429);
+    }
+  }
 
   if (!/^[a-f0-9-]{36}$/.test(mealId)) {
     return err('Invalid meal ID', 400);

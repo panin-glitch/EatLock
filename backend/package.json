@@ -7,7 +7,7 @@
     "deploy": "wrangler deploy",
     "tail": "wrangler tail",
     "test": "npm run test:security",
-    "test:security": "node --experimental-strip-types src/__tests__/barcode.test.ts && node --experimental-strip-types src/__tests__/visionPayload.test.ts && node --experimental-strip-types src/__tests__/rateLimitSlotMigration.test.ts && node --experimental-strip-types src/__tests__/groupsRpcMigration.test.ts"
+    "test:security": "node --experimental-strip-types src/__tests__/barcode.test.ts && node --experimental-strip-types src/__tests__/visionPayload.test.ts && node --experimental-strip-types src/__tests__/rateLimitSlotMigration.test.ts && node --experimental-strip-types src/__tests__/groupsRpcMigration.test.ts && node --experimental-strip-types src/__tests__/groupPrivacyMigration.test.ts && node --experimental-strip-types src/__tests__/backendRateLimitCoverage.test.ts"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260227.0",

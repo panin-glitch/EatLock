@@ -13,10 +13,10 @@
 import type { Env } from './index';
 import { createClient } from '@supabase/supabase-js';
 import { fetchOpenFoodFacts } from './barcode';
+import { consumeRateLimit, limitsEnforced, serviceKey } from './limits';
 
-function serviceKey(env: Env): string {
-  return env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SERVICE_KEY || '';
-}
+const SHORT_WINDOW_SECONDS = 60;
+const ENRICH_MICROS_BURST_LIMIT = 12;
 
 // ── Helpers ──────────────────────────────────
 
@@ -180,6 +180,26 @@ export async function handleEnrichMicros(
   // Auth
   const auth = await getUser(request, env);
   if (auth instanceof Response) return auth;
+  const enforce = limitsEnforced(env);
+  const ip = request.headers.get('CF-Connecting-IP') || request.headers.get('x-forwarded-for') || 'unknown';
+
+  if (enforce) {
+    const userAllowed = await consumeRateLimit(
+      env,
+      `enrich-micros:user:${auth.user_id}`,
+      ENRICH_MICROS_BURST_LIMIT,
+      SHORT_WINDOW_SECONDS,
+    );
+    const ipAllowed = await consumeRateLimit(
+      env,
+      `enrich-micros:ip:${ip}`,
+      ENRICH_MICROS_BURST_LIMIT * 2,
+      SHORT_WINDOW_SECONDS,
+    );
+    if (!userAllowed.allowed || !ipAllowed.allowed) {
+      return err('Too many micronutrient enrichment requests. Please slow down.', 429);
+    }
+  }
 
   // Validate mealId looks like a UUID
   if (!/^[a-f0-9-]{36}$/.test(mealId)) {
@@ -285,9 +305,9 @@ export async function handleEnrichMicros(
     enriched: true,
     fiber_g: enrichData.fiber_g,
     sugar_g: enrichData.sugar_g,
-      sodium_mg: enrichData.sodium_mg,
-      saturated_fat_g: enrichData.saturated_fat_g,
-      micronutrients: enrichData.micronutrients,
-      source_refs: nextSourceRefs,
+    sodium_mg: enrichData.sodium_mg,
+    saturated_fat_g: enrichData.saturated_fat_g,
+    micronutrients: enrichData.micronutrients,
+    source_refs: nextSourceRefs,
   });
 }
