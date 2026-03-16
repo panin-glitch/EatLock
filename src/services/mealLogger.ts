@@ -75,7 +75,6 @@ export async function logCompletedMeal(session: MealSession): Promise<void> {
       });
     }
 
-    console.log('[mealLogger] Logged meal to Supabase:', session.id);
   } catch (e: any) {
     console.error('[mealLogger] Failed to log meal:', e?.message || e);
   }

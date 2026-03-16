@@ -19,11 +19,11 @@ async function migrateLegacyItem(key: string): Promise<string | null> {
   try {
     await SecureStore.setItemAsync(key, legacyValue);
     await AsyncStorage.removeItem(key);
+    return legacyValue;
   } catch (error) {
     console.warn('[auth-storage] secure migration failed:', error);
+    return null;
   }
-
-  return legacyValue;
 }
 
 export const secureSessionStorage = {

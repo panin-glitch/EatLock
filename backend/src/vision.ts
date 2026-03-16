@@ -351,7 +351,6 @@ export async function handleVerifyFood(
   let slotId: string | null = null;
 
   const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
-  console.log('[verify-food] request start', { user_id: auth.user_id, ip, enforce });
   if (enforce) {
     const cooldown = await getCooldownStatus(env, cooldownBucket);
     if (cooldown.active) {
@@ -374,7 +373,7 @@ export async function handleVerifyFood(
       SHORT_WINDOW_SECONDS,
     );
     if (!burstUserOk.allowed || !burstIpOk.allowed) {
-      console.warn('[verify-food] burst limited', { user_id: auth.user_id, ip });
+      console.warn('[verify-food] burst limited');
       return json({ error: 'Too many requests', retry_after_seconds: 30 }, 429);
     }
 
@@ -415,7 +414,7 @@ export async function handleVerifyFood(
     if (enforce && !dailyLimitsDisabled(env)) {
       const quota = await consumeQuota(env, auth.user_id, 'verify', verifyDailyLimit);
       if (!quota.allowed) {
-        console.warn('[verify-food] daily quota reached', { user_id: auth.user_id, limit: verifyDailyLimit });
+        console.warn('[verify-food] daily quota reached');
         return json({
           error: 'Daily limit reached',
           kind: 'verify',
@@ -437,7 +436,6 @@ export async function handleVerifyFood(
     ];
 
     const result = await callOpenAI(env, VERIFY_SYSTEM, input, FOOD_CHECK_SCHEMA);
-    console.log('[verify-food] OpenAI success', { user_id: auth.user_id });
 
     const typed = result as { isFood?: boolean };
     if (enforce && typed?.isFood === false) {
@@ -456,11 +454,7 @@ export async function handleVerifyFood(
     return json(result);
   } catch (e: any) {
     if (e.status === 413) return err(e.message, 413);
-    console.error('[verify-food] failure', {
-      user_id: auth.user_id,
-      message: e?.message,
-      stack: e?.stack,
-    });
+    console.error('[verify-food] failure', e?.message || e);
     return err('Vision service unavailable', 502);
   } finally {
     await releaseConcurrencySlot(env, activeBucket, slotId);

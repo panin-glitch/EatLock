@@ -10,6 +10,7 @@
       "@cloudflare/workers-types"
     ],
     "strict": true,
+    "allowImportingTsExtensions": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "outDir": "./dist",
@@ -18,5 +19,7 @@
   "include": [
     "src/**/*.ts"
   ],
-  "extends": "expo/tsconfig.base"
+  "exclude": [
+    "src/__tests__/**/*.ts"
+  ]
 }

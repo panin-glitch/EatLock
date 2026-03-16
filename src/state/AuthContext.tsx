@@ -5,6 +5,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '../services/supabaseClient';
+import { ensureAuth, isAutoAnonymousSignInEnabled } from '../services/authService';
 import { fetchProfileByUserId, type ProfileRecord } from '../services/profileService';
 import { getDisplayName } from '../utils/displayName';
 
@@ -56,18 +57,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (s) {
         setSession(s);
       } else {
-        // No persisted session — auto sign-in anonymously
-        console.log('[AuthProvider] No session found, signing in anonymously…');
-        try {
-          const { data: anonData, error } = await supabase.auth.signInAnonymously();
-          if (!error && anonData.session) {
-            setSession(anonData.session);
-            console.log('[AuthProvider] Anonymous sign-in ✓');
-          } else {
-            console.warn('[AuthProvider] Anonymous sign-in failed:', error?.message);
+        const autoAnonEnabled = await isAutoAnonymousSignInEnabled();
+        if (autoAnonEnabled) {
+          try {
+            const accessToken = await ensureAuth({ allowAnonymousSignIn: true });
+            if (accessToken) {
+              const { data: refreshed } = await supabase.auth.getSession();
+              setSession(refreshed.session ?? null);
+            }
+          } catch (e: any) {
+            console.warn('[AuthProvider] Anonymous sign-in error:', e?.message);
           }
-        } catch (e: any) {
-          console.warn('[AuthProvider] Anonymous sign-in error:', e?.message);
         }
       }
       setIsLoading(false);

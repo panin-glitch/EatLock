@@ -5,7 +5,7 @@
 import type { MealVisionService } from './MealVisionService';
 import type { FoodCheckResult, CompareResult, NutritionEstimate, VisionSoftError } from './types';
 import { compressImage } from './imageCompress';
-import { fetchWithAuth as authenticatedFetch } from '../authFetch';
+import { fetchWithAuth as authenticatedFetch, isAuthRequiredError } from '../authFetch';
 import { ENV } from '../../config/env';
 
 const API = ENV.WORKER_API_URL;
@@ -44,7 +44,7 @@ async function postJSON<T>(endpoint: string, body: Record<string, unknown>): Pro
   const maxAttempts = 3;
   const retryDelayMs = [250, 700, 1400];
 
-  if (DEBUG) console.log(`[Vision] POST ${url}`, JSON.stringify(body).slice(0, 120));
+  if (DEBUG) console.log(`[Vision] POST ${endpoint}`);
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const controller = new AbortController();
@@ -59,6 +59,9 @@ async function postJSON<T>(endpoint: string, body: Record<string, unknown>): Pro
           signal: controller.signal,
         });
       } catch (networkErr: any) {
+        if (isAuthRequiredError(networkErr)) {
+          return makeSoftError('SESSION_EXPIRED', 'Session expired', 'Please sign in again.');
+        }
         if (DEBUG) {
           console.log('[Vision] network issue', {
             endpoint,
@@ -165,7 +168,10 @@ async function uploadToR2(imageUri: string, kind: 'before' | 'after'): Promise<s
         body: buffer,
         signal: controller.signal,
       });
-    } catch {
+    } catch (error) {
+      if (isAuthRequiredError(error)) {
+        return makeSoftError('SESSION_EXPIRED', 'Session expired', 'Please sign in again.');
+      }
       return makeSoftError('NETWORK', 'Connection issue', 'Upload failed due to a network issue.');
     }
 

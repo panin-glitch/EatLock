@@ -18,6 +18,7 @@ import { handleNutritionEstimate } from './nutrition';
 import { handleBarcodeLookup } from './barcode';
 import { handleEnrichMicros } from './enrich_micros';
 import { handleUpdateFoodLabel } from './food_label';
+import { handleDeleteAccount } from './account';
 import {
   acquireConcurrencySlot,
   consumeRateLimit,
@@ -84,6 +85,15 @@ function getClientIp(request: Request): string {
   return request.headers.get('CF-Connecting-IP') || request.headers.get('x-forwarded-for') || 'unknown';
 }
 
+function sanitizePathForLogs(path: string): string {
+  if (path.startsWith('/v1/r2/upload/')) {
+    return '/v1/r2/upload/[redacted]';
+  }
+  return path
+    .replace(/^\/v1\/vision\/job\/[a-f0-9-]+$/i, '/v1/vision/job/[id]')
+    .replace(/^\/v1\/meals\/[a-f0-9-]{36}(\/.*)$/i, '/v1/meals/[id]$1');
+}
+
 async function getUser(
   request: Request,
   env: Env,
@@ -144,7 +154,12 @@ async function handleSignedUpload(
     }
   }
 
-  const body = await request.json() as { kind?: string };
+  let body: { kind?: string };
+  try {
+    body = await request.json() as { kind?: string };
+  } catch {
+    return error('Invalid JSON body');
+  }
   const kind = body.kind === 'after' ? 'after' : 'before';
 
   // Generate unique R2 key
@@ -402,7 +417,7 @@ export default {
     if (method === 'OPTIONS') {
       const optionsHeaders = new Headers({
         'Access-Control-Allow-Origin': corsOrigin,
-        'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
+        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type, Authorization',
         'Access-Control-Max-Age': '86400',
       });
@@ -418,6 +433,7 @@ export default {
       auth: { persistSession: false },
     });
     const requestId = crypto.randomUUID();
+    const logPath = sanitizePathForLogs(path);
 
     const finalize = (response: Response): Response => {
       const headers = new Headers(response.headers);
@@ -431,7 +447,7 @@ export default {
         statusText: response.statusText,
         headers,
       });
-      console.log(`[req:${requestId}] ${method} ${path} -> ${safeResponse.status}`);
+      console.log(`[req:${requestId}] ${method} ${logPath} -> ${safeResponse.status}`);
       return safeResponse;
     };
 
@@ -479,6 +495,11 @@ export default {
         return finalize(await handleUpdateFoodLabel(request, env, foodLabelMatch[1]));
       }
 
+      // DELETE /v1/account
+      if (method === 'DELETE' && path === '/v1/account') {
+        return finalize(await handleDeleteAccount(request, env));
+      }
+
       // POST /v1/vision/enqueue
       if (method === 'POST' && path === '/v1/vision/enqueue') {
         return finalize(await handleEnqueueVision(request, env, supabase));
@@ -497,7 +518,7 @@ export default {
 
       return finalize(error('Not found', 404));
     } catch (err: any) {
-      console.error(`[req:${requestId}] Unhandled error on ${method} ${path}`);
+      console.error(`[req:${requestId}] Unhandled error on ${method} ${logPath}`);
       return finalize(error('Internal server error', 500));
     }
   },

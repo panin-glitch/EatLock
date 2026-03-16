@@ -6,16 +6,20 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "tail": "wrangler tail",
-    "test:security": "tsx src/__tests__/barcode.test.ts && tsx src/__tests__/visionPayload.test.ts"
+    "test": "npm run test:security",
+    "test:security": "node --experimental-strip-types src/__tests__/barcode.test.ts && node --experimental-strip-types src/__tests__/visionPayload.test.ts && node --experimental-strip-types src/__tests__/rateLimitSlotMigration.test.ts && node --experimental-strip-types src/__tests__/groupsRpcMigration.test.ts"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260227.0",
     "tsx": "^4.21.0",
     "typescript": "^5.4.0",
-    "wrangler": "^4.71.0"
+    "wrangler": "4.73.0"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0"
+  },
+  "overrides": {
+    "undici": "7.24.4"
   },
   "main": "index.js",
   "keywords": [],

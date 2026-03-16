@@ -1,12 +1,12 @@
 /**
  * Unit tests for strict queue payload validation.
  *
- * Run: npx tsx backend/src/__tests__/visionPayload.test.ts
+ * Run: node --experimental-strip-types backend/src/__tests__/visionPayload.test.ts
  */
 
 declare const process: { exit(code?: number): never };
 
-import { validateVisionQueuePayload } from '../visionPayload';
+import { validateVisionQueuePayload } from '../visionPayload.ts';
 
 let passed = 0;
 let failed = 0;

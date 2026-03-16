@@ -1,12 +1,12 @@
 /**
  * Unit tests for blocker capability classification.
  *
- * Run: npx tsx src/services/__tests__/blockingSupport.test.ts
+ * Run: node --experimental-strip-types src/services/__tests__/blockingSupport.test.ts
  */
 
 declare const process: { exit(code?: number): never };
 
-import { describeBlockingSupport } from '../blockingSupport';
+import { describeBlockingSupport } from '../blockingSupport.ts';
 
 let passed = 0;
 let failed = 0;

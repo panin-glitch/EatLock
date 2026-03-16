@@ -33,8 +33,8 @@ function getNativeModule(): AppBlockerNative {
 
 function createStub(): AppBlockerNative {
   return {
-    async startBlocking(packageNames: string[]) {
-      console.log('[AppBlockerModule stub] startBlocking:', packageNames);
+    async startBlocking(_packageNames: string[]) {
+      console.log('[AppBlockerModule stub] startBlocking');
     },
     async stopBlocking() {
       console.log('[AppBlockerModule stub] stopBlocking');

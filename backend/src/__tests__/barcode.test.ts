@@ -1,7 +1,7 @@
 /**
  * Unit tests for barcode nutrient resolution logic.
  *
- * Run: npx tsx backend/src/__tests__/barcode.test.ts
+ * Run: node --experimental-strip-types backend/src/__tests__/barcode.test.ts
  *      (or npx vitest / jest if the project adds a runner)
  */
 

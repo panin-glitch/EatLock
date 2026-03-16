@@ -67,8 +67,6 @@ export async function saveUsername(userId: string, rawUsername: string): Promise
     .select('user_id, username, updated_at')
     .single();
 
-  console.log('upsert profiles result', data, error);
-
   if (!error && data?.username === username) {
     return { ok: true, username: data.username, userId: data.user_id, updatedAt: data.updated_at };
   }

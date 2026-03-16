@@ -93,7 +93,7 @@ export async function handleVisionQueue(
           ? 'r2_key does not belong to user'
           : null;
     if (invalid) {
-      console.error(`[VisionQueue] Permanent error for job ${job_id}: ${invalid}`);
+      console.error(`[VisionQueue] Permanent payload error: ${invalid}`);
       await supabase
         .from('vision_jobs')
         .update({ status: 'failed', error: `Invalid payload: ${invalid}`, updated_at: new Date().toISOString() })
@@ -243,7 +243,7 @@ export async function handleVisionQueue(
       await releaseSlot();
       message.ack();
     } catch (err: any) {
-      console.error(`[VisionQueue] Job ${job_id} attempt ${attempt}/${MAX_ATTEMPTS} failed:`, err);
+      console.error(`[VisionQueue] Attempt ${attempt}/${MAX_ATTEMPTS} failed:`, err);
 
       if (isTransient(err) && attempt < MAX_ATTEMPTS) {
         // Retry with exponential backoff — requeue with incremented attempt

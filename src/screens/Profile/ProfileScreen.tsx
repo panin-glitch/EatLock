@@ -12,16 +12,29 @@ import {
   Alert,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import { PAYWALL_RESULT } from 'react-native-purchases-ui';
 import { useNavigation } from '@react-navigation/native';
 import { useTheme } from '../../theme/ThemeProvider';
 import { useAuth } from '../../state/AuthContext';
+import { useAppState } from '../../state/AppStateContext';
+import { useRevenueCat } from '../../state/RevenueCatContext';
 import { saveUsername, isValidUsername } from '../../services/profileService';
-import { signOut, updateEmail } from '../../services/authService';
+import { deleteCurrentAccountRemote, signOut, updateEmail } from '../../services/authService';
+import { hasTadLockProEntitlement } from '../../services/revenueCat';
 import { getDisplayName } from '../../utils/displayName';
 
 export default function ProfileScreen() {
   const { theme, themeName } = useTheme();
   const { user, profile, displayName, refreshProfile } = useAuth();
+  const { clearAll } = useAppState();
+  const {
+    isSupported: subscriptionsSupported,
+    isLoading: subscriptionsLoading,
+    isPro,
+    restorePurchases,
+    presentCustomerCenter,
+    presentPaywall,
+  } = useRevenueCat();
   const navigation = useNavigation<any>();
 
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
@@ -33,6 +46,7 @@ export default function ProfileScreen() {
   // Email change state
   const [emailInput, setEmailInput] = useState('');
   const [emailSaving, setEmailSaving] = useState(false);
+  const [subscriptionAction, setSubscriptionAction] = useState<'paywall' | 'restore' | 'manage' | null>(null);
   const isAnonymous = !user?.email;
 
   const loadProfile = useCallback(async (): Promise<string | null> => {
@@ -97,11 +111,136 @@ export default function ProfileScreen() {
       {
         text: 'Sign Out',
         onPress: async () => {
-          await signOut();
+          try {
+            await signOut();
+            navigation.reset({
+              index: 0,
+              routes: [{ name: 'Auth' }],
+            });
+          } catch (error: any) {
+            Alert.alert('Sign out failed', error?.message ?? 'Could not sign out.');
+          }
         },
       },
     ]);
-  }, []);
+  }, [navigation]);
+
+  const handleDeleteAccount = useCallback(() => {
+    Alert.alert(
+      'Delete account',
+      'This permanently deletes your account and cloud data. This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete account',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteCurrentAccountRemote();
+              await clearAll();
+              await signOut('local').catch(() => undefined);
+              Alert.alert('Account deleted', 'Your account and cloud data were deleted.');
+              navigation.reset({
+                index: 0,
+                routes: [{ name: 'Auth' }],
+              });
+            } catch (error: any) {
+              Alert.alert('Delete failed', error?.message ?? 'Could not delete your account.');
+            }
+          },
+        },
+      ],
+    );
+  }, [clearAll, navigation]);
+
+  const routeToAuth = useCallback(() => {
+    navigation.navigate('Auth');
+  }, [navigation]);
+
+  const handleUpgradeToPro = useCallback(async () => {
+    if (!subscriptionsSupported) {
+      Alert.alert('iOS only for now', 'TadLock Pro subscriptions are currently available on iOS development builds.');
+      return;
+    }
+
+    if (isAnonymous) {
+      Alert.alert('Create account required', 'Sign in or create a TadLock account before purchasing TadLock Pro.', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Continue', onPress: routeToAuth },
+      ]);
+      return;
+    }
+
+    setSubscriptionAction('paywall');
+    try {
+      const result = await presentPaywall();
+      if (result === PAYWALL_RESULT.PURCHASED) {
+        Alert.alert('Welcome to TadLock Pro', 'Your subscription is active.');
+      } else if (result === PAYWALL_RESULT.RESTORED) {
+        Alert.alert('Purchases restored', 'Your TadLock Pro access has been restored.');
+      }
+    } catch (error: any) {
+      Alert.alert('Subscription unavailable', error?.message ?? 'Could not open the TadLock Pro paywall.');
+    } finally {
+      setSubscriptionAction(null);
+    }
+  }, [isAnonymous, navigation, presentPaywall, routeToAuth, subscriptionsSupported]);
+
+  const handleRestorePurchases = useCallback(async () => {
+    if (!subscriptionsSupported) {
+      Alert.alert('iOS only for now', 'Purchase restoration is currently available on iOS development builds.');
+      return;
+    }
+
+    if (isAnonymous) {
+      Alert.alert('Create account required', 'Sign in or create a TadLock account before restoring purchases.', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Continue', onPress: routeToAuth },
+      ]);
+      return;
+    }
+
+    setSubscriptionAction('restore');
+    try {
+      const restored = await restorePurchases();
+      if (hasTadLockProEntitlement(restored)) {
+        Alert.alert('TadLock Pro restored', 'Your subscription is active on this account.');
+      } else {
+        Alert.alert('No purchases found', 'No TadLock Pro purchases were found for this App Store account.');
+      }
+    } catch (error: any) {
+      Alert.alert('Restore failed', error?.message ?? 'Could not restore purchases.');
+    } finally {
+      setSubscriptionAction(null);
+    }
+  }, [isAnonymous, restorePurchases, routeToAuth, subscriptionsSupported]);
+
+  const handleManageSubscription = useCallback(async () => {
+    if (!subscriptionsSupported) {
+      Alert.alert('iOS only for now', 'Subscription management is currently available on iOS development builds.');
+      return;
+    }
+
+    if (isAnonymous) {
+      Alert.alert('Create account required', 'Sign in or create a TadLock account before managing subscriptions.', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Continue', onPress: routeToAuth },
+      ]);
+      return;
+    }
+
+    setSubscriptionAction('manage');
+    try {
+      await presentCustomerCenter();
+    } catch (error: any) {
+      Alert.alert(
+        'Customer Center unavailable',
+        error?.message ?? 'Open App Store subscriptions to manage your plan, or restore purchases here.',
+      );
+    } finally {
+      setSubscriptionAction(null);
+    }
+  }, [isAnonymous, presentCustomerCenter, routeToAuth, subscriptionsSupported]);
 
   const hasChanges = username.trim() !== initialUsername.trim();
   const showUsernameHint = username.trim().length > 0 && !isValidUsername(username);
@@ -146,7 +285,7 @@ export default function ProfileScreen() {
           />
           {showUsernameHint ? (
             <Text style={[styles.helperText, { color: theme.warning }]}>
-              3–20 chars, letters/numbers/underscore only
+              3-20 chars, letters/numbers/underscore only
             </Text>
           ) : null}
 
@@ -180,12 +319,74 @@ export default function ProfileScreen() {
             )}
           </TouchableOpacity>
 
+          <View style={[styles.subscriptionCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <View style={styles.subscriptionHeader}>
+              <Text style={styles.subscriptionTitle}>TadLock Pro</Text>
+              <View
+                style={[
+                  styles.subscriptionBadge,
+                  { backgroundColor: isPro ? '#DCFCE7' : subscriptionsSupported ? '#FEF3C7' : '#E2E8F0' },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.subscriptionBadgeText,
+                    { color: isPro ? '#166534' : subscriptionsSupported ? '#92400E' : theme.textSecondary },
+                  ]}
+                >
+                  {isPro ? 'Active' : subscriptionsSupported ? 'Inactive' : 'iOS only'}
+                </Text>
+              </View>
+            </View>
+            <Text style={styles.subscriptionCopy}>
+              {isAnonymous
+                ? 'Create an account before purchasing or restoring TadLock Pro.'
+                : isPro
+                  ? 'Manage your active TadLock Pro subscription.'
+                  : 'Unlock personalized insights and advanced tracking.'}
+            </Text>
+
+            <TouchableOpacity
+              style={[styles.proBtn, { backgroundColor: theme.primary }]}
+              onPress={isPro ? handleManageSubscription : handleUpgradeToPro}
+              disabled={subscriptionAction === 'paywall' || subscriptionAction === 'manage' || subscriptionsLoading}
+            >
+              {subscriptionAction === 'paywall' || subscriptionAction === 'manage' || subscriptionsLoading ? (
+                <ActivityIndicator size="small" color={theme.onPrimary} />
+              ) : (
+                <Text style={styles.proBtnText}>
+                  {isAnonymous ? 'Create account to upgrade' : isPro ? 'Manage subscription' : 'Upgrade to Pro'}
+                </Text>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.secondarySubBtn, { borderColor: theme.border, backgroundColor: theme.surfaceElevated }]}
+              onPress={handleRestorePurchases}
+              disabled={subscriptionAction === 'restore'}
+            >
+              {subscriptionAction === 'restore' ? (
+                <ActivityIndicator size="small" color={theme.text} />
+              ) : (
+                <Text style={[styles.secondarySubBtnText, { color: theme.text }]}>Restore purchases</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+
           <TouchableOpacity
             style={styles.signOutBtn}
             onPress={handleSignOut}
           >
             <MaterialIcons name="logout" size={18} color={theme.textSecondary} />
             <Text style={styles.signOutText}>Sign out</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.deleteBtn}
+            onPress={handleDeleteAccount}
+          >
+            <MaterialIcons name="delete-forever" size={18} color="#DC2626" />
+            <Text style={styles.deleteText}>Delete account</Text>
           </TouchableOpacity>
 
           {isAnonymous ? (
@@ -274,6 +475,19 @@ const makeStyles = (theme: any) =>
       backgroundColor: theme.card,
     },
     signOutText: { fontSize: 14, fontWeight: '600', color: theme.textSecondary },
+    deleteBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+      borderRadius: 12,
+      paddingVertical: 11,
+      marginBottom: 10,
+      borderWidth: 1,
+      borderColor: '#FECACA',
+      backgroundColor: '#FEF2F2',
+    },
+    deleteText: { fontSize: 14, fontWeight: '700', color: '#DC2626' },
     signInBtn: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -292,6 +506,45 @@ const makeStyles = (theme: any) =>
       marginBottom: 10,
     },
     emailBtnText: { fontSize: 14, fontWeight: '700' },
+    subscriptionCard: {
+      borderWidth: 1,
+      borderRadius: 14,
+      padding: 12,
+      marginBottom: 10,
+    },
+    subscriptionHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 6,
+    },
+    subscriptionTitle: { fontSize: 15, fontWeight: '800', color: theme.text },
+    subscriptionBadge: {
+      borderRadius: 999,
+      paddingHorizontal: 10,
+      paddingVertical: 4,
+    },
+    subscriptionBadgeText: { fontSize: 11, fontWeight: '800' },
+    subscriptionCopy: {
+      fontSize: 13,
+      lineHeight: 18,
+      color: theme.textSecondary,
+      marginBottom: 10,
+    },
+    proBtn: {
+      borderRadius: 12,
+      paddingVertical: 11,
+      alignItems: 'center',
+      marginBottom: 8,
+    },
+    proBtnText: { fontSize: 14, fontWeight: '700', color: theme.onPrimary },
+    secondarySubBtn: {
+      borderRadius: 12,
+      borderWidth: 1,
+      paddingVertical: 11,
+      alignItems: 'center',
+    },
+    secondarySubBtnText: { fontSize: 14, fontWeight: '700' },
     saveBtn: {
       borderRadius: 12,
       paddingVertical: 12,

@@ -31,6 +31,18 @@ function err(message: string, status = 400): Response {
   return json({ error: message }, status);
 }
 
+function dedupeSourceRefs(refs: Array<Record<string, string>>): Array<Record<string, string>> {
+  const seen = new Set<string>();
+  const unique: Array<Record<string, string>> = [];
+  for (const ref of refs) {
+    const key = JSON.stringify(ref);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(ref);
+  }
+  return unique;
+}
+
 async function getUser(
   request: Request,
   env: Env,
@@ -183,14 +195,11 @@ export async function handleEnrichMicros(
     .from('meal_nutrition')
     .select('id, user_id, source, fiber_g, sugar_g, sodium_mg, saturated_fat_g, micronutrients, source_refs')
     .eq('id', mealId)
+    .eq('user_id', auth.user_id)
     .single();
 
   if (mealErr || !meal) {
     return err('Meal not found', 404);
-  }
-
-  if (meal.user_id !== auth.user_id) {
-    return err('Meal does not belong to user', 403);
   }
 
   // 2. If already enriched, return existing data
@@ -252,6 +261,7 @@ export async function handleEnrichMicros(
   // 4. Update the meal_nutrition row
   const updatedRefs = [...sourceRefs];
   if (newSourceRef) updatedRefs.push(newSourceRef);
+  const nextSourceRefs = dedupeSourceRefs(updatedRefs);
 
   const { error: updateErr } = await supabase
     .from('meal_nutrition')
@@ -261,7 +271,7 @@ export async function handleEnrichMicros(
       sodium_mg: enrichData.sodium_mg,
       saturated_fat_g: enrichData.saturated_fat_g,
       micronutrients: enrichData.micronutrients,
-      source_refs: updatedRefs,
+      source_refs: nextSourceRefs,
     })
     .eq('id', mealId)
     .eq('user_id', auth.user_id);
@@ -275,9 +285,9 @@ export async function handleEnrichMicros(
     enriched: true,
     fiber_g: enrichData.fiber_g,
     sugar_g: enrichData.sugar_g,
-    sodium_mg: enrichData.sodium_mg,
-    saturated_fat_g: enrichData.saturated_fat_g,
-    micronutrients: enrichData.micronutrients,
-    source_refs: updatedRefs,
+      sodium_mg: enrichData.sodium_mg,
+      saturated_fat_g: enrichData.saturated_fat_g,
+      micronutrients: enrichData.micronutrients,
+      source_refs: nextSourceRefs,
   });
 }

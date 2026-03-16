@@ -7,7 +7,7 @@ import {
   StyleSheet,
   View,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { NavigationProp, ParamListBase, useNavigation } from '@react-navigation/native';
 
 type IntroStage = 'phone' | 'swipe' | 'slapped' | 'stare';
 
@@ -35,7 +35,7 @@ function getStageAsset(stage: IntroStage): ImageSourcePropType {
 }
 
 export default function TadlockIntroScreen() {
-  const navigation = useNavigation<any>();
+  const navigation = useNavigation<NavigationProp<ParamListBase>>();
   const [stage, setStage] = useState<IntroStage>('phone');
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
 
@@ -125,7 +125,6 @@ export default function TadlockIntroScreen() {
         <View style={styles.content}>
           <View style={styles.heroFrame}>
             <Image
-              key={stage}
               source={stageAsset}
               style={styles.hero}
               resizeMode="contain"

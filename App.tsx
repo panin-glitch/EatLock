@@ -5,6 +5,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { ThemeProvider, useTheme } from './src/theme/ThemeProvider';
 import { AppStateProvider, useAppState } from './src/state/AppStateContext';
 import { AuthProvider } from './src/state/AuthContext';
+import { RevenueCatProvider } from './src/state/RevenueCatContext';
 import AppNavigator from './src/navigation/AppNavigator';
 import { requestNotificationPermissions } from './src/services/notifications';
 import { ensureAuth } from './src/services/authService';
@@ -49,9 +50,11 @@ function AppShell() {
         translucent={false}
       />
       <AuthProvider>
-        <AppStateProvider>
-          <AppContent />
-        </AppStateProvider>
+        <RevenueCatProvider>
+          <AppStateProvider>
+            <AppContent />
+          </AppStateProvider>
+        </RevenueCatProvider>
       </AuthProvider>
     </View>
   );

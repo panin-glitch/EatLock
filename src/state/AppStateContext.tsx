@@ -7,17 +7,19 @@ import {
   MealType,
   DAILY_FORFEIT_LIMIT,
   DEFAULT_BLOCK_CONFIG,
+  DEFAULT_MEAL_SCHEDULES,
   DEFAULT_USER_SETTINGS,
 } from '../types/models';
 import type { FoodCheckResult, NutritionEstimate, SessionStatus } from '../services/vision/types';
 import * as Storage from '../services/storage';
 import { blockingEngine } from '../services/blockingEngine';
 import { scheduleAllMealNotifications } from '../services/notifications';
-import { ensureAuth } from '../services/authService';
+import { ensureAuth, isAutoAnonymousSignInEnabled } from '../services/authService';
 import { fetchRemoteCompletedSessions, logCompletedMeal, updateSessionDistraction } from '../services/mealLogger';
 import { supabase } from '../services/supabaseClient';
 
 const ACTIVE_SESSION_MAX_ELAPSED_MS = 600 * 60 * 1000;
+const SIGNED_OUT_NAMESPACE = 'signed_out';
 
 function isExpiredActiveSession(session: MealSession | null, nowMs = Date.now()): boolean {
   if (!session || session.status !== 'ACTIVE' || !!session.endedAt) return false;
@@ -82,14 +84,21 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const loadAll = useCallback(async () => {
     setIsLoading(true);
     try {
-      // Ensure user has a Supabase session (anonymous sign-in if needed)
-      await ensureAuth();
+      const autoAnonEnabled = await isAutoAnonymousSignInEnabled();
+      if (autoAnonEnabled) {
+        try {
+          await ensureAuth({ allowAnonymousSignIn: true });
+        } catch (error) {
+          console.warn('[AppState] Anonymous bootstrapping failed:', error);
+        }
+      }
       const { data } = await supabase.auth.getSession();
       const currentUser = data.session?.user ?? null;
-      const currentUserId = currentUser?.id ?? 'anonymous';
-      const isAnonymousUser = !currentUser?.email;
-      Storage.setStorageNamespace(currentUserId);
-      if (!isAnonymousUser) {
+      const currentUserId = currentUser?.id ?? null;
+      const hasSession = !!currentUserId;
+      const isAnonymousUser = !!currentUser && !currentUser.email;
+      Storage.setStorageNamespace(currentUserId ?? SIGNED_OUT_NAMESPACE);
+      if (hasSession && !isAnonymousUser) {
         const lastInfo = await Storage.getLastAuthNamespaceInfo();
         if (lastInfo?.isAnonymous && lastInfo.namespace && lastInfo.namespace !== currentUserId) {
           await Storage.migrateNamespaceData(lastInfo.namespace, currentUserId);
@@ -111,7 +120,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       setSettings(us);
       setRemainingForfeitsToday(forfeitsRemaining);
 
-      if (isAnonymousUser) {
+      if (!hasSession || isAnonymousUser) {
         setSessions([]);
         setActiveSession(null);
       } else {
@@ -132,9 +141,11 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      lastUserIdRef.current = currentUser?.id ?? null;
+      lastUserIdRef.current = currentUserId;
       lastUserWasAnonymousRef.current = isAnonymousUser;
-      await Storage.setLastAuthNamespaceInfo(currentUserId, isAnonymousUser);
+      if (currentUserId) {
+        await Storage.setLastAuthNamespaceInfo(currentUserId, isAnonymousUser);
+      }
     } catch (e) {
       console.error('Failed to load data:', e);
     }
@@ -150,7 +161,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       const previousUserId = lastUserIdRef.current;
       const previousWasAnonymous = lastUserWasAnonymousRef.current;
       const nextUserId = session?.user?.id ?? null;
-      const nextIsAnonymous = !session?.user?.email;
+      const nextIsAnonymous = !!session?.user && !session.user.email;
 
       let migrationSourceUserId = previousUserId;
       let migrationSourceIsAnonymous = previousWasAnonymous;
@@ -179,7 +190,9 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
 
       lastUserIdRef.current = nextUserId;
       lastUserWasAnonymousRef.current = nextIsAnonymous;
-      await Storage.setLastAuthNamespaceInfo(nextUserId ?? 'anonymous', nextIsAnonymous);
+      if (nextUserId) {
+        await Storage.setLastAuthNamespaceInfo(nextUserId, nextIsAnonymous);
+      }
       loadAll();
     });
 
@@ -385,7 +398,17 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
 
   const clearAll = async () => {
     await Storage.clearAllData();
-    await loadAll();
+    if (activeSession?.strictMode) {
+      await blockingEngine.stopBlocking().catch((error) => {
+        console.warn('[AppState] Failed to stop blocking during clearAll:', error);
+      });
+    }
+    setSchedules(DEFAULT_MEAL_SCHEDULES);
+    setSessions([]);
+    setBlockConfig(DEFAULT_BLOCK_CONFIG);
+    setSettings(DEFAULT_USER_SETTINGS);
+    setActiveSession(null);
+    setRemainingForfeitsToday(DAILY_FORFEIT_LIMIT);
   };
 
   return (

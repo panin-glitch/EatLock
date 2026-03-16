@@ -1,5 +1,17 @@
 import { ensureAuth, getAccessToken, refreshAuthSession } from './authService';
 
+export class AuthRequiredError extends Error {
+  constructor(message = 'Session expired. Please sign in again.') {
+    super(message);
+    this.name = 'AuthRequiredError';
+  }
+}
+
+export function isAuthRequiredError(error: unknown): error is AuthRequiredError {
+  return error instanceof AuthRequiredError
+    || (typeof error === 'object' && error !== null && (error as { name?: string }).name === 'AuthRequiredError');
+}
+
 function isJwt(token: string): boolean {
   return token.split('.').length === 3;
 }
@@ -21,7 +33,7 @@ async function getBearerToken(): Promise<string> {
     token = await ensureAuth();
   }
   if (!token || !isJwt(token)) {
-    throw new Error('Session expired. Please sign in again.');
+    throw new AuthRequiredError();
   }
   return token;
 }

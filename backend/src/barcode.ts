@@ -31,6 +31,15 @@ function err(message: string, status = 400): Response {
   return json({ error: message }, status);
 }
 
+function normalizeBarcodeInput(raw: string): string {
+  return raw.trim();
+}
+
+function isValidBarcodeInput(value: string): boolean {
+  if (value.length < 4 || value.length > 64) return false;
+  return /^[A-Za-z0-9._:-]+$/.test(value);
+}
+
 async function getUser(
   request: Request,
   env: Env,
@@ -197,11 +206,14 @@ export async function handleBarcodeLookup(
     return err('Invalid JSON body');
   }
 
-  if (!body.barcode || typeof body.barcode !== 'string' || body.barcode.length < 4) {
+  if (!body.barcode || typeof body.barcode !== 'string') {
     return err('Missing or invalid "barcode" field');
   }
 
-  const barcode = body.barcode.trim();
+  const barcode = normalizeBarcodeInput(body.barcode);
+  if (!isValidBarcodeInput(barcode)) {
+    return err('Missing or invalid "barcode" field');
+  }
 
   // 1. Check cache
   const supabase = createClient(env.SUPABASE_URL, serviceKey(env), {

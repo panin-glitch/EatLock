@@ -11,10 +11,15 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import { PAYWALL_RESULT } from 'react-native-purchases-ui';
 import { useTheme } from '../theme/ThemeProvider';
 import { useAppState } from '../state/AppStateContext';
+import { useAuth } from '../state/AuthContext';
+import { useRevenueCat } from '../state/RevenueCatContext';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { fetchRemoteUserSettings, setMicronutrientsEnabled } from '../services/userSettingsService';
+import { signOut } from '../services/authService';
+import { findPackageForPlan, hasTadLockProEntitlement } from '../services/revenueCat';
 import { languageToLocale } from '../utils/locale';
 
 function Row({
@@ -82,12 +87,24 @@ function Row({
 
 export default function SettingsScreen() {
   const { theme, themeName } = useTheme();
+  const { user } = useAuth();
   const { settings, updateSettings, clearAll } = useAppState();
+  const {
+    isSupported: subscriptionsSupported,
+    isLoading: subscriptionsLoading,
+    isPro,
+    currentOffering,
+    restorePurchases,
+    presentCustomerCenter,
+    presentPaywall,
+  } = useRevenueCat();
   const navigation = useNavigation<any>();
   const localeTag = useMemo(() => languageToLocale(settings.language), [settings.language]);
+  const isAnonymous = !user?.email;
 
   const [microsEnabled, setMicrosEnabled] = useState(false);
   const [microsLoading, setMicrosLoading] = useState(true);
+  const [subscriptionAction, setSubscriptionAction] = useState<'paywall' | 'restore' | 'manage' | null>(null);
 
   const [healthToggles, setHealthToggles] = useState({
     sendCalories: false,
@@ -149,6 +166,48 @@ export default function SettingsScreen() {
     }).catch(() => undefined);
   };
 
+  const handleSignOut = useCallback(() => {
+    Alert.alert('Sign out', 'Sign out of your account on this device?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Sign out',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await signOut();
+            navigation.navigate('Auth');
+          } catch (error: any) {
+            Alert.alert('Sign out failed', error?.message || 'Could not sign out.');
+          }
+        },
+      },
+    ]);
+  }, [navigation]);
+
+  const handleClearDeviceData = useCallback(() => {
+    Alert.alert(
+      'Clear device data',
+      'This clears meal history and settings stored on this device, then signs you out. Cloud-synced account data is not deleted.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear device data',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await clearAll();
+              await signOut().catch(() => undefined);
+              Alert.alert('Device data cleared', 'Local data was cleared and this device was signed out.');
+              navigation.navigate('Auth');
+            } catch (error: any) {
+              Alert.alert('Clear failed', error?.message || 'Could not clear device data.');
+            }
+          },
+        },
+      ],
+    );
+  }, [clearAll, navigation]);
+
   const macroValue = useMemo(() => {
     const carbs = Math.round(settings.nutritionGoals.macroSplit.carbsPct * 100);
     const protein = Math.round(settings.nutritionGoals.macroSplit.proteinPct * 100);
@@ -161,6 +220,118 @@ export default function SettingsScreen() {
   );
 
   const cardStyle = [styles.card, { backgroundColor: theme.card, borderColor: theme.border }];
+  const monthlyPackage = useMemo(() => findPackageForPlan(currentOffering, 'monthly'), [currentOffering]);
+  const yearlyPackage = useMemo(() => findPackageForPlan(currentOffering, 'yearly'), [currentOffering]);
+  const plusSubtitle = useMemo(() => {
+    if (!subscriptionsSupported) {
+      return 'TadLock Pro purchases are available on iOS development builds.';
+    }
+    if (isAnonymous) {
+      return 'Create an account before purchasing or restoring TadLock Pro.';
+    }
+    if (isPro) {
+      return 'Your TadLock Pro entitlement is active on this account.';
+    }
+
+    const priceParts = [monthlyPackage?.product.priceString, yearlyPackage?.product.priceString].filter(Boolean);
+    if (priceParts.length === 2) {
+      return `Monthly ${priceParts[0]} | Yearly ${priceParts[1]}`;
+    }
+
+    return 'Unlock personalized insights and advanced tracking.';
+  }, [isAnonymous, isPro, monthlyPackage?.product.priceString, subscriptionsSupported, yearlyPackage?.product.priceString]);
+
+  const routeToAuth = useCallback(() => {
+    navigation.navigate('Auth');
+  }, [navigation]);
+
+  const handleManageSubscription = useCallback(async () => {
+    if (!subscriptionsSupported) {
+      Alert.alert('iOS only for now', 'Subscription management is currently available on iOS development builds.');
+      return;
+    }
+    if (isAnonymous) {
+      Alert.alert('Create account required', 'Sign in or create a TadLock account before managing subscriptions.', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Continue', onPress: routeToAuth },
+      ]);
+      return;
+    }
+
+    setSubscriptionAction('manage');
+    try {
+      await presentCustomerCenter();
+    } catch (error: any) {
+      Alert.alert(
+        'Customer Center unavailable',
+        error?.message ?? 'Open App Store subscriptions to manage your plan, or restore purchases here.',
+      );
+    } finally {
+      setSubscriptionAction(null);
+    }
+  }, [isAnonymous, presentCustomerCenter, routeToAuth, subscriptionsSupported]);
+
+  const handleRestorePurchases = useCallback(async () => {
+    if (!subscriptionsSupported) {
+      Alert.alert('iOS only for now', 'Purchase restoration is currently available on iOS development builds.');
+      return;
+    }
+    if (isAnonymous) {
+      Alert.alert('Create account required', 'Sign in or create a TadLock account before restoring purchases.', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Continue', onPress: routeToAuth },
+      ]);
+      return;
+    }
+
+    setSubscriptionAction('restore');
+    try {
+      const restored = await restorePurchases();
+      if (hasTadLockProEntitlement(restored)) {
+        Alert.alert('TadLock Pro restored', 'Your TadLock Pro access is active on this account.');
+      } else {
+        Alert.alert('No purchases found', 'No TadLock Pro purchases were found for this App Store account.');
+      }
+    } catch (error: any) {
+      Alert.alert('Restore failed', error?.message ?? 'Could not restore purchases.');
+    } finally {
+      setSubscriptionAction(null);
+    }
+  }, [isAnonymous, restorePurchases, routeToAuth, subscriptionsSupported]);
+
+  const handleOpenPlus = useCallback(async () => {
+    if (!subscriptionsSupported) {
+      Alert.alert('iOS only for now', 'TadLock Pro purchases are currently available on iOS development builds.');
+      return;
+    }
+    if (isAnonymous) {
+      Alert.alert('Create account required', 'Sign in or create a TadLock account before purchasing TadLock Pro.', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Continue', onPress: routeToAuth },
+      ]);
+      return;
+    }
+    if (isPro) {
+      await handleManageSubscription();
+      return;
+    }
+
+    setSubscriptionAction('paywall');
+    try {
+      const result = await presentPaywall();
+      if (result === PAYWALL_RESULT.PURCHASED) {
+        Alert.alert('Welcome to TadLock Pro', 'Your subscription is active.');
+      } else if (result === PAYWALL_RESULT.RESTORED) {
+        Alert.alert('Purchases restored', 'Your TadLock Pro access has been restored.');
+      } else if (result === PAYWALL_RESULT.ERROR) {
+        Alert.alert('Paywall error', 'The paywall could not complete your request.');
+      }
+    } catch (error: any) {
+      Alert.alert('Subscription unavailable', error?.message ?? 'Could not open TadLock Pro right now.');
+    } finally {
+      setSubscriptionAction(null);
+    }
+  }, [handleManageSubscription, isAnonymous, isPro, presentPaywall, routeToAuth, subscriptionsSupported]);
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}> 
@@ -182,14 +353,56 @@ export default function SettingsScreen() {
           <View style={styles.plusOverlay} />
           <View style={{ zIndex: 1 }}>
             <View style={styles.plusTopRow}>
-              <Text style={styles.plusTag}>Plus</Text>
-              <Text style={styles.plusTitle}>Try Tadlock Plus</Text>
+              <Text style={styles.plusTag}>{isPro ? 'Pro' : 'Plus'}</Text>
+              <Text style={styles.plusTitle}>{isPro ? 'TadLock Pro Active' : 'Try TadLock Plus'}</Text>
             </View>
-            <Text style={styles.plusSub}>Unlock personalized insights and advanced tracking.</Text>
-            <TouchableOpacity style={styles.plusBtn}>
-              <Text style={styles.plusBtnText}>Get Plus</Text>
+            <Text style={styles.plusSub}>{plusSubtitle}</Text>
+            <TouchableOpacity
+              style={[styles.plusBtn, (subscriptionAction === 'paywall' || subscriptionsLoading) && styles.plusBtnDisabled]}
+              onPress={handleOpenPlus}
+              activeOpacity={0.85}
+              disabled={subscriptionAction === 'paywall' || subscriptionsLoading}
+            >
+              {subscriptionAction === 'paywall' || subscriptionsLoading ? (
+                <ActivityIndicator size="small" color="#0F172A" />
+              ) : (
+                <Text style={styles.plusBtnText}>
+                  {isAnonymous ? 'Create account' : isPro ? 'Manage plan' : 'Get Plus'}
+                </Text>
+              )}
             </TouchableOpacity>
           </View>
+        </View>
+
+        {sectionTitle('SUBSCRIPTIONS')}
+        <View style={cardStyle}>
+          <Row
+            icon="stars"
+            iconBg="#FEF3C7"
+            iconColor="#CA8A04"
+            title="TadLock Pro"
+            subtitle={isPro ? 'Subscription active on this account' : plusSubtitle}
+            value={isPro ? 'Active' : subscriptionsSupported ? 'Inactive' : 'iOS only'}
+            onPress={handleOpenPlus}
+          />
+          <Row
+            icon="restore"
+            iconBg="#E0E7FF"
+            iconColor="#4F46E5"
+            title="Restore purchases"
+            subtitle="Sync App Store purchases to this account"
+            value={subscriptionAction === 'restore' ? 'Working...' : undefined}
+            onPress={handleRestorePurchases}
+          />
+          <Row
+            icon="manage-accounts"
+            iconBg="#ECFDF5"
+            iconColor="#059669"
+            title="Manage subscription"
+            subtitle="Open RevenueCat Customer Center"
+            value={subscriptionAction === 'manage' ? 'Opening...' : undefined}
+            onPress={handleManageSubscription}
+          />
         </View>
 
         {sectionTitle('GOALS')}
@@ -361,7 +574,7 @@ export default function SettingsScreen() {
 
           <TouchableOpacity
             style={styles.signOutRow}
-            onPress={() => Alert.alert('Signed out', 'You can sign in again anytime.')}
+            onPress={handleSignOut}
           >
             <View style={[styles.iconBox, { backgroundColor: '#FEE2E2' }]}>
               <MaterialIcons name="logout" size={20} color="#DC2626" />
@@ -374,24 +587,14 @@ export default function SettingsScreen() {
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.deleteRow} onPress={() => {
-            Alert.alert('Delete Data', 'This will permanently erase your data. Continue?', [
-              { text: 'Cancel', style: 'cancel' },
-              {
-                text: 'Delete',
-                style: 'destructive',
-                onPress: async () => {
-                  await clearAll();
-                  Alert.alert('Done', 'All data has been cleared.');
-                },
-              },
-            ]);
+            handleClearDeviceData();
           }}>
             <View style={[styles.iconBox, { backgroundColor: '#FEE2E2' }]}>
               <MaterialIcons name="delete" size={20} color="#DC2626" />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.deleteTitle}>Delete Data</Text>
-              <Text style={styles.deleteSub}>Permanently erase your data</Text>
+              <Text style={styles.deleteTitle}>Clear Device Data</Text>
+              <Text style={styles.deleteSub}>Remove local data and sign out</Text>
             </View>
             <MaterialIcons name="chevron-right" size={18} color="#CBD5E1" />
           </TouchableOpacity>
@@ -456,6 +659,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 8,
   },
+  plusBtnDisabled: { opacity: 0.7 },
   plusBtnText: { color: '#0F172A', fontSize: 13, fontWeight: '700' },
   sectionLabel: {
     fontSize: 11,

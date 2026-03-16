@@ -24,6 +24,10 @@ function err(message: string, status = 400): Response {
   return json({ error: message }, status);
 }
 
+function sanitizeSingleLineText(value: string, maxLength: number): string {
+  return value.replace(/[\u0000-\u001F\u007F]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, maxLength);
+}
+
 async function getUser(
   request: Request,
   env: Env,
@@ -80,8 +84,13 @@ export async function handleUpdateFoodLabel(
     return err('Missing or empty "food_label"');
   }
 
-  const foodLabel = body.food_label.trim().slice(0, 120);
-  const detail = body.detail?.trim().slice(0, 200) || null;
+  const foodLabel = sanitizeSingleLineText(body.food_label, 120);
+  const detail = typeof body.detail === 'string'
+    ? sanitizeSingleLineText(body.detail, 200) || null
+    : null;
+  if (!foodLabel) {
+    return err('Missing or empty "food_label"');
+  }
 
   const supabase = createClient(env.SUPABASE_URL, serviceKey(env), {
     auth: { persistSession: false },
@@ -90,26 +99,21 @@ export async function handleUpdateFoodLabel(
   // Verify ownership
   const { data: meal, error: mealErr } = await supabase
     .from('meal_nutrition')
-    .select('id, user_id')
+    .select('id')
     .eq('id', mealId)
+    .eq('user_id', auth.user_id)
     .single();
 
   if (mealErr || !meal) {
     return err('Meal not found', 404);
   }
 
-  if (meal.user_id !== auth.user_id) {
-    return err('Meal does not belong to user', 403);
-  }
-
   // Update
   const updatePayload: Record<string, unknown> = {
     food_label: foodLabel,
+    food_label_detail: detail,
     source: 'user',
   };
-  if (detail) {
-    updatePayload.food_detail = detail;
-  }
 
   const { error: updateErr } = await supabase
     .from('meal_nutrition')

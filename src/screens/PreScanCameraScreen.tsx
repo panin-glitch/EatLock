@@ -23,6 +23,7 @@ import { ScanTipsModal } from '../components/scan/ScanTipsModal';
 import { ResultCard, type ResultCardButton, type CaloriesRowData } from '../components/scan/ResultCard';
 import { CaloriesEditModal } from '../components/scan/CaloriesEditModal';
 import { lookupBarcode, type BarcodeLookupResult } from '../services/barcodeService';
+import { isAuthRequiredError } from '../services/authFetch';
 
 type Props = NativeStackScreenProps<any, 'PreScanCamera'>;
 
@@ -251,6 +252,15 @@ export default function PreScanCameraScreen({ navigation }: Props) {
       const res = await lookupBarcode(code);
       setBarcodeResult(res);
     } catch (e: any) {
+      if (isAuthRequiredError(e)) {
+        setSoftError({
+          kind: 'soft_error',
+          code: 'SESSION_EXPIRED',
+          title: 'Session expired',
+          subtitle: 'Please sign in again.',
+        });
+        return;
+      }
       setBarcodeResult({
         name: 'Unknown item',
         calories: null,

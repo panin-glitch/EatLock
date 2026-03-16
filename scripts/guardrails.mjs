@@ -1,8 +1,21 @@
 import fs from "node:fs";
 import path from "node:path";
-import { execSync } from "node:child_process";
 
 const ROOT = process.cwd();
+const SKIP_DIRS = new Set([
+  ".git",
+  "node_modules",
+  "dist",
+  ".expo",
+  ".venv",
+]);
+const GITIGNORE_PATH = path.join(ROOT, ".gitignore");
+const gitignoreRules = fs.existsSync(GITIGNORE_PATH)
+  ? fs.readFileSync(GITIGNORE_PATH, "utf8")
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line && !line.startsWith("#"))
+  : [];
 
 function mustExist(p) {
   const full = path.join(ROOT, p);
@@ -16,12 +29,59 @@ function assertNo(pattern, text, where, hint="") {
   if (pattern.test(text)) fail(`${where} violates rule: ${pattern}. ${hint}`.trim());
 }
 
+function gitignorePatternToRegex(pattern) {
+  const normalized = pattern.replace(/\\/g, "/").replace(/^\.\//, "");
+  const escaped = normalized.replace(/[|\\{}()[\]^$+?.]/g, "\\$&");
+  const regexBody = escaped
+    .replace(/\*\*/g, "<<<DOUBLE_STAR>>>")
+    .replace(/\*/g, "[^/]*")
+    .replace(/<<<DOUBLE_STAR>>>/g, ".*");
+  if (normalized.startsWith("/")) {
+    return new RegExp(`^${regexBody.slice(1)}$`);
+  }
+  if (normalized.includes("/")) {
+    return new RegExp(`(^|/)${regexBody}$`);
+  }
+  return new RegExp(`(^|/)${regexBody}$`);
+}
+
+function isIgnoredByGitignore(relPath) {
+  const normalized = relPath.replace(/\\/g, "/");
+  let ignored = false;
+  for (const rule of gitignoreRules) {
+    const negated = rule.startsWith("!");
+    const pattern = negated ? rule.slice(1) : rule;
+    if (!pattern) continue;
+    const regex = gitignorePatternToRegex(pattern);
+    if (regex.test(normalized)) {
+      ignored = !negated;
+    }
+  }
+  return ignored;
+}
+
 function listTrackedFiles() {
-  const out = execSync("git ls-files", { cwd: ROOT, encoding: "utf8" });
-  return out
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
+  const files = [];
+
+  function walk(relDir = "") {
+    const absDir = path.join(ROOT, relDir);
+    const entries = fs.readdirSync(absDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (SKIP_DIRS.has(entry.name)) continue;
+      const relPath = relDir ? path.posix.join(relDir, entry.name) : entry.name;
+      if (entry.isDirectory()) {
+        walk(relPath);
+        continue;
+      }
+      if (entry.isFile()) {
+        if (isIgnoredByGitignore(relPath)) continue;
+        files.push(relPath);
+      }
+    }
+  }
+
+  walk();
+  return files;
 }
 
 function isScannableTextFile(filePath) {
