@@ -3,14 +3,11 @@ import {
   GestureResponderEvent,
   Image,
   ImageSourcePropType,
-  SafeAreaView,
   StatusBar,
   StyleSheet,
-  Text,
   View,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { useTheme } from '../theme/ThemeProvider';
 
 type IntroStage = 'phone' | 'swipe' | 'slapped' | 'stare';
 
@@ -37,21 +34,7 @@ function getStageAsset(stage: IntroStage): ImageSourcePropType {
   }
 }
 
-function getStagePrompt(stage: IntroStage): string {
-  switch (stage) {
-    case 'phone':
-      return 'Tap anywhere to begin';
-    case 'swipe':
-      return 'Swipe anywhere to continue';
-    case 'slapped':
-      return '';
-    case 'stare':
-      return 'Tap anywhere to enter TadLock';
-  }
-}
-
 export default function TadlockIntroScreen() {
-  const { theme, themeName } = useTheme();
   const navigation = useNavigation<any>();
   const [stage, setStage] = useState<IntroStage>('phone');
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
@@ -121,14 +104,14 @@ export default function TadlockIntroScreen() {
     }
   };
 
-  const prompt = getStagePrompt(stage);
   const stageAsset = getStageAsset(stage);
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+    <View style={styles.container}>
       <StatusBar
-        barStyle={themeName === 'Light' ? 'dark-content' : 'light-content'}
-        backgroundColor={theme.background}
+        barStyle="dark-content"
+        backgroundColor="#FFFFFF"
+        translucent={false}
       />
       <View
         style={styles.pressable}
@@ -140,60 +123,41 @@ export default function TadlockIntroScreen() {
         }}
       >
         <View style={styles.content}>
-          <Image source={stageAsset} style={styles.hero} resizeMode="cover" fadeDuration={0} />
-          <View style={styles.overlay} pointerEvents="none">
-            <Text style={styles.title}>TadLock</Text>
-            {prompt ? <Text style={styles.prompt}>{prompt}</Text> : null}
+          <View style={styles.heroFrame}>
+            <Image
+              key={stage}
+              source={stageAsset}
+              style={styles.hero}
+              resizeMode="contain"
+              fadeDuration={0}
+            />
           </View>
         </View>
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: '#FFFFFF',
   },
   pressable: {
     flex: 1,
   },
   content: {
     flex: 1,
-    overflow: 'hidden',
+    backgroundColor: '#FFFFFF',
+  },
+  heroFrame: {
+    flex: 1,
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#FFFFFF',
   },
   hero: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  overlay: {
-    position: 'absolute',
-    left: 16,
-    right: 16,
-    bottom: 24,
-    alignItems: 'center',
-    borderRadius: 18,
-    backgroundColor: 'rgba(0,0,0,0.38)',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    gap: 8,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-    color: '#FFFFFF',
-    textAlign: 'center',
-    textShadowColor: 'rgba(0,0,0,0.45)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
-  },
-  prompt: {
-    fontSize: 16,
-    fontWeight: '500',
-    textAlign: 'center',
-    color: '#FFFFFF',
-    textShadowColor: 'rgba(0,0,0,0.45)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
+    width: '100%',
+    height: '100%',
   },
 });

@@ -194,9 +194,13 @@ export default function AppNavigator() {
         <RootStack.Screen
           name="TadlockIntro"
           component={TadlockIntroScreen}
-          options={{ animation: 'fade', gestureEnabled: false }}
+          options={{ animation: 'none', gestureEnabled: false, statusBarAnimation: 'none' }}
         />
-        <RootStack.Screen name="Main" component={TabNavigator} options={{ animation: 'fade' }} />
+        <RootStack.Screen
+          name="Main"
+          component={TabNavigator}
+          options={{ animation: 'none', statusBarAnimation: 'none' }}
+        />
         <RootStack.Screen name="Settings" component={SettingsScreen} />
         <RootStack.Screen name="CalorieSetting" component={CalorieSettingScreen} />
         <RootStack.Screen name="MacroBalanceSetting" component={MacroBalanceSettingScreen} />
