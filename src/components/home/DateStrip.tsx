@@ -42,6 +42,13 @@ export default function DateStrip({ dates, selectedDate, onSelect, dotDates }: P
             ]}
             onPress={() => onSelect(d)}
             activeOpacity={0.7}
+            hitSlop={4}
+            accessibilityRole="button"
+            accessibilityLabel={`${d.toLocaleDateString(undefined, {
+              weekday: 'long',
+              month: 'long',
+              day: 'numeric',
+            })}${isToday ? ', today' : ''}${isSelected ? ', selected' : ''}`}
           >
             <Text
               style={[
@@ -77,9 +84,9 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   pill: {
-    width: 38,
-    height: 56,
-    borderRadius: 19,
+    width: 44,
+    height: 60,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
     gap: 2,

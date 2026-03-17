@@ -21,6 +21,7 @@ import {
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../../theme/ThemeProvider';
+import { isColorDark } from '../../theme/colorUtils';
 import { getResetPasswordSuccessMessage, signIn, signUp, resetPassword } from '../../services/authService';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
@@ -77,11 +78,18 @@ export default function AuthScreen({ navigation }: Props) {
       style={s.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <StatusBar barStyle="light-content" backgroundColor={theme.background} />
+      <StatusBar
+        barStyle={isColorDark(theme.background) ? 'light-content' : 'dark-content'}
+        backgroundColor={theme.background}
+      />
 
       {/* Header */}
       <View style={s.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
+        <TouchableOpacity
+          onPress={() => navigation.goBack()}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+        >
           <MaterialIcons name="arrow-back" size={26} color={theme.text} />
         </TouchableOpacity>
         <Text style={s.headerTitle}>{mode === 'signin' ? 'Sign In' : 'Create Account'}</Text>
@@ -95,6 +103,7 @@ export default function AuthScreen({ navigation }: Props) {
 
         {/* Email */}
         <View style={s.inputWrap}>
+          <Text style={s.inputLabel}>Email</Text>
           <MaterialIcons name="email" size={20} color={theme.textMuted} />
           <TextInput
             style={s.input}
@@ -110,6 +119,7 @@ export default function AuthScreen({ navigation }: Props) {
 
         {/* Password */}
         <View style={s.inputWrap}>
+          <Text style={s.inputLabel}>Password</Text>
           <MaterialIcons name="lock" size={20} color={theme.textMuted} />
           <TextInput
             style={s.input}
@@ -119,7 +129,11 @@ export default function AuthScreen({ navigation }: Props) {
             value={password}
             onChangeText={setPassword}
           />
-          <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
+          <TouchableOpacity
+            onPress={() => setShowPassword(!showPassword)}
+            accessibilityRole="button"
+            accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+          >
             <MaterialIcons
               name={showPassword ? 'visibility' : 'visibility-off'}
               size={20}
@@ -143,7 +157,7 @@ export default function AuthScreen({ navigation }: Props) {
           activeOpacity={0.7}
         >
           {loading ? (
-            <ActivityIndicator color="#FFF" size="small" />
+            <ActivityIndicator color={theme.onPrimary} size="small" />
           ) : (
             <Text style={s.submitText}>
               {mode === 'signin' ? 'Sign In' : 'Create Account'}
@@ -216,6 +230,7 @@ const makeStyles = (c: any) =>
     inputWrap: {
       flexDirection: 'row',
       alignItems: 'center',
+      flexWrap: 'wrap',
       gap: 10,
       backgroundColor: c.inputBg,
       borderRadius: 14,
@@ -223,6 +238,13 @@ const makeStyles = (c: any) =>
       height: 50,
       width: '100%',
       marginBottom: 12,
+    },
+    inputLabel: {
+      width: '100%',
+      fontSize: 12,
+      fontWeight: '700',
+      color: c.textSecondary,
+      marginBottom: -2,
     },
     input: {
       flex: 1,
@@ -241,7 +263,7 @@ const makeStyles = (c: any) =>
       marginTop: 8,
     },
     submitBtnDisabled: { opacity: 0.5 },
-    submitText: { color: '#FFF', fontSize: 16, fontWeight: '700' },
+    submitText: { color: c.onPrimary, fontSize: 16, fontWeight: '700' },
     toggleBtn: { marginTop: 16 },
     toggleText: { fontSize: 14, color: c.primary },
     divider: {

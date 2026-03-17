@@ -10,13 +10,11 @@ import {
   Modal,
   TouchableOpacity,
   TextInput,
-  Dimensions,
   KeyboardAvoidingView,
   Platform,
+  useWindowDimensions,
 } from 'react-native';
 import type { ThemeColors } from '../../theme/colors';
-
-const { width: SW } = Dimensions.get('window');
 
 interface Props {
   visible: boolean;
@@ -28,6 +26,7 @@ interface Props {
 
 export function CaloriesEditModal({ visible, theme, initial, onSave, onCancel }: Props) {
   const [value, setValue] = useState(String(initial ?? ''));
+  const { width } = useWindowDimensions();
 
   const handleSave = () => {
     const num = parseInt(value, 10);
@@ -42,7 +41,7 @@ export function CaloriesEditModal({ visible, theme, initial, onSave, onCancel }:
         style={s.overlay}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <View style={s.card}>
+        <View style={[s.card, { width: Math.min(width - 40, 340) }]}>
           <Text style={s.title}>Edit Calories</Text>
           <TextInput
             style={s.input}
@@ -78,7 +77,6 @@ const makeStyles = (c: ThemeColors) =>
       alignItems: 'center',
     },
     card: {
-      width: SW * 0.75,
       backgroundColor: c.card,
       borderRadius: 18,
       padding: 24,

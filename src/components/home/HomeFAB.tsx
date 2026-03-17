@@ -6,16 +6,33 @@
 import React from 'react';
 import { StyleSheet, TouchableOpacity, Text } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import { useTheme } from '../../theme/ThemeProvider';
+import { withAlpha } from '../../theme/colorUtils';
 
 interface Props {
   onPress: () => void;
 }
 
 export default function HomeFAB({ onPress }: Props) {
+  const { theme } = useTheme();
+
   return (
-    <TouchableOpacity style={styles.fab} activeOpacity={0.85} onPress={onPress}>
-      <MaterialIcons name="photo-camera" size={20} color="#FFF" />
-      <Text style={styles.label}>Scan meal</Text>
+    <TouchableOpacity
+      style={[
+        styles.fab,
+        {
+          backgroundColor: theme.surface,
+          borderColor: withAlpha(theme.primary, 0.22),
+          shadowColor: withAlpha(theme.text, 0.35),
+        },
+      ]}
+      activeOpacity={0.85}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel="Scan meal"
+    >
+      <MaterialIcons name="photo-camera" size={20} color={theme.primary} />
+      <Text style={[styles.label, { color: theme.text }]}>Scan meal</Text>
     </TouchableOpacity>
   );
 }
@@ -28,15 +45,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 7,
-    backgroundColor: '#1C1C1E',
     height: 48,
     paddingHorizontal: 18,
     borderRadius: 24,
-    shadowColor: '#000',
+    borderWidth: 1,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.25,
     shadowRadius: 8,
     elevation: 6,
   },
-  label: { color: '#FFF', fontSize: 14, fontWeight: '700' },
+  label: { fontSize: 14, fontWeight: '700' },
 });

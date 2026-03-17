@@ -2,30 +2,31 @@ import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, StatusBar } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
-
-const ACHIEVEMENT_THEME = {
-  background: '#FFFDF5',
-  text: '#0F172A',
-  muted: '#64748B',
-  border: '#F6E7B0',
-  surface: '#FEF3C7',
-  primary: '#FACC15',
-  accent: '#F97316',
-};
+import { useTheme } from '../theme/ThemeProvider';
+import { withAlpha } from '../theme/colorUtils';
 
 export default function StreakAchievementScreen() {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
+  const { theme, themeName } = useTheme();
   const days = Math.max(1, Number(route.params?.days ?? 1));
-  const styles = makeStyles(ACHIEVEMENT_THEME);
+  const styles = makeStyles(theme);
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor={ACHIEVEMENT_THEME.background} />
+      <StatusBar
+        barStyle={themeName === 'Light' ? 'dark-content' : 'light-content'}
+        backgroundColor={theme.background}
+      />
 
       <View style={styles.header}>
-        <TouchableOpacity style={styles.closeBtn} onPress={() => navigation.goBack()}>
-          <MaterialIcons name="close" size={22} color="#94A3B8" />
+        <TouchableOpacity
+          style={styles.closeBtn}
+          onPress={() => navigation.goBack()}
+          accessibilityRole="button"
+          accessibilityLabel="Close achievement"
+        >
+          <MaterialIcons name="close" size={22} color={theme.textMuted} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Achievement</Text>
         <View style={{ width: 40 }} />
@@ -33,7 +34,7 @@ export default function StreakAchievementScreen() {
 
       <View style={styles.main}>
         <View style={styles.flameWrap}>
-          <MaterialIcons name="local-fire-department" size={112} color="#F97316" />
+          <MaterialIcons name="local-fire-department" size={112} color={theme.warning} />
         </View>
         <Text style={styles.bigNumber}>{days}</Text>
         <Text style={styles.subtitle}>day streak!</Text>
@@ -47,7 +48,7 @@ export default function StreakAchievementScreen() {
               <View key={`${d}-${idx}`} style={styles.weekCell}>
                 <Text style={styles.dayText}>{d}</Text>
                 <View style={[styles.dot, active && styles.dotActive]}>
-                  {active ? <MaterialIcons name="check" size={14} color="#FFF" /> : null}
+                  {active ? <MaterialIcons name="check" size={14} color={theme.onPrimary} /> : null}
                 </View>
               </View>
             );
@@ -82,7 +83,7 @@ const makeStyles = (theme: any) =>
       width: 180,
       height: 180,
       borderRadius: 90,
-      backgroundColor: '#FFE8D7',
+      backgroundColor: withAlpha(theme.warning, 0.14),
       alignItems: 'center',
       justifyContent: 'center',
       marginBottom: 14,
@@ -103,7 +104,7 @@ const makeStyles = (theme: any) =>
       justifyContent: 'center',
       backgroundColor: theme.surface,
     },
-    dotActive: { backgroundColor: theme.accent, borderColor: theme.accent },
+    dotActive: { backgroundColor: theme.primary, borderColor: theme.primary },
     footer: { paddingHorizontal: 24, paddingBottom: 34 },
     continueBtn: {
       height: 56,
@@ -112,5 +113,5 @@ const makeStyles = (theme: any) =>
       justifyContent: 'center',
       backgroundColor: theme.primary,
     },
-    continueText: { color: '#0F172A', fontSize: 19, fontWeight: '800' },
+    continueText: { color: theme.onPrimary, fontSize: 19, fontWeight: '800' },
   });

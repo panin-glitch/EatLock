@@ -4,7 +4,6 @@ import {
   Text,
   StyleSheet,
   ScrollView,
-  Dimensions,
   TouchableOpacity,
   StatusBar,
   Image,
@@ -12,6 +11,7 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import Svg, { Line, Path, Circle } from 'react-native-svg';
 import { useTheme } from '../theme/ThemeProvider';
+import { withAlpha } from '../theme/colorUtils';
 import { useAppState } from '../state/AppStateContext';
 import { MACRO_COLORS } from '../theme/macroColors';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
@@ -33,7 +33,6 @@ import {
 } from '../utils/statsBuckets';
 import { languageToLocale } from '../utils/locale';
 
-const SCREEN_WIDTH = Dimensions.get('window').width;
 const FILTERS = ['Weekly', 'Monthly', 'Quarterly', 'SemiAnnual'] as const;
 type FilterType = (typeof FILTERS)[number];
 const DISPLAY_FILTERS: Array<{ label: string; value: FilterType | null }> = [
@@ -112,6 +111,8 @@ function buildSmoothPath(values: number[], width: number, height: number): strin
 
 export default function StatsScreen() {
   const { theme, themeName } = useTheme();
+  const phoneTooltipBackground = themeName === 'Light' ? theme.text : theme.surfaceElevated;
+  const phoneTooltipTextColor = themeName === 'Light' ? theme.surface : theme.text;
   const navigation = useNavigation<any>();
   const { sessions, activeSession, settings } = useAppState();
   const localeTag = useMemo(() => languageToLocale(settings.language), [settings.language]);
@@ -351,9 +352,6 @@ export default function StatsScreen() {
       <View style={styles.headerRow}>
         <Text style={styles.screenTitle}>Progress</Text>
         <View style={styles.headerActions}>
-          <TouchableOpacity style={styles.headerIconBtn}>
-            <MaterialIcons name="ios-share" size={19} color={theme.textSecondary} />
-          </TouchableOpacity>
           <TouchableOpacity style={styles.headerIconBtn} onPress={() => navigation.navigate('Settings')}>
             <MaterialIcons name="settings" size={19} color={theme.textSecondary} />
           </TouchableOpacity>
@@ -378,9 +376,6 @@ export default function StatsScreen() {
               <Text style={[styles.filterText, f.value != null && filter === f.value && styles.filterTextSelected]}>{f.label}</Text>
             </TouchableOpacity>
           ))}
-          <TouchableOpacity style={styles.filterMoreBtn}>
-            <MaterialIcons name="unfold-more" size={16} color={theme.textMuted} />
-          </TouchableOpacity>
         </View>
 
         <View style={styles.card}>
@@ -425,7 +420,7 @@ export default function StatsScreen() {
               <View style={styles.durationTrack}>
                 <View style={[styles.durationSegment, { width: `${(fastestMin / durationTotal) * 100}%`, backgroundColor: theme.primary }]} />
                 <View style={[styles.durationSegment, { width: `${(avgMin / durationTotal) * 100}%`, backgroundColor: MACRO_COLORS.fat }]} />
-                <View style={[styles.durationSegment, { width: `${(longestMin / durationTotal) * 100}%`, backgroundColor: '#FACC15' }]} />
+                <View style={[styles.durationSegment, { width: `${(longestMin / durationTotal) * 100}%`, backgroundColor: theme.warning }]} />
               </View>
               <View style={styles.durationStatsRow}>
                 <View style={styles.durationStatItem}>
@@ -577,8 +572,10 @@ export default function StatsScreen() {
                 return (
                   <View key={`phone-${index}`} style={styles.phoneBarCell}>
                     {isMax ? (
-                      <View style={styles.phoneTooltip}>
-                        <Text style={styles.phoneTooltipText}>{Math.floor(value / 60)}h {value % 60}m</Text>
+                      <View style={[styles.phoneTooltip, { backgroundColor: phoneTooltipBackground }]}>
+                        <Text style={[styles.phoneTooltipText, { color: phoneTooltipTextColor }]}>
+                          {Math.floor(value / 60)}h {value % 60}m
+                        </Text>
                       </View>
                     ) : null}
                     <View
@@ -657,11 +654,6 @@ const makeStyles = (theme: any) =>
     },
     filterText: { fontSize: 13, color: theme.textSecondary, fontWeight: '600' },
     filterTextSelected: { color: theme.onPrimary, fontWeight: '700' },
-    filterMoreBtn: {
-      width: 28,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
     card: {
       backgroundColor: theme.card,
       borderRadius: 22,
@@ -669,7 +661,7 @@ const makeStyles = (theme: any) =>
       marginTop: 14,
       borderWidth: 1,
       borderColor: theme.border,
-      shadowColor: '#0F172A',
+      shadowColor: withAlpha(theme.text, 0.12),
       shadowOpacity: 0.06,
       shadowRadius: 14,
       shadowOffset: { width: 0, height: 6 },
@@ -777,13 +769,12 @@ const makeStyles = (theme: any) =>
     phoneTooltip: {
       position: 'absolute',
       top: 0,
-      backgroundColor: '#0F172A',
       borderRadius: 8,
       paddingHorizontal: 8,
       paddingVertical: 4,
       zIndex: 10,
     },
-    phoneTooltipText: { color: '#FFFFFF', fontSize: 10, fontWeight: '700' },
+    phoneTooltipText: { fontSize: 10, fontWeight: '700' },
     phoneLabelsRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 8, paddingHorizontal: 2 },
     phoneLabel: { fontSize: 10, color: theme.textMuted, fontWeight: '600' },
     habitItem: { marginBottom: 14 },

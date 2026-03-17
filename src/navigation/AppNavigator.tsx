@@ -5,6 +5,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../theme/ThemeProvider';
+import { withAlpha } from '../theme/colorUtils';
 import { useAppState } from '../state/AppStateContext';
 import { triggerLightHaptic } from '../services/haptics';
 
@@ -56,7 +57,6 @@ function TabNavigator({ navigation: rootNavigation }: any) {
 
   return (
     <Tab.Navigator
-      detachInactiveScreens={false}
       screenOptions={{
         headerShown: false,
         animation: 'fade',
@@ -81,7 +81,8 @@ function TabNavigator({ navigation: rootNavigation }: any) {
                 styles.tabPill,
                 {
                   backgroundColor: theme.card,
-                  borderColor: isLight ? 'rgba(15,23,42,0.06)' : 'rgba(255,255,255,0.05)',
+                  borderColor: withAlpha(theme.text, isLight ? 0.06 : 0.05),
+                  shadowColor: withAlpha(theme.text, 0.18),
                 },
               ]}
             >
@@ -111,6 +112,9 @@ function TabNavigator({ navigation: rootNavigation }: any) {
                     style={[styles.tabItem, focused && [styles.tabItemActive, { backgroundColor: theme.surfaceElevated }]]}
                     onPress={onPress}
                     activeOpacity={0.85}
+                    accessibilityRole="button"
+                    accessibilityLabel={item.label}
+                    accessibilityState={{ selected: focused }}
                   >
                     <MaterialIcons
                       name={item.icon}
@@ -126,9 +130,11 @@ function TabNavigator({ navigation: rootNavigation }: any) {
             </View>
 
             <TouchableOpacity
-              style={[styles.scanFab, { backgroundColor: theme.primary }]}
+              style={[styles.scanFab, { backgroundColor: theme.primary, shadowColor: withAlpha(theme.text, 0.22) }]}
               onPress={openCamera}
               activeOpacity={0.9}
+              accessibilityRole="button"
+              accessibilityLabel="Open meal scanner"
             >
               <MaterialIcons name="lock" size={34} color={theme.onPrimary} />
             </TouchableOpacity>
@@ -180,7 +186,6 @@ export default function AppNavigator() {
         screenOptions={{
           headerShown: false,
           contentStyle: { backgroundColor: theme.background },
-          freezeOnBlur: false,
           animation: 'slide_from_right',
           animationDuration: 260,
           statusBarAnimation: 'fade',
@@ -292,7 +297,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 4,
-    shadowColor: '#000',
     shadowOpacity: 0.22,
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 4 },
@@ -318,7 +322,6 @@ const styles = StyleSheet.create({
     borderRadius: 42,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#000',
     shadowOpacity: 0.25,
     shadowRadius: 14,
     shadowOffset: { width: 0, height: 5 },

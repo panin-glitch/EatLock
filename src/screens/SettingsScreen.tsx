@@ -13,6 +13,8 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import { PAYWALL_RESULT } from 'react-native-purchases-ui';
 import { useTheme } from '../theme/ThemeProvider';
+import type { ThemeColors } from '../theme/colors';
+import { withAlpha } from '../theme/colorUtils';
 import { useAppState } from '../state/AppStateContext';
 import { useAuth } from '../state/AuthContext';
 import { useRevenueCat } from '../state/RevenueCatContext';
@@ -23,6 +25,7 @@ import { findPackageForPlan, hasTadLockProEntitlement } from '../services/revenu
 import { languageToLocale } from '../utils/locale';
 
 function Row({
+  theme,
   icon,
   iconBg,
   iconColor,
@@ -32,6 +35,7 @@ function Row({
   onPress,
   right,
 }: {
+  theme: ThemeColors;
   icon: keyof typeof MaterialIcons.glyphMap;
   iconBg: string;
   iconColor: string;
@@ -47,6 +51,7 @@ function Row({
       activeOpacity={touchable ? 0.7 : 1}
       onPress={onPress}
       disabled={!touchable}
+      accessibilityRole={touchable ? 'button' : undefined}
       style={{
         flexDirection: 'row',
         alignItems: 'center',
@@ -54,7 +59,7 @@ function Row({
         paddingHorizontal: 20,
         paddingVertical: 14,
         borderBottomWidth: 1,
-        borderBottomColor: '#F1F5F9',
+        borderBottomColor: theme.border,
       }}
     >
       <View
@@ -71,14 +76,14 @@ function Row({
       </View>
 
       <View style={{ flex: 1 }}>
-        <Text style={{ fontSize: 14, fontWeight: '700', color: '#0F172A' }}>{title}</Text>
-        {subtitle ? <Text style={{ fontSize: 12, color: '#64748B', marginTop: 2 }}>{subtitle}</Text> : null}
+        <Text style={{ fontSize: 14, fontWeight: '700', color: theme.text }}>{title}</Text>
+        {subtitle ? <Text style={{ fontSize: 12, color: theme.textSecondary, marginTop: 2 }}>{subtitle}</Text> : null}
       </View>
 
       {right ?? (
         <>
-          {value ? <Text style={{ fontSize: 14, fontWeight: '600', color: '#0F172A' }}>{value}</Text> : null}
-          <MaterialIcons name="chevron-right" size={18} color="#CBD5E1" />
+          {value ? <Text style={{ fontSize: 14, fontWeight: '600', color: theme.text }}>{value}</Text> : null}
+          {touchable ? <MaterialIcons name="chevron-right" size={18} color={theme.textMuted} /> : null}
         </>
       )}
     </TouchableOpacity>
@@ -216,10 +221,20 @@ export default function SettingsScreen() {
   }, [settings.nutritionGoals.macroSplit]);
 
   const sectionTitle = (label: string) => (
-    <Text style={styles.sectionLabel}>{label}</Text>
+    <Text style={[styles.sectionLabel, { color: theme.textMuted }]}>{label}</Text>
   );
 
   const cardStyle = [styles.card, { backgroundColor: theme.card, borderColor: theme.border }];
+  const tones = useMemo(
+    () => ({
+      primary: { bg: withAlpha(theme.primary, 0.16), fg: theme.primary },
+      warning: { bg: withAlpha(theme.warning, 0.16), fg: theme.warning },
+      success: { bg: withAlpha(theme.success, 0.16), fg: theme.success },
+      danger: { bg: withAlpha(theme.danger, 0.14), fg: theme.danger },
+      neutral: { bg: theme.chipBg, fg: theme.textSecondary },
+    }),
+    [theme],
+  );
   const monthlyPackage = useMemo(() => findPackageForPlan(currentOffering, 'monthly'), [currentOffering]);
   const yearlyPackage = useMemo(() => findPackageForPlan(currentOffering, 'yearly'), [currentOffering]);
   const plusSubtitle = useMemo(() => {
@@ -341,7 +356,12 @@ export default function SettingsScreen() {
       />
 
       <View style={styles.header}>
-        <TouchableOpacity style={styles.iconBtn} onPress={() => navigation.goBack()}>
+        <TouchableOpacity
+          style={[styles.iconBtn, { backgroundColor: theme.surface, borderColor: theme.border }]}
+          onPress={() => navigation.goBack()}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+        >
           <MaterialIcons name="arrow-back" size={22} color={theme.text} />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: theme.text }]}>Settings</Text>
@@ -349,24 +369,32 @@ export default function SettingsScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <View style={styles.plusBanner}>
-          <View style={styles.plusOverlay} />
+        <View style={[styles.plusBanner, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+          <View style={[styles.plusOverlay, { backgroundColor: withAlpha(theme.primary, 0.08) }]} />
           <View style={{ zIndex: 1 }}>
             <View style={styles.plusTopRow}>
-              <Text style={styles.plusTag}>{isPro ? 'Pro' : 'Plus'}</Text>
-              <Text style={styles.plusTitle}>{isPro ? 'TadLock Pro Active' : 'Try TadLock Plus'}</Text>
+              <Text style={[styles.plusTag, { backgroundColor: theme.primary, color: theme.onPrimary }]}>
+                {isPro ? 'Pro' : 'Plus'}
+              </Text>
+              <Text style={[styles.plusTitle, { color: theme.text }]}>
+                {isPro ? 'TadLock Pro Active' : 'Try TadLock Plus'}
+              </Text>
             </View>
-            <Text style={styles.plusSub}>{plusSubtitle}</Text>
+            <Text style={[styles.plusSub, { color: theme.textSecondary }]}>{plusSubtitle}</Text>
             <TouchableOpacity
-              style={[styles.plusBtn, (subscriptionAction === 'paywall' || subscriptionsLoading) && styles.plusBtnDisabled]}
+              style={[
+                styles.plusBtn,
+                { backgroundColor: theme.primary },
+                (subscriptionAction === 'paywall' || subscriptionsLoading) && styles.plusBtnDisabled,
+              ]}
               onPress={handleOpenPlus}
               activeOpacity={0.85}
               disabled={subscriptionAction === 'paywall' || subscriptionsLoading}
             >
               {subscriptionAction === 'paywall' || subscriptionsLoading ? (
-                <ActivityIndicator size="small" color="#0F172A" />
+                <ActivityIndicator size="small" color={theme.onPrimary} />
               ) : (
-                <Text style={styles.plusBtnText}>
+                <Text style={[styles.plusBtnText, { color: theme.onPrimary }]}>
                   {isAnonymous ? 'Create account' : isPro ? 'Manage plan' : 'Get Plus'}
                 </Text>
               )}
@@ -377,27 +405,30 @@ export default function SettingsScreen() {
         {sectionTitle('SUBSCRIPTIONS')}
         <View style={cardStyle}>
           <Row
+            theme={theme}
             icon="stars"
-            iconBg="#FEF3C7"
-            iconColor="#CA8A04"
+            iconBg={tones.primary.bg}
+            iconColor={tones.primary.fg}
             title="TadLock Pro"
             subtitle={isPro ? 'Subscription active on this account' : plusSubtitle}
             value={isPro ? 'Active' : subscriptionsSupported ? 'Inactive' : 'iOS only'}
             onPress={handleOpenPlus}
           />
           <Row
+            theme={theme}
             icon="restore"
-            iconBg="#E0E7FF"
-            iconColor="#4F46E5"
+            iconBg={tones.neutral.bg}
+            iconColor={tones.neutral.fg}
             title="Restore purchases"
             subtitle="Sync App Store purchases to this account"
             value={subscriptionAction === 'restore' ? 'Working...' : undefined}
             onPress={handleRestorePurchases}
           />
           <Row
+            theme={theme}
             icon="manage-accounts"
-            iconBg="#ECFDF5"
-            iconColor="#059669"
+            iconBg={tones.success.bg}
+            iconColor={tones.success.fg}
             title="Manage subscription"
             subtitle="Open RevenueCat Customer Center"
             value={subscriptionAction === 'manage' ? 'Opening...' : undefined}
@@ -408,27 +439,30 @@ export default function SettingsScreen() {
         {sectionTitle('GOALS')}
         <View style={cardStyle}>
           <Row
+            theme={theme}
             icon="local-fire-department"
-            iconBg="#FFF7ED"
-            iconColor="#EA580C"
+            iconBg={tones.warning.bg}
+            iconColor={tones.warning.fg}
             title="Calories"
             subtitle="Daily target"
             value={`${settings.nutritionGoals.dailyCalorieGoal.toLocaleString(localeTag)} cal`}
             onPress={() => navigation.push('CalorieSetting')}
           />
           <Row
+            theme={theme}
             icon="pie-chart"
-            iconBg="#EFF6FF"
-            iconColor="#2563EB"
+            iconBg={tones.neutral.bg}
+            iconColor={tones.neutral.fg}
             title="Macros"
             subtitle="Custom ratio"
             value={macroValue}
             onPress={() => navigation.push('MacroBalanceSetting')}
           />
           <Row
+            theme={theme}
             icon="sync"
-            iconBg="#F1F5F9"
-            iconColor="#475569"
+            iconBg={tones.neutral.bg}
+            iconColor={tones.neutral.fg}
             title="Recalculate plan"
             subtitle="Based on latest stats"
             onPress={() => Alert.alert('Plan recalculated', 'Your nutrition plan is up to date.')}
@@ -438,27 +472,30 @@ export default function SettingsScreen() {
         {sectionTitle('EATING PREFERENCES')}
         <View style={cardStyle}>
           <Row
+            theme={theme}
             icon="restaurant"
-            iconBg="#FEF3C7"
-            iconColor="#CA8A04"
+            iconBg={tones.primary.bg}
+            iconColor={tones.primary.fg}
             title="Diet"
             subtitle="Current strategy"
             value="High protein"
             onPress={() => navigation.push('DietSelection')}
           />
           <Row
+            theme={theme}
             icon="fastfood"
-            iconBg="#FEF9C3"
-            iconColor="#CA8A04"
+            iconBg={tones.primary.bg}
+            iconColor={tones.primary.fg}
             title="Meals per day"
             subtitle="Frequency"
             value="3 meals"
             onPress={() => navigation.push('MealFrequencySetting')}
           />
           <Row
+            theme={theme}
             icon="biotech"
-            iconBg="#FEF3C7"
-            iconColor="#CA8A04"
+            iconBg={tones.primary.bg}
+            iconColor={tones.primary.fg}
             title="Micronutrients"
             subtitle="Track vitamins & minerals"
             right={
@@ -468,8 +505,8 @@ export default function SettingsScreen() {
                 <Switch
                   value={microsEnabled}
                   onValueChange={toggleMicrosEnabled}
-                  trackColor={{ false: '#E2E8F0', true: theme.primaryDim }}
-                  thumbColor={microsEnabled ? theme.primary : '#94A3B8'}
+                  trackColor={{ false: theme.border, true: theme.primaryDim }}
+                  thumbColor={microsEnabled ? theme.primary : theme.textMuted}
                 />
               )
             }
@@ -479,79 +516,89 @@ export default function SettingsScreen() {
         {sectionTitle('APPLE HEALTH')}
         <View style={cardStyle}>
           <Row
+            theme={theme}
             icon="favorite"
-            iconBg="#FEE2E2"
-            iconColor="#EF4444"
+            iconBg={tones.danger.bg}
+            iconColor={tones.danger.fg}
             title="Apple Health"
-            onPress={() => {}}
+            value="Soon"
           />
           <Row
+            theme={theme}
             icon="arrow-upward"
-            iconBg="#FFF7ED"
-            iconColor="#F97316"
+            iconBg={tones.warning.bg}
+            iconColor={tones.warning.fg}
             title="Send Calories to Health"
-            right={<Switch value={healthToggles.sendCalories} onValueChange={(v) => setHealthToggles((p) => ({ ...p, sendCalories: v }))} trackColor={{ false: '#E2E8F0', true: theme.primaryDim }} thumbColor={healthToggles.sendCalories ? theme.primary : '#94A3B8'} />}
+            right={<Switch value={healthToggles.sendCalories} onValueChange={(v) => setHealthToggles((p) => ({ ...p, sendCalories: v }))} trackColor={{ false: theme.border, true: theme.primaryDim }} thumbColor={healthToggles.sendCalories ? theme.primary : theme.textMuted} />}
           />
           <Row
+            theme={theme}
             icon="arrow-upward"
-            iconBg="#EFF6FF"
-            iconColor="#3B82F6"
+            iconBg={tones.neutral.bg}
+            iconColor={tones.neutral.fg}
             title="Send Macros to Health"
-            right={<Switch value={healthToggles.sendMacros} onValueChange={(v) => setHealthToggles((p) => ({ ...p, sendMacros: v }))} trackColor={{ false: '#E2E8F0', true: theme.primaryDim }} thumbColor={healthToggles.sendMacros ? theme.primary : '#94A3B8'} />}
+            right={<Switch value={healthToggles.sendMacros} onValueChange={(v) => setHealthToggles((p) => ({ ...p, sendMacros: v }))} trackColor={{ false: theme.border, true: theme.primaryDim }} thumbColor={healthToggles.sendMacros ? theme.primary : theme.textMuted} />}
           />
           <Row
+            theme={theme}
             icon="local-fire-department"
-            iconBg="#FFF7ED"
-            iconColor="#EA580C"
+            iconBg={tones.warning.bg}
+            iconColor={tones.warning.fg}
             title="Read Burned Calories"
-            right={<Switch value={healthToggles.readBurned} onValueChange={(v) => setHealthToggles((p) => ({ ...p, readBurned: v }))} trackColor={{ false: '#E2E8F0', true: theme.primaryDim }} thumbColor={healthToggles.readBurned ? theme.primary : '#94A3B8'} />}
+            right={<Switch value={healthToggles.readBurned} onValueChange={(v) => setHealthToggles((p) => ({ ...p, readBurned: v }))} trackColor={{ false: theme.border, true: theme.primaryDim }} thumbColor={healthToggles.readBurned ? theme.primary : theme.textMuted} />}
           />
           <Row
+            theme={theme}
             icon="hotel"
-            iconBg="#F3E8FF"
-            iconColor="#9333EA"
+            iconBg={tones.neutral.bg}
+            iconColor={tones.neutral.fg}
             title="Read Resting Energy"
             subtitle="Base calories your body burns"
-            right={<Switch value={healthToggles.readResting} onValueChange={(v) => setHealthToggles((p) => ({ ...p, readResting: v }))} trackColor={{ false: '#E2E8F0', true: theme.primaryDim }} thumbColor={healthToggles.readResting ? theme.primary : '#94A3B8'} />}
+            right={<Switch value={healthToggles.readResting} onValueChange={(v) => setHealthToggles((p) => ({ ...p, readResting: v }))} trackColor={{ false: theme.border, true: theme.primaryDim }} thumbColor={healthToggles.readResting ? theme.primary : theme.textMuted} />}
           />
           <Row
+            theme={theme}
             icon="directions-walk"
-            iconBg="#DBEAFE"
-            iconColor="#2563EB"
+            iconBg={tones.neutral.bg}
+            iconColor={tones.neutral.fg}
             title="Read Steps"
-            right={<Switch value={healthToggles.readSteps} onValueChange={(v) => setHealthToggles((p) => ({ ...p, readSteps: v }))} trackColor={{ false: '#E2E8F0', true: theme.primaryDim }} thumbColor={healthToggles.readSteps ? theme.primary : '#94A3B8'} />}
+            right={<Switch value={healthToggles.readSteps} onValueChange={(v) => setHealthToggles((p) => ({ ...p, readSteps: v }))} trackColor={{ false: theme.border, true: theme.primaryDim }} thumbColor={healthToggles.readSteps ? theme.primary : theme.textMuted} />}
           />
           <Row
+            theme={theme}
             icon="fitness-center"
-            iconBg="#FEF3C7"
-            iconColor="#CA8A04"
+            iconBg={tones.primary.bg}
+            iconColor={tones.primary.fg}
             title="Read Workouts"
-            right={<Switch value={healthToggles.readWorkouts} onValueChange={(v) => setHealthToggles((p) => ({ ...p, readWorkouts: v }))} trackColor={{ false: '#E2E8F0', true: theme.primaryDim }} thumbColor={healthToggles.readWorkouts ? theme.primary : '#94A3B8'} />}
+            right={<Switch value={healthToggles.readWorkouts} onValueChange={(v) => setHealthToggles((p) => ({ ...p, readWorkouts: v }))} trackColor={{ false: theme.border, true: theme.primaryDim }} thumbColor={healthToggles.readWorkouts ? theme.primary : theme.textMuted} />}
           />
         </View>
 
         {sectionTitle('APPLICATIONS')}
         <View style={cardStyle}>
           <Row
+            theme={theme}
             icon="vibration"
-            iconBg="#FCE7F3"
-            iconColor="#DB2777"
+            iconBg={tones.primary.bg}
+            iconColor={tones.primary.fg}
             title="Haptic feedback"
             subtitle="System vibrations"
-            right={<Switch value={settings.app.hapticsEnabled} onValueChange={setHapticsEnabled} trackColor={{ false: '#E2E8F0', true: theme.primaryDim }} thumbColor={settings.app.hapticsEnabled ? theme.primary : '#94A3B8'} />}
+            right={<Switch value={settings.app.hapticsEnabled} onValueChange={setHapticsEnabled} trackColor={{ false: theme.border, true: theme.primaryDim }} thumbColor={settings.app.hapticsEnabled ? theme.primary : theme.textMuted} />}
           />
           <Row
+            theme={theme}
             icon="notifications"
-            iconBg="#E0E7FF"
-            iconColor="#4F46E5"
+            iconBg={tones.neutral.bg}
+            iconColor={tones.neutral.fg}
             title="Daily reminders"
             subtitle="Stay on track"
-            right={<Switch value={settings.app.dailyRemindersEnabled} onValueChange={setDailyRemindersEnabled} trackColor={{ false: '#E2E8F0', true: theme.primaryDim }} thumbColor={settings.app.dailyRemindersEnabled ? theme.primary : '#94A3B8'} />}
+            right={<Switch value={settings.app.dailyRemindersEnabled} onValueChange={setDailyRemindersEnabled} trackColor={{ false: theme.border, true: theme.primaryDim }} thumbColor={settings.app.dailyRemindersEnabled ? theme.primary : theme.textMuted} />}
           />
           <Row
+            theme={theme}
             icon="language"
-            iconBg="#F1F5F9"
-            iconColor="#475569"
+            iconBg={tones.neutral.bg}
+            iconColor={tones.neutral.fg}
             title="Language"
             subtitle="App interface"
             value={settings.language}
@@ -561,42 +608,49 @@ export default function SettingsScreen() {
 
         {sectionTitle('COMMUNITY')}
         <View style={cardStyle}>
-          <Row icon="forum" iconBg="#EFF6FF" iconColor="#2563EB" title="Discord" subtitle="Join our community" onPress={() => {}} />
-          <Row icon="photo-camera" iconBg="#F5F3FF" iconColor="#7C3AED" title="Instagram" subtitle="Follow us for tips" onPress={() => {}} />
-          <Row icon="bug-report" iconBg="#FFFBEB" iconColor="#D97706" title="Report a bug" subtitle="Help us improve" onPress={() => {}} />
-          <Row icon="lightbulb" iconBg="#ECFEFF" iconColor="#0891B2" title="Feature requests" subtitle="What should we build next?" onPress={() => {}} />
+          <Row theme={theme} icon="forum" iconBg={tones.neutral.bg} iconColor={tones.neutral.fg} title="Discord" subtitle="Join our community" value="Soon" />
+          <Row theme={theme} icon="photo-camera" iconBg={tones.primary.bg} iconColor={tones.primary.fg} title="Instagram" subtitle="Follow us for tips" value="Soon" />
+          <Row theme={theme} icon="bug-report" iconBg={tones.warning.bg} iconColor={tones.warning.fg} title="Report a bug" subtitle="Help us improve" value="Soon" />
+          <Row theme={theme} icon="lightbulb" iconBg={tones.success.bg} iconColor={tones.success.fg} title="Feature requests" subtitle="What should we build next?" value="Soon" />
         </View>
 
         {sectionTitle('ACCOUNT')}
         <View style={cardStyle}>
-          <Row icon="person" iconBg="#F1F5F9" iconColor="#475569" title="Profile" subtitle="Personal details" onPress={() => navigation.push('Profile')} />
-          <Row icon="mail" iconBg="#F1F5F9" iconColor="#475569" title="Email" subtitle="Manage your contact info" onPress={() => {}} />
+          <Row theme={theme} icon="person" iconBg={tones.neutral.bg} iconColor={tones.neutral.fg} title="Profile" subtitle="Personal details" onPress={() => navigation.push('Profile')} />
+          <Row theme={theme} icon="mail" iconBg={tones.neutral.bg} iconColor={tones.neutral.fg} title="Email" subtitle="Manage your contact info" onPress={() => navigation.push('Profile')} />
 
           <TouchableOpacity
-            style={styles.signOutRow}
+            style={[styles.signOutRow, { borderBottomColor: theme.border }]}
             onPress={handleSignOut}
+            accessibilityRole="button"
+            accessibilityLabel="Sign out"
           >
-            <View style={[styles.iconBox, { backgroundColor: '#FEE2E2' }]}>
-              <MaterialIcons name="logout" size={20} color="#DC2626" />
+            <View style={[styles.iconBox, { backgroundColor: tones.danger.bg }]}>
+              <MaterialIcons name="logout" size={20} color={tones.danger.fg} />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.signOutTitle}>Sign out</Text>
-              <Text style={styles.signOutSub}>Logout from your account</Text>
+              <Text style={[styles.signOutTitle, { color: theme.danger }]}>Sign out</Text>
+              <Text style={[styles.signOutSub, { color: theme.textSecondary }]}>Logout from your account</Text>
             </View>
-            <MaterialIcons name="chevron-right" size={18} color="#CBD5E1" />
+            <MaterialIcons name="chevron-right" size={18} color={theme.textMuted} />
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.deleteRow} onPress={() => {
-            handleClearDeviceData();
-          }}>
-            <View style={[styles.iconBox, { backgroundColor: '#FEE2E2' }]}>
-              <MaterialIcons name="delete" size={20} color="#DC2626" />
+          <TouchableOpacity
+            style={styles.deleteRow}
+            onPress={() => {
+              handleClearDeviceData();
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Clear device data"
+          >
+            <View style={[styles.iconBox, { backgroundColor: tones.danger.bg }]}>
+              <MaterialIcons name="delete" size={20} color={tones.danger.fg} />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.deleteTitle}>Clear Device Data</Text>
-              <Text style={styles.deleteSub}>Remove local data and sign out</Text>
+              <Text style={[styles.deleteTitle, { color: theme.danger }]}>Clear Device Data</Text>
+              <Text style={[styles.deleteSub, { color: theme.textSecondary }]}>Remove local data and sign out</Text>
             </View>
-            <MaterialIcons name="chevron-right" size={18} color="#CBD5E1" />
+            <MaterialIcons name="chevron-right" size={18} color={theme.textMuted} />
           </TouchableOpacity>
         </View>
         <View style={{ height: 44 }} />
@@ -619,6 +673,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -630,17 +685,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     paddingVertical: 16,
     marginBottom: 12,
-    backgroundColor: '#0F172A',
+    borderWidth: 1,
     overflow: 'hidden',
   },
-  plusOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(15, 23, 42, 0.2)',
-  },
+  plusOverlay: StyleSheet.absoluteFillObject,
   plusTopRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   plusTag: {
-    backgroundColor: '#FACC15',
-    color: '#0F172A',
     fontSize: 10,
     fontWeight: '800',
     textTransform: 'uppercase',
@@ -649,23 +699,21 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     borderRadius: 10,
   },
-  plusTitle: { color: '#FFFFFF', fontSize: 22, fontWeight: '800' },
-  plusSub: { color: '#CBD5E1', fontSize: 13, marginTop: 8, maxWidth: 240 },
+  plusTitle: { fontSize: 22, fontWeight: '800' },
+  plusSub: { fontSize: 13, marginTop: 8, maxWidth: 240 },
   plusBtn: {
     marginTop: 12,
     alignSelf: 'flex-start',
     borderRadius: 10,
-    backgroundColor: '#FACC15',
     paddingHorizontal: 16,
     paddingVertical: 8,
   },
   plusBtnDisabled: { opacity: 0.7 },
-  plusBtnText: { color: '#0F172A', fontSize: 13, fontWeight: '700' },
+  plusBtnText: { fontSize: 13, fontWeight: '700' },
   sectionLabel: {
     fontSize: 11,
     fontWeight: '800',
     letterSpacing: 1,
-    color: '#94A3B8',
     marginTop: 14,
     marginBottom: 8,
     paddingHorizontal: 4,
@@ -689,10 +737,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
   },
-  signOutTitle: { fontSize: 14, fontWeight: '700', color: '#DC2626' },
-  signOutSub: { fontSize: 12, color: '#64748B', marginTop: 2 },
+  signOutTitle: { fontSize: 14, fontWeight: '700' },
+  signOutSub: { fontSize: 12, marginTop: 2 },
   deleteRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -700,6 +747,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 14,
   },
-  deleteTitle: { fontSize: 14, fontWeight: '700', color: '#DC2626' },
-  deleteSub: { fontSize: 12, color: '#64748B', marginTop: 2 },
+  deleteTitle: { fontSize: 14, fontWeight: '700' },
+  deleteSub: { fontSize: 12, marginTop: 2 },
 });

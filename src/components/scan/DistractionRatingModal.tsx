@@ -10,12 +10,10 @@ import {
   StyleSheet,
   TouchableOpacity,
   Modal,
-  Dimensions,
+  useWindowDimensions,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import type { ThemeColors } from '../../theme/colors';
-
-const { width: SW } = Dimensions.get('window');
 
 interface Props {
   visible: boolean;
@@ -26,6 +24,7 @@ interface Props {
 
 export function DistractionRatingModal({ visible, theme, onSubmit, onSkip }: Props) {
   const [rating, setRating] = useState(0);
+  const { width } = useWindowDimensions();
 
   const handleSubmit = () => {
     if (rating > 0) onSubmit(rating);
@@ -33,8 +32,8 @@ export function DistractionRatingModal({ visible, theme, onSubmit, onSkip }: Pro
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onSkip}>
-      <View style={styles.overlay}>
-        <View style={[styles.card, { backgroundColor: theme.card }]}>
+      <View style={[styles.overlay, { backgroundColor: theme.overlay }]}>
+        <View style={[styles.card, { backgroundColor: theme.card, width: Math.min(width - 32, 360) }]}>
           <Text style={[styles.title, { color: theme.text }]}>How distracted were you?</Text>
           <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
             Rate your focus during this meal
@@ -43,7 +42,14 @@ export function DistractionRatingModal({ visible, theme, onSubmit, onSkip }: Pro
           {/* Star row */}
           <View style={styles.starsRow}>
             {[1, 2, 3, 4, 5].map((n) => (
-              <TouchableOpacity key={n} onPress={() => setRating(n)} activeOpacity={0.7}>
+              <TouchableOpacity
+                key={n}
+                onPress={() => setRating(n)}
+                activeOpacity={0.7}
+                style={styles.starButton}
+                accessibilityRole="button"
+                accessibilityLabel={`${n} star${n === 1 ? '' : 's'}`}
+              >
                 <MaterialIcons
                   name={n <= rating ? 'star' : 'star-border'}
                   size={40}
@@ -72,7 +78,7 @@ export function DistractionRatingModal({ visible, theme, onSubmit, onSkip }: Pro
             <Text
               style={[
                 styles.submitText,
-                { color: rating > 0 ? '#FFF' : theme.textMuted },
+                { color: rating > 0 ? theme.onPrimary : theme.textMuted },
               ]}
             >
               Continue
@@ -92,12 +98,10 @@ export function DistractionRatingModal({ visible, theme, onSubmit, onSkip }: Pro
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
     justifyContent: 'center',
     alignItems: 'center',
   },
   card: {
-    width: SW * 0.82,
     borderRadius: 20,
     padding: 24,
     alignItems: 'center',
@@ -117,6 +121,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
     marginBottom: 6,
+  },
+  starButton: {
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   labelRow: {
     flexDirection: 'row',

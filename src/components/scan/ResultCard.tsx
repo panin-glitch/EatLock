@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import type { ThemeColors } from '../../theme/colors';
+import { isColorDark, withAlpha } from '../../theme/colorUtils';
 import type { NutritionEstimate } from '../../services/vision/types';
 
 export interface ResultCardButton {
@@ -60,8 +61,7 @@ export function ResultCard({
   mealTypeLabel,
   variant = 'default',
 }: ResultCardProps) {
-  const isDark =
-    theme.background === '#000' || theme.background.startsWith('#0') || theme.background.startsWith('#1');
+  const isDark = isColorDark(theme.background);
   const styles = makeStyles(theme, isDark, bottomInset);
   const nutrition = calories?.nutrition;
   const confidence = getConfidencePercent(confidencePercent, nutrition);
@@ -101,8 +101,10 @@ export function ResultCard({
                 style={styles.portionMinus}
                 onPress={() => setPortion((prev) => Math.max(1, prev - 1))}
                 activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel="Decrease portion size"
               >
-                <MaterialIcons name="remove" size={18} color="#64748B" />
+                <MaterialIcons name="remove" size={18} color={theme.textSecondary} />
               </TouchableOpacity>
 
               <Text style={styles.portionCount}>{portion}</Text>
@@ -111,6 +113,8 @@ export function ResultCard({
                 style={styles.portionPlus}
                 onPress={() => setPortion((prev) => prev + 1)}
                 activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel="Increase portion size"
               >
                 <MaterialIcons name="add" size={18} color={theme.onPrimary} />
               </TouchableOpacity>
@@ -118,14 +122,20 @@ export function ResultCard({
           </View>
 
           <View style={styles.detailNutritionGrid}>
-            <DetailMetricTile label="CALORIES" value={String(calorieValue)} unit="cal" onEdit={calories?.onEdit} />
-            <DetailMetricTile label="PROTEIN" value={String(proteinValue)} unit="g" onEdit={calories?.onEdit} />
-            <DetailMetricTile label="CARBS" value={String(carbsValue)} unit="g" onEdit={calories?.onEdit} />
-            <DetailMetricTile label="FAT" value={String(fatValue)} unit="g" onEdit={calories?.onEdit} />
+            <DetailMetricTile theme={theme} label="CALORIES" value={String(calorieValue)} unit="cal" onEdit={calories?.onEdit} />
+            <DetailMetricTile theme={theme} label="PROTEIN" value={String(proteinValue)} unit="g" onEdit={calories?.onEdit} />
+            <DetailMetricTile theme={theme} label="CARBS" value={String(carbsValue)} unit="g" onEdit={calories?.onEdit} />
+            <DetailMetricTile theme={theme} label="FAT" value={String(fatValue)} unit="g" onEdit={calories?.onEdit} />
           </View>
 
           {primaryAction ? (
-            <TouchableOpacity style={styles.logMealBtn} onPress={primaryAction.onPress} activeOpacity={0.9}>
+            <TouchableOpacity
+              style={styles.logMealBtn}
+              onPress={primaryAction.onPress}
+              activeOpacity={0.9}
+              accessibilityRole="button"
+              accessibilityLabel={primaryAction.label}
+            >
               <MaterialIcons name="check-circle" size={18} color={theme.onPrimary} />
               <Text style={styles.logMealBtnText}>{primaryAction.label}</Text>
             </TouchableOpacity>
@@ -231,7 +241,7 @@ export function ResultCard({
                 styles.button,
                 button.secondary
                   ? {
-                      backgroundColor: isDark ? '#2A2A2A' : '#EEF2F1',
+                      backgroundColor: theme.surfaceElevated,
                       borderColor: theme.border,
                     }
                   : {
@@ -247,7 +257,7 @@ export function ResultCard({
                 style={[
                   styles.buttonText,
                   button.secondary && { color: theme.textSecondary },
-                  !button.secondary && { color: '#0F172A' },
+                  !button.secondary && { color: theme.onPrimary },
                   button.disabled && styles.buttonTextDisabled,
                 ]}
               >
@@ -262,27 +272,36 @@ export function ResultCard({
 }
 
 function DetailMetricTile({
+  theme,
   label,
   value,
   unit,
   onEdit,
 }: {
+  theme: ThemeColors;
   label: string;
   value: string;
   unit: string;
   onEdit?: () => void;
 }) {
+  const styles = makeDetailTileStyles(theme);
   return (
-    <View style={detailTileStyles.card}>
-      <View style={detailTileStyles.headerRow}>
-        <Text style={detailTileStyles.label}>{label}</Text>
-        <TouchableOpacity disabled={!onEdit} onPress={onEdit} activeOpacity={0.7}>
-          <Text style={detailTileStyles.edit}>EDIT</Text>
+    <View style={styles.card}>
+      <View style={styles.headerRow}>
+        <Text style={styles.label}>{label}</Text>
+        <TouchableOpacity
+          disabled={!onEdit}
+          onPress={onEdit}
+          activeOpacity={0.7}
+          accessibilityRole={onEdit ? 'button' : undefined}
+          accessibilityLabel={onEdit ? `Edit ${label.toLowerCase()}` : undefined}
+        >
+          <Text style={styles.edit}>EDIT</Text>
         </TouchableOpacity>
       </View>
-      <View style={detailTileStyles.valueRow}>
-        <Text style={detailTileStyles.value}>{value}</Text>
-        <Text style={detailTileStyles.unit}>{unit}</Text>
+      <View style={styles.valueRow}>
+        <Text style={styles.value}>{value}</Text>
+        <Text style={styles.unit}>{unit}</Text>
       </View>
     </View>
   );
@@ -310,49 +329,52 @@ function NutrientCell({
   );
 }
 
-const detailTileStyles = StyleSheet.create({
-  card: {
-    width: '48.4%',
-    borderRadius: 12,
-    backgroundColor: '#FFFBEB',
-    paddingHorizontal: 12,
-    paddingVertical: 11,
-    marginBottom: 10,
-  },
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 3,
-  },
-  label: {
-    color: '#64748B',
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 0.6,
-  },
-  edit: {
-    color: '#CA8A04',
-    fontSize: 11,
-    fontWeight: '800',
-  },
-  valueRow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-  },
-  value: {
-    color: '#0F172A',
-    fontSize: 28,
-    fontWeight: '800',
-    marginRight: 4,
-    lineHeight: 32,
-  },
-  unit: {
-    color: '#64748B',
-    fontSize: 12,
-    fontWeight: '500',
-  },
-});
+const makeDetailTileStyles = (theme: ThemeColors) =>
+  StyleSheet.create({
+    card: {
+      width: '48.4%',
+      borderRadius: 12,
+      backgroundColor: theme.surface,
+      borderWidth: 1,
+      borderColor: theme.border,
+      paddingHorizontal: 12,
+      paddingVertical: 11,
+      marginBottom: 10,
+    },
+    headerRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: 3,
+    },
+    label: {
+      color: theme.textSecondary,
+      fontSize: 11,
+      fontWeight: '700',
+      letterSpacing: 0.6,
+    },
+    edit: {
+      color: theme.primary,
+      fontSize: 11,
+      fontWeight: '800',
+    },
+    valueRow: {
+      flexDirection: 'row',
+      alignItems: 'baseline',
+    },
+    value: {
+      color: theme.text,
+      fontSize: 28,
+      fontWeight: '800',
+      marginRight: 4,
+      lineHeight: 32,
+    },
+    unit: {
+      color: theme.textSecondary,
+      fontSize: 12,
+      fontWeight: '500',
+    },
+  });
 
 const cellStyles = StyleSheet.create({
   cell: {
@@ -397,9 +419,9 @@ const makeStyles = (colors: ThemeColors, isDark: boolean, bottomInset: number) =
       paddingTop: 8,
       paddingBottom: 14,
       ...(isDark
-        ? { borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' }
+        ? { borderWidth: 1, borderColor: withAlpha(colors.text, 0.08) }
         : {
-            shadowColor: '#000',
+            shadowColor: withAlpha(colors.text, 0.3),
             shadowOffset: { width: 0, height: 10 },
             shadowOpacity: 0.14,
             shadowRadius: 20,
@@ -498,7 +520,7 @@ const makeStyles = (colors: ThemeColors, isDark: boolean, bottomInset: number) =
     editPillText: {
       fontSize: 12,
       fontWeight: '700',
-      color: '#64748B',
+      color: colors.textSecondary,
     },
     buttonsRow: {
       gap: 8,
@@ -528,10 +550,12 @@ const makeStyles = (colors: ThemeColors, isDark: boolean, bottomInset: number) =
       left: 0,
       right: 0,
       bottom: 0,
-      backgroundColor: '#FFFFFF',
+      backgroundColor: colors.card,
       borderTopLeftRadius: 20,
       borderTopRightRadius: 20,
-      shadowColor: '#000',
+      borderTopWidth: 1,
+      borderColor: colors.border,
+      shadowColor: withAlpha(colors.text, 0.22),
       shadowOpacity: 0.15,
       shadowRadius: 12,
       shadowOffset: { width: 0, height: -2 },
@@ -548,7 +572,7 @@ const makeStyles = (colors: ThemeColors, isDark: boolean, bottomInset: number) =
       width: 48,
       height: 6,
       borderRadius: 999,
-      backgroundColor: '#E2E8F0',
+      backgroundColor: colors.border,
     },
     mealDetailContent: {
       paddingHorizontal: 20,
@@ -559,7 +583,7 @@ const makeStyles = (colors: ThemeColors, isDark: boolean, bottomInset: number) =
       marginBottom: 18,
     },
     mealTypeText: {
-      color: '#CA8A04',
+      color: colors.success,
       fontSize: 12,
       fontWeight: '800',
       textTransform: 'uppercase',
@@ -567,7 +591,7 @@ const makeStyles = (colors: ThemeColors, isDark: boolean, bottomInset: number) =
     },
     mealTitleText: {
       marginTop: 8,
-      color: '#0F172A',
+      color: colors.text,
       fontSize: 31,
       lineHeight: 38,
       fontWeight: '800',
@@ -575,7 +599,9 @@ const makeStyles = (colors: ThemeColors, isDark: boolean, bottomInset: number) =
     },
     portionCard: {
       borderRadius: 12,
-      backgroundColor: '#FFFBEB',
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
       paddingHorizontal: 14,
       paddingVertical: 14,
       marginBottom: 16,
@@ -591,13 +617,13 @@ const makeStyles = (colors: ThemeColors, isDark: boolean, bottomInset: number) =
       width: 34,
       height: 34,
       borderRadius: 10,
-      backgroundColor: 'rgba(250,204,21,0.16)',
+      backgroundColor: withAlpha(colors.primary, 0.16),
       alignItems: 'center',
       justifyContent: 'center',
       marginRight: 10,
     },
     portionLabel: {
-      color: '#0F172A',
+      color: colors.text,
       fontSize: 15,
       fontWeight: '600',
     },
@@ -606,25 +632,25 @@ const makeStyles = (colors: ThemeColors, isDark: boolean, bottomInset: number) =
       alignItems: 'center',
     },
     portionMinus: {
-      width: 32,
-      height: 32,
-      borderRadius: 16,
+      width: 44,
+      height: 44,
+      borderRadius: 22,
       borderWidth: 1,
-      borderColor: '#CBD5E1',
-      backgroundColor: '#FFFFFF',
+      borderColor: colors.border,
+      backgroundColor: colors.surfaceElevated,
       alignItems: 'center',
       justifyContent: 'center',
     },
     portionPlus: {
-      width: 32,
-      height: 32,
-      borderRadius: 16,
-      backgroundColor: '#FACC15',
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      backgroundColor: colors.primary,
       alignItems: 'center',
       justifyContent: 'center',
     },
     portionCount: {
-      color: '#0F172A',
+      color: colors.text,
       fontSize: 20,
       fontWeight: '800',
       marginHorizontal: 16,
@@ -639,14 +665,14 @@ const makeStyles = (colors: ThemeColors, isDark: boolean, bottomInset: number) =
       marginTop: 2,
       height: 56,
       borderRadius: 14,
-      backgroundColor: '#FACC15',
+      backgroundColor: colors.primary,
       alignItems: 'center',
       justifyContent: 'center',
       flexDirection: 'row',
       gap: 7,
     },
     logMealBtnText: {
-      color: '#0F172A',
+      color: colors.onPrimary,
       fontSize: 17,
       fontWeight: '800',
       letterSpacing: 0.3,
