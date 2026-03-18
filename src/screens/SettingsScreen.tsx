@@ -11,10 +11,10 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { PAYWALL_RESULT } from 'react-native-purchases-ui';
 import { useTheme } from '../theme/ThemeProvider';
 import type { ThemeColors } from '../theme/colors';
 import { withAlpha } from '../theme/colorUtils';
+import AppBrandIcon from '../components/common/AppBrandIcon';
 import { useAppState } from '../state/AppStateContext';
 import { useAuth } from '../state/AuthContext';
 import { useRevenueCat } from '../state/RevenueCatContext';
@@ -27,6 +27,7 @@ import { languageToLocale } from '../utils/locale';
 function Row({
   theme,
   icon,
+  iconNode,
   iconBg,
   iconColor,
   title,
@@ -37,6 +38,7 @@ function Row({
 }: {
   theme: ThemeColors;
   icon: keyof typeof MaterialIcons.glyphMap;
+  iconNode?: React.ReactNode;
   iconBg: string;
   iconColor: string;
   title: string;
@@ -72,7 +74,7 @@ function Row({
           backgroundColor: iconBg,
         }}
       >
-        <MaterialIcons name={icon} size={20} color={iconColor} />
+        {iconNode ?? <MaterialIcons name={icon} size={20} color={iconColor} />}
       </View>
 
       <View style={{ flex: 1 }}>
@@ -334,11 +336,11 @@ export default function SettingsScreen() {
     setSubscriptionAction('paywall');
     try {
       const result = await presentPaywall();
-      if (result === PAYWALL_RESULT.PURCHASED) {
+      if (result === 'PURCHASED') {
         Alert.alert('Welcome to TadLock Pro', 'Your subscription is active.');
-      } else if (result === PAYWALL_RESULT.RESTORED) {
+      } else if (result === 'RESTORED') {
         Alert.alert('Purchases restored', 'Your TadLock Pro access has been restored.');
-      } else if (result === PAYWALL_RESULT.ERROR) {
+      } else if (result === 'ERROR') {
         Alert.alert('Paywall error', 'The paywall could not complete your request.');
       }
     } catch (error: any) {
@@ -608,10 +610,28 @@ export default function SettingsScreen() {
 
         {sectionTitle('COMMUNITY')}
         <View style={cardStyle}>
-          <Row theme={theme} icon="forum" iconBg={tones.neutral.bg} iconColor={tones.neutral.fg} title="Discord" subtitle="Join our community" value="Soon" />
-          <Row theme={theme} icon="photo-camera" iconBg={tones.primary.bg} iconColor={tones.primary.fg} title="Instagram" subtitle="Follow us for tips" value="Soon" />
+          <Row
+            theme={theme}
+            icon="forum"
+            iconNode={<AppBrandIcon appId="discord" appName="Discord" theme={theme} size={18} containerSize={40} borderRadius={10} />}
+            iconBg={tones.neutral.bg}
+            iconColor={tones.neutral.fg}
+            title="Discord"
+            subtitle="Join our community"
+            value="Soon"
+          />
+          <Row
+            theme={theme}
+            icon="photo-camera"
+            iconNode={<AppBrandIcon appId="instagram" appName="Instagram" theme={theme} size={18} containerSize={40} borderRadius={10} />}
+            iconBg={tones.primary.bg}
+            iconColor={tones.primary.fg}
+            title="Instagram"
+            subtitle="Follow us for tips"
+            value="Soon"
+          />
           <Row theme={theme} icon="bug-report" iconBg={tones.warning.bg} iconColor={tones.warning.fg} title="Report a bug" subtitle="Help us improve" value="Soon" />
-          <Row theme={theme} icon="lightbulb" iconBg={tones.success.bg} iconColor={tones.success.fg} title="Feature requests" subtitle="What should we build next?" value="Soon" />
+          <Row theme={theme} icon="auto-awesome" iconBg={tones.success.bg} iconColor={tones.success.fg} title="Feature requests" subtitle="What should we build next?" value="Soon" />
         </View>
 
         {sectionTitle('ACCOUNT')}

@@ -155,6 +155,11 @@ export async function deleteCurrentAccountRemote(): Promise<void> {
  * The session is persisted securely and auto-refreshed by the client.
  */
 export async function ensureAuth(options?: { allowAnonymousSignIn?: boolean }): Promise<string | null> {
+  if (!ENV.SUPABASE_URL || !ENV.SUPABASE_ANON_KEY) {
+    console.warn('[auth] Skipping auth bootstrap because Supabase env is missing in this build.');
+    return null;
+  }
+
   // First try: maybe we already have a persisted session
   const { data } = await supabase.auth.getSession();
   if (data.session?.access_token) return data.session.access_token;

@@ -9,13 +9,14 @@ import React, {
   type ReactNode,
 } from 'react';
 import { Platform } from 'react-native';
-import Purchases, {
-  type CustomerInfo,
-  type PurchasesOffering,
-  type PurchasesOfferings,
-  type PurchasesPackage,
+import type PurchasesDefault from 'react-native-purchases';
+import type {
+  CustomerInfo,
+  PurchasesOffering,
+  PurchasesOfferings,
+  PurchasesPackage,
 } from 'react-native-purchases';
-import RevenueCatUI, { PAYWALL_RESULT } from 'react-native-purchases-ui';
+import type RevenueCatUIDefault from 'react-native-purchases-ui';
 import { ENV } from '../config/env';
 import { useAuth } from './AuthContext';
 import {
@@ -25,10 +26,30 @@ import {
   hasTadLockProEntitlement,
   isPurchaseCancelledError,
   isRevenueCatEnabledForPlatform,
+  PAYWALL_RESULTS,
+  type PaywallResult,
   type RevenueCatPlan,
 } from '../services/revenueCat';
 
 const __DEV__ = process.env.NODE_ENV !== 'production';
+
+type PurchasesModule = typeof PurchasesDefault & {
+  default?: typeof PurchasesDefault;
+};
+
+type RevenueCatUIModule = {
+  default?: typeof RevenueCatUIDefault;
+};
+
+function getPurchases(): typeof PurchasesDefault {
+  const module = require('react-native-purchases') as PurchasesModule;
+  return (module.default ?? module) as typeof PurchasesDefault;
+}
+
+function getRevenueCatUI(): typeof RevenueCatUIDefault {
+  const module = require('react-native-purchases-ui') as RevenueCatUIModule;
+  return (module.default ?? module) as typeof RevenueCatUIDefault;
+}
 
 interface RevenueCatState {
   isSupported: boolean;
@@ -42,7 +63,7 @@ interface RevenueCatState {
   refreshCustomerInfo: () => Promise<CustomerInfo | null>;
   purchasePackage: (plan: RevenueCatPlan) => Promise<CustomerInfo | null>;
   restorePurchases: () => Promise<CustomerInfo | null>;
-  presentPaywall: () => Promise<PAYWALL_RESULT>;
+  presentPaywall: () => Promise<PaywallResult>;
   presentCustomerCenter: () => Promise<void>;
 }
 
@@ -58,7 +79,7 @@ const RevenueCatContext = createContext<RevenueCatState>({
   refreshCustomerInfo: async () => null,
   purchasePackage: async () => null,
   restorePurchases: async () => null,
-  presentPaywall: async () => PAYWALL_RESULT.NOT_PRESENTED,
+  presentPaywall: async () => PAYWALL_RESULTS.NOT_PRESENTED,
   presentCustomerCenter: async () => undefined,
 });
 
@@ -101,6 +122,7 @@ export function RevenueCatProvider({ children }: { children: ReactNode }) {
       return null;
     }
 
+    const Purchases = getPurchases();
     const [nextCustomerInfo, nextOfferings] = await Promise.all([
       Purchases.getCustomerInfo(),
       Purchases.getOfferings(),
@@ -112,6 +134,8 @@ export function RevenueCatProvider({ children }: { children: ReactNode }) {
   }, [clearState, isSignedInAccount, isSupported]);
 
   const configureForUser = useCallback(async (appUserId: string) => {
+    const Purchases = getPurchases();
+
     if (!configuredRef.current) {
       Purchases.configure({
         apiKey: ENV.REVENUECAT_APPLE_API_KEY,
@@ -137,6 +161,7 @@ export function RevenueCatProvider({ children }: { children: ReactNode }) {
       return undefined;
     }
 
+    const Purchases = getPurchases();
     const listener = (nextCustomerInfo: CustomerInfo) => {
       setCustomerInfo(nextCustomerInfo);
     };
@@ -161,6 +186,7 @@ export function RevenueCatProvider({ children }: { children: ReactNode }) {
         clearState();
         if (configuredRef.current) {
           try {
+            const Purchases = getPurchases();
             await Purchases.logOut();
           } catch {
             // Ignore logout cleanup failures; the UI remains account-gated.
@@ -199,6 +225,7 @@ export function RevenueCatProvider({ children }: { children: ReactNode }) {
   const purchasePackage = useCallback(async (plan: RevenueCatPlan) => {
     const appUserId = ensureEligibleUser();
     await configureForUser(appUserId);
+    const Purchases = getPurchases();
     const offering = currentOffering ?? getConfiguredOffering(await Purchases.getOfferings());
     const selectedPackage = findPackageForPlan(offering, plan);
     if (!selectedPackage) {
@@ -220,6 +247,7 @@ export function RevenueCatProvider({ children }: { children: ReactNode }) {
   const restorePurchases = useCallback(async () => {
     const appUserId = ensureEligibleUser();
     await configureForUser(appUserId);
+    const Purchases = getPurchases();
 
     try {
       const nextCustomerInfo = await Purchases.restorePurchases();
@@ -233,6 +261,8 @@ export function RevenueCatProvider({ children }: { children: ReactNode }) {
   const presentPaywall = useCallback(async () => {
     const appUserId = ensureEligibleUser();
     await configureForUser(appUserId);
+    const Purchases = getPurchases();
+    const RevenueCatUI = getRevenueCatUI();
 
     const selectedOffering = currentOffering ?? getConfiguredOffering(await Purchases.getOfferings());
     if (!selectedOffering) {
@@ -245,12 +275,17 @@ export function RevenueCatProvider({ children }: { children: ReactNode }) {
     });
 
     await refreshCustomerInfo().catch(() => null);
-    return result;
+    if (result === PAYWALL_RESULTS.PURCHASED) return PAYWALL_RESULTS.PURCHASED;
+    if (result === PAYWALL_RESULTS.RESTORED) return PAYWALL_RESULTS.RESTORED;
+    if (result === PAYWALL_RESULTS.CANCELLED) return PAYWALL_RESULTS.CANCELLED;
+    if (result === PAYWALL_RESULTS.ERROR) return PAYWALL_RESULTS.ERROR;
+    return PAYWALL_RESULTS.NOT_PRESENTED;
   }, [configureForUser, currentOffering, ensureEligibleUser, refreshCustomerInfo]);
 
   const presentCustomerCenter = useCallback(async () => {
     const appUserId = ensureEligibleUser();
     await configureForUser(appUserId);
+    const RevenueCatUI = getRevenueCatUI();
 
     try {
       await RevenueCatUI.presentCustomerCenter();

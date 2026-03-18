@@ -5,10 +5,17 @@ import type {
   PurchasesPackage,
   PurchasesError,
 } from 'react-native-purchases';
-import Purchases from 'react-native-purchases';
 import { ENV } from '../config/env';
 
 export type RevenueCatPlan = 'monthly' | 'yearly';
+export const PAYWALL_RESULTS = {
+  NOT_PRESENTED: 'NOT_PRESENTED',
+  ERROR: 'ERROR',
+  CANCELLED: 'CANCELLED',
+  PURCHASED: 'PURCHASED',
+  RESTORED: 'RESTORED',
+} as const;
+export type PaywallResult = (typeof PAYWALL_RESULTS)[keyof typeof PAYWALL_RESULTS];
 
 export function isRevenueCatEnabledForPlatform(platform: string): boolean {
   return platform === 'ios' && ENV.REVENUECAT_APPLE_API_KEY.trim().length > 0;
@@ -65,7 +72,7 @@ export function isPurchaseCancelledError(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false;
 
   const purchasesError = error as PurchasesError;
+  const code = String(purchasesError.code ?? '').toLowerCase();
   return purchasesError.userCancelled === true
-    || purchasesError.code === Purchases.PURCHASES_ERROR_CODE.PURCHASE_CANCELLED_ERROR;
+    || code.includes('cancel');
 }
-

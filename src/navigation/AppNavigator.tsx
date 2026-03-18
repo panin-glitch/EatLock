@@ -9,32 +9,38 @@ import { withAlpha } from '../theme/colorUtils';
 import { useAppState } from '../state/AppStateContext';
 import { triggerLightHaptic } from '../services/haptics';
 
-import StatsScreen from '../screens/StatsScreen';
-import BlockScreen from '../screens/BlockScreen';
-import SettingsScreen from '../screens/SettingsScreen';
-import EditScheduleScreen from '../screens/EditScheduleScreen';
-import MealInfoScreen from '../screens/MealInfoScreen';
-import SessionSummaryScreen from '../screens/SessionSummaryScreen';
-import PermissionsOnboardingScreen from '../screens/PermissionsOnboardingScreen';
-import BlockerScreen from '../screens/BlockerScreen';
-import NotificationHelpScreen from '../screens/NotificationHelpScreen';
-import LockSetupConfirmScreen from '../screens/LockSetupConfirmScreen';
-import MealSessionActiveScreen from '../screens/MealSessionActiveScreen';
-import AuthScreen from '../screens/auth/AuthScreen';
-import PlannerScreen from '../screens/PlannerScreen';
-import ProfileScreen from '../screens/Profile/ProfileScreen';
-import CalorieSettingScreen from '../screens/CalorieSettingScreen';
-import MacroBalanceSettingScreen from '../screens/MacroBalanceSettingScreen';
-import DietSelectionScreen from '../screens/DietSelectionScreen';
-import MealFrequencySettingScreen from '../screens/MealFrequencySettingScreen';
-import LanguageSelectionScreen from '../screens/LanguageSelectionScreen';
-import StreakDetailsScreen from '../screens/StreakDetailsScreen';
-import StreakAchievementScreen from '../screens/StreakAchievementScreen';
-import TadlockIntroScreen from '../screens/TadlockIntroScreen';
+function lazyScreen(loader: () => any) {
+  return function LazyLoadedScreen(props: any) {
+    const Screen = React.useMemo(() => loader(), []);
+    return <Screen {...props} />;
+  };
+}
 
-const HomeScreen = require('../screens/HomeScreen').default;
-const PreScanCameraScreen = require('../screens/PreScanCameraScreen').default;
-const PostScanCameraScreen = require('../screens/PostScanCameraScreen').default;
+const HomeScreen = lazyScreen(() => require('../screens/HomeScreen').default);
+const StatsScreen = lazyScreen(() => require('../screens/StatsScreen').default);
+const BlockScreen = lazyScreen(() => require('../screens/BlockScreen').default);
+const SettingsScreen = lazyScreen(() => require('../screens/SettingsScreen').default);
+const EditScheduleScreen = lazyScreen(() => require('../screens/EditScheduleScreen').default);
+const MealInfoScreen = lazyScreen(() => require('../screens/MealInfoScreen').default);
+const SessionSummaryScreen = lazyScreen(() => require('../screens/SessionSummaryScreen').default);
+const PermissionsOnboardingScreen = lazyScreen(() => require('../screens/PermissionsOnboardingScreen').default);
+const BlockerScreen = lazyScreen(() => require('../screens/BlockerScreen').default);
+const NotificationHelpScreen = lazyScreen(() => require('../screens/NotificationHelpScreen').default);
+const LockSetupConfirmScreen = lazyScreen(() => require('../screens/LockSetupConfirmScreen').default);
+const MealSessionActiveScreen = lazyScreen(() => require('../screens/MealSessionActiveScreen').default);
+const AuthScreen = lazyScreen(() => require('../screens/auth/AuthScreen').default);
+const PlannerScreen = lazyScreen(() => require('../screens/PlannerScreen').default);
+const ProfileScreen = lazyScreen(() => require('../screens/Profile/ProfileScreen').default);
+const CalorieSettingScreen = lazyScreen(() => require('../screens/CalorieSettingScreen').default);
+const MacroBalanceSettingScreen = lazyScreen(() => require('../screens/MacroBalanceSettingScreen').default);
+const DietSelectionScreen = lazyScreen(() => require('../screens/DietSelectionScreen').default);
+const MealFrequencySettingScreen = lazyScreen(() => require('../screens/MealFrequencySettingScreen').default);
+const LanguageSelectionScreen = lazyScreen(() => require('../screens/LanguageSelectionScreen').default);
+const StreakDetailsScreen = lazyScreen(() => require('../screens/StreakDetailsScreen').default);
+const StreakAchievementScreen = lazyScreen(() => require('../screens/StreakAchievementScreen').default);
+const TadlockIntroScreen = lazyScreen(() => require('../screens/TadlockIntroScreen').default);
+const PreScanCameraScreen = lazyScreen(() => require('../screens/PreScanCameraScreen').default);
+const PostScanCameraScreen = lazyScreen(() => require('../screens/PostScanCameraScreen').default);
 
 const Tab = createBottomTabNavigator();
 const RootStack = createNativeStackNavigator();

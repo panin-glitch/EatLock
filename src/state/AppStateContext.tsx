@@ -14,7 +14,6 @@ import type { FoodCheckResult, NutritionEstimate, SessionStatus } from '../servi
 import * as Storage from '../services/storage';
 import { blockingEngine } from '../services/blockingEngine';
 import { scheduleAllMealNotifications } from '../services/notifications';
-import { ensureAuth, isAutoAnonymousSignInEnabled } from '../services/authService';
 import { fetchRemoteCompletedSessions, logCompletedMeal, updateSessionDistraction } from '../services/mealLogger';
 import { supabase } from '../services/supabaseClient';
 
@@ -84,14 +83,6 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const loadAll = useCallback(async () => {
     setIsLoading(true);
     try {
-      const autoAnonEnabled = await isAutoAnonymousSignInEnabled();
-      if (autoAnonEnabled) {
-        try {
-          await ensureAuth({ allowAnonymousSignIn: true });
-        } catch (error) {
-          console.warn('[AppState] Anonymous bootstrapping failed:', error);
-        }
-      }
       const { data } = await supabase.auth.getSession();
       const currentUser = data.session?.user ?? null;
       const currentUserId = currentUser?.id ?? null;

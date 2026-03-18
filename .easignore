@@ -1,0 +1,105 @@
+# dependencies
+node_modules/
+
+# Expo
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# Native
+.kotlin/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# Metro
+.metro-health-check*
+
+# debug
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# macOS
+.DS_Store
+*.pem
+
+# local env files
+.env
+.env.*
+**/.env
+**/.env.*
+.env*.local
+!.env.example
+!.env
+secrets/
+**/secrets/
+*.local.json
+*.local.yaml
+*.local.yml
+
+# cloudflare worker local secrets
+backend/.dev.vars
+backend/.env
+backend/.env.*
+backend/.wrangler/
+
+# supabase CLI temp
+supabase/.temp/
+
+# typescript
+*.tsbuildinfo
+
+# generated native folders
+/ios
+/android
+
+# VCS and local tooling
+.git/
+.venv/
+.vscode/
+.adal/
+.agent/
+.agents/
+.augment/
+.claude/
+.codebuddy/
+.commandcode/
+.continue/
+.cortex/
+.crush/
+.factory/
+.goose/
+.iflow/
+.junie/
+.kilocode/
+.kiro/
+.kode/
+.mcpjam/
+.mux/
+.neovate/
+.openhands/
+.pi/
+.pochi/
+.qoder/
+.qwen/
+.roo/
+.trae/
+.vibe/
+.windsurf/
+.zencoder/
+
+# Non-app workspace content
+backend/
+docs/
+settings/
+skills/
+general skills/
+supabase/
+
+# Large unused asset
+assets/tadlock leaderboard.gif

@@ -12,7 +12,6 @@ import {
   Alert,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
-import { PAYWALL_RESULT } from 'react-native-purchases-ui';
 import { useNavigation } from '@react-navigation/native';
 import { useTheme } from '../../theme/ThemeProvider';
 import { useAuth } from '../../state/AuthContext';
@@ -174,9 +173,9 @@ export default function ProfileScreen() {
     setSubscriptionAction('paywall');
     try {
       const result = await presentPaywall();
-      if (result === PAYWALL_RESULT.PURCHASED) {
+      if (result === 'PURCHASED') {
         Alert.alert('Welcome to TadLock Pro', 'Your subscription is active.');
-      } else if (result === PAYWALL_RESULT.RESTORED) {
+      } else if (result === 'RESTORED') {
         Alert.alert('Purchases restored', 'Your TadLock Pro access has been restored.');
       }
     } catch (error: any) {

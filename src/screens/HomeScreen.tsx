@@ -24,20 +24,17 @@ import { HEADER_BOTTOM_PADDING, HEADER_HORIZONTAL_PADDING } from '../components/
 import { DEFAULT_DAILY_CALORIE_GOAL, DEFAULT_MACRO_SPLIT } from '../types/models';
 import { triggerLightHaptic } from '../services/haptics';
 
-const tadlockImg = require('../../assets/tadlock.gif');
+const tadlockArtwork = require('../../assets/appicon.png');
 const MIN_MEAL_MS = 5 * 60 * 1000;
 
 export default function HomeScreen() {
   const { theme, themeName } = useTheme();
   const insets = useSafeAreaInsets();
-  const { settings, activeSession, sessions, updateSettings, isLoading } = useAppState();
+  const { settings, activeSession, sessions } = useAppState();
   const { displayName, profile, refreshProfile } = useAuth();
   const navigation = useNavigation<any>();
   const dateStripRef = useRef<ScrollView>(null);
   const hasPositionedDateStrip = useRef(false);
-  const previousStreakRef = useRef<number | null>(null);
-  const firstAchievementTriggeredRef = useRef(false);
-
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [durationNowMs, setDurationNowMs] = useState(() => Date.now());
   const dateStripDates = useMemo(() => {
@@ -147,36 +144,6 @@ export default function HomeScreen() {
       refreshProfile();
     }, [refreshProfile]),
   );
-
-  useEffect(() => {
-    if (settings.streak?.firstAchievementShown) {
-      firstAchievementTriggeredRef.current = true;
-    }
-  }, [settings.streak?.firstAchievementShown]);
-
-  useEffect(() => {
-    if (isLoading) return;
-
-    const previousStreak = previousStreakRef.current;
-    if (previousStreak === null) {
-      previousStreakRef.current = streak;
-      return;
-    }
-
-    if (!firstAchievementTriggeredRef.current && previousStreak < 1 && streak >= 1) {
-      firstAchievementTriggeredRef.current = true;
-      updateSettings({
-        ...settings,
-        streak: {
-          ...(settings.streak ?? { firstAchievementShown: false }),
-          firstAchievementShown: true,
-        },
-      }).catch(() => {});
-      navigation.push('StreakAchievement', { days: 1 });
-    }
-
-    previousStreakRef.current = streak;
-  }, [isLoading, navigation, settings, streak, updateSettings]);
 
   const openMealInProgress = useCallback(() => {
     if (!activeSession) return;
@@ -419,7 +386,7 @@ function Gauge({
   return (
     <View style={styles.gaugeWrap}>
       <ImageBackground
-        source={tadlockImg}
+        source={tadlockArtwork}
         resizeMode="cover"
         style={[
           styles.gaugeInnerArtwork,
